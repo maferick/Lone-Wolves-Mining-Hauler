@@ -55,6 +55,24 @@ if (($config['app']['debug'] ?? false) === true) {
 // Set timezone
 date_default_timezone_set($config['app']['timezone'] ?? 'UTC');
 
+// Base path support (deploy under a subdirectory like /hauling)
+$basePath = (string)($config['app']['base_path'] ?? '');
+if ($basePath === '') {
+  // Derive from APP_BASE_URL if provided, else from SCRIPT_NAME.
+  $baseUrl = (string)($config['app']['base_url'] ?? '');
+  if ($baseUrl !== '') {
+    $p = parse_url($baseUrl, PHP_URL_PATH);
+    $basePath = is_string($p) ? rtrim($p, '/') : '';
+  } else {
+    $script = $_SERVER['SCRIPT_NAME'] ?? '';
+    // e.g. /hauling/public/index.php -> /hauling
+    $basePath = preg_replace('#/public/index\.php$#', '', $script);
+    $basePath = is_string($basePath) ? rtrim($basePath, '/') : '';
+  }
+}
+$config['app']['base_path'] = $basePath;
+
+
 // Session hardening
 $session = $config['security']['session'] ?? [];
 session_name($session['name'] ?? 'corp_hauling_session');

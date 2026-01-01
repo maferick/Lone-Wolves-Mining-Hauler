@@ -13,12 +13,11 @@ require_once __DIR__ . '/../src/bootstrap.php';
 use App\Services\EsiService;
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-
-switch ($path) {
-  case '/':
-    $env = $config['app']['env'];
-    $dbOk = $health['db'] ?? false;
-    $esiCacheEnabled = (bool)($config['esi']['cache']['enabled'] ?? true);
+$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+if ($basePath !== '' && str_starts_with($path, $basePath . '/')) {
+  $path = substr($path, strlen($basePath));
+}
+if ($basePath !== '' && $path === $basePath) { $path = '/'; }
     $appName = $config['app']['name'];
     $title = $appName . ' • Dashboard';
     require __DIR__ . '/../src/Views/home.php';

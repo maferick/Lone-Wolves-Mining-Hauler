@@ -22,3 +22,32 @@ Dark, modern 2026 UI skeleton + a strict include pattern:
   - ETag + `esi_cache`
   - Token refresh with `sso_token`
   - Corp contracts pull → `esi_corp_contract` tables
+
+
+## ESI contracts pull (CLI)
+1) Ensure `.env` has:
+- `EVE_CLIENT_ID`
+- `EVE_CLIENT_SECRET`
+- DB credentials
+2) Insert an `sso_token` record for a director character (owner_type=character, owner_id=<char_id>).
+3) Run:
+```bash
+php bin/pull_contracts.php <corp_id> <character_id>
+```
+
+The script will:
+- refresh token if needed (`sso_token`)
+- call ESI with ETag revalidation
+- upsert into `esi_corp_contract` and `esi_corp_contract_item`
+
+
+## Create database from .env
+If you have server-level credentials available (dev/staging), you can bootstrap the DB automatically:
+
+```bash
+cp env.example .env
+# edit .env (DB_* and optionally DB_ROOT_*)
+php createdb.php --import=../db
+```
+
+- `--import` can point to a directory containing `*.sql` or a single `.sql` file.
