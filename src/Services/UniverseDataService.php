@@ -286,9 +286,13 @@ final class UniverseDataService
       'source' => 'sde',
     ];
 
-    $regionFile = $this->sdePath('mapRegions.csv');
-    $constellationFile = $this->sdePath('mapConstellations.csv');
-    $systemFile = $this->sdePath('mapSolarSystems.csv');
+    $regionFile = $this->sdeFilePath('mapRegions');
+    $constellationFile = $this->sdeFilePath('mapConstellations');
+    $systemFile = $this->sdeFilePath('mapSolarSystems');
+
+    if ($regionFile === null || $constellationFile === null || $systemFile === null) {
+      throw new \RuntimeException('Missing required SDE universe files.');
+    }
 
     $results['regions_fetched'] = $this->importSdeRegions($regionFile);
     $results['constellations_fetched'] = $this->importSdeConstellations($constellationFile);
@@ -316,8 +320,11 @@ final class UniverseDataService
       }
     }
 
-    $systemFile = $this->sdePath('mapSolarSystems.csv');
-    $jumpFile = $this->sdePath('mapSolarSystemJumps.csv');
+    $systemFile = $this->sdeFilePath('mapSolarSystems');
+    $jumpFile = $this->sdeFilePath('mapSolarSystemJumps');
+    if ($systemFile === null || $jumpFile === null) {
+      throw new \RuntimeException('Missing required SDE graph files.');
+    }
 
     $this->importSdeMapSystems($systemFile);
     $results['map_system_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_system");
@@ -332,8 +339,8 @@ final class UniverseDataService
   {
     $count = 0;
     $batch = [];
-    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
-      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id', '_key']);
       $regionName = trim((string)$this->pickSdeValue($row, ['regionName', 'region_name']));
       if ($regionId <= 0 || $regionName === '') {
         return;
@@ -372,8 +379,8 @@ final class UniverseDataService
   {
     $count = 0;
     $batch = [];
-    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
-      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id', '_key']);
       $constellationName = trim((string)$this->pickSdeValue($row, ['constellationName', 'constellation_name']));
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
       if ($constellationId <= 0 || $regionId <= 0 || $constellationName === '') {
@@ -421,8 +428,8 @@ final class UniverseDataService
   {
     $count = 0;
     $batch = [];
-    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
-      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID']);
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID', '_key']);
       $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
       $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
@@ -474,8 +481,8 @@ final class UniverseDataService
   private function importSdeMapSystems(string $filePath): void
   {
     $batch = [];
-    $this->readSdeCsv($filePath, function (array $row) use (&$batch) {
-      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID']);
+    $this->readSdeRows($filePath, function (array $row) use (&$batch) {
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID', '_key']);
       $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
@@ -528,7 +535,7 @@ final class UniverseDataService
   {
     $count = 0;
     $batch = [];
-    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
       $fromId = (int)$this->pickSdeValue($row, ['fromSolarSystemID', 'from_system_id', 'fromSolarSystemId']);
       $toId = (int)$this->pickSdeValue($row, ['toSolarSystemID', 'to_system_id', 'toSolarSystemId']);
       if ($fromId <= 0 || $toId <= 0 || $fromId === $toId) {
@@ -576,23 +583,60 @@ final class UniverseDataService
     return $basePath === '' ? $fileName : $basePath . DIRECTORY_SEPARATOR . $fileName;
   }
 
+  private function sdeFilePath(string $baseName): ?string
+  {
+    foreach (["{$baseName}.jsonl", "{$baseName}.csv"] as $fileName) {
+      $path = $this->sdePath($fileName);
+      if ($path !== '' && is_file($path) && is_readable($path)) {
+        return $path;
+      }
+    }
+    return null;
+  }
+
   private function hasSdeUniverseFiles(): bool
   {
-    return $this->hasSdeFile('mapRegions.csv')
-      && $this->hasSdeFile('mapConstellations.csv')
-      && $this->hasSdeFile('mapSolarSystems.csv');
+    return $this->sdeFilePath('mapRegions') !== null
+      && $this->sdeFilePath('mapConstellations') !== null
+      && $this->sdeFilePath('mapSolarSystems') !== null;
   }
 
   private function hasSdeGraphFiles(): bool
   {
-    return $this->hasSdeFile('mapSolarSystems.csv')
-      && $this->hasSdeFile('mapSolarSystemJumps.csv');
+    return $this->sdeFilePath('mapSolarSystems') !== null
+      && $this->sdeFilePath('mapSolarSystemJumps') !== null;
   }
 
-  private function hasSdeFile(string $fileName): bool
+  private function readSdeRows(string $filePath, callable $handler): void
   {
-    $path = $this->sdePath($fileName);
-    return $path !== '' && is_file($path) && is_readable($path);
+    $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+    if ($ext === 'jsonl') {
+      $this->readSdeJsonl($filePath, $handler);
+      return;
+    }
+    $this->readSdeCsv($filePath, $handler);
+  }
+
+  private function readSdeJsonl(string $filePath, callable $handler): void
+  {
+    $handle = fopen($filePath, 'rb');
+    if ($handle === false) {
+      throw new \RuntimeException("Failed to open SDE file: {$filePath}");
+    }
+
+    while (($line = fgets($handle)) !== false) {
+      $line = trim($line);
+      if ($line === '') {
+        continue;
+      }
+      $decoded = Db::jsonDecode($line, null);
+      if (!is_array($decoded)) {
+        continue;
+      }
+      $handler($this->normalizeSdeRow($decoded));
+    }
+
+    fclose($handle);
   }
 
   private function readSdeCsv(string $filePath, callable $handler): void
@@ -627,6 +671,21 @@ final class UniverseDataService
     }
 
     fclose($handle);
+  }
+
+  private function normalizeSdeRow(array $row): array
+  {
+    if (!array_key_exists('_value', $row)) {
+      return $row;
+    }
+    $value = $row['_value'];
+    if (is_array($value)) {
+      if (array_key_exists('_key', $row) && !array_key_exists('_key', $value)) {
+        $value['_key'] = $row['_key'];
+      }
+      return $value;
+    }
+    return ['_key' => $row['_key'] ?? null, '_value' => $value];
   }
 
   private function pickSdeValue(array $row, array $keys, $default = null)
