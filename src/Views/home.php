@@ -80,9 +80,10 @@ ob_start();
               '950000' => '950,000 m³',
             ];
             foreach ($volumes as $value => $label):
+              $value = (string)$value;
               $selected = $quoteInput['volume'] === $value ? 'selected' : '';
             ?>
-              <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selected ?>><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
+              <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selected ?>><?= htmlspecialchars((string)$label, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
           </select>
         </label>
