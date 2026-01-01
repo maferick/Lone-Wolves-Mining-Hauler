@@ -37,6 +37,7 @@ final class CronSyncService
       'ttl_tokens' => 300,
       'ttl_contracts' => 300,
       'ttl_structures' => 900,
+      'ttl_public_structures' => 86400,
       'on_progress' => null,
     ], $options);
 
@@ -53,6 +54,7 @@ final class CronSyncService
     if ($runCorp) {
       $steps[] = ['key' => 'token_refresh', 'label' => 'Token refresh'];
       $steps[] = ['key' => 'structures', 'label' => 'Structures'];
+      $steps[] = ['key' => 'public_structures', 'label' => 'Public structures'];
       $steps[] = ['key' => 'contracts', 'label' => 'Contracts'];
     }
     $totalSteps = count($steps);
@@ -150,6 +152,29 @@ final class CronSyncService
       $results['structures_error'] = $e->getMessage();
     }
 
+    $publicStructuresEmpty = $this->isPublicStructuresEmpty();
+    if ($runCorp) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Public structures',
+        'stage' => 'public_structures',
+      ]);
+    }
+    try {
+      if (!$runCorp) {
+        $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty, 'scope');
+      } elseif ($this->shouldRun($stats, 'public_structures', (int)$options['ttl_public_structures'], $force, $publicStructuresEmpty)) {
+        $results['public_structures'] = $this->universe->syncPublicStructures($corpId, $characterId, (int)$options['ttl_public_structures']);
+        $stats['public_structures'] = gmdate('c');
+      } else {
+        $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty);
+      }
+    } catch (\Throwable $e) {
+      $results['public_structures_error'] = $e->getMessage();
+    }
+
     $contractsEmpty = $this->isContractsEmpty($corpId);
     if ($runCorp) {
       $currentStep++;
@@ -244,7 +269,8 @@ final class CronSyncService
     $regionCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_region");
     $constellationCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_constellation");
     $systemCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_system");
-    return $regionCount === 0 || $constellationCount === 0 || $systemCount === 0;
+    $stationCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_station");
+    return $regionCount === 0 || $constellationCount === 0 || $systemCount === 0 || $stationCount === 0;
   }
 
   private function isStargateGraphEmpty(): bool
@@ -268,6 +294,14 @@ final class CronSyncService
     $count = (int)$this->db->fetchValue(
       "SELECT COUNT(*) FROM esi_corp_contract WHERE corp_id = :cid",
       ['cid' => $corpId]
+    );
+    return $count === 0;
+  }
+
+  private function isPublicStructuresEmpty(): bool
+  {
+    $count = (int)$this->db->fetchValue(
+      "SELECT COUNT(*) FROM eve_structure WHERE is_public = 1"
     );
     return $count === 0;
   }
