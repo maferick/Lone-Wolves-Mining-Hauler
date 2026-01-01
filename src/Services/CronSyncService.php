@@ -37,12 +37,33 @@ final class CronSyncService
       'ttl_tokens' => 300,
       'ttl_contracts' => 300,
       'ttl_structures' => 900,
+      'on_progress' => null,
     ], $options);
 
     $force = (bool)$options['force'];
     $scope = (string)$options['scope'];
     $runUniverse = in_array($scope, ['all', 'universe'], true);
     $runCorp = $scope === 'all';
+    $progressCb = is_callable($options['on_progress'] ?? null) ? $options['on_progress'] : null;
+    $steps = [];
+    if ($runUniverse) {
+      $steps[] = ['key' => 'universe', 'label' => 'Universe data'];
+      $steps[] = ['key' => 'stargate_graph', 'label' => 'Stargate graph'];
+    }
+    if ($runCorp) {
+      $steps[] = ['key' => 'token_refresh', 'label' => 'Token refresh'];
+      $steps[] = ['key' => 'structures', 'label' => 'Structures'];
+      $steps[] = ['key' => 'contracts', 'label' => 'Contracts'];
+    }
+    $totalSteps = count($steps);
+    $currentStep = 0;
+    $this->reportProgress($progressCb, [
+      'current' => 0,
+      'total' => $totalSteps,
+      'label' => 'Starting sync',
+      'stage' => 'start',
+      'scope' => $scope,
+    ]);
     $stats = $this->loadStats($corpId);
     $results = [
       'force' => $force,
@@ -51,6 +72,15 @@ final class CronSyncService
     ];
 
     $universeEmpty = $this->isUniverseEmpty();
+    if ($runUniverse) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Universe data',
+        'stage' => 'universe',
+      ]);
+    }
     if (!$runUniverse) {
       $results['universe'] = $this->skipPayload($stats, 'universe', $universeEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)) {
@@ -61,6 +91,15 @@ final class CronSyncService
     }
 
     $graphEmpty = $this->isStargateGraphEmpty();
+    if ($runUniverse) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Stargate graph',
+        'stage' => 'stargate_graph',
+      ]);
+    }
     if (!$runUniverse) {
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)) {
@@ -70,6 +109,15 @@ final class CronSyncService
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty);
     }
 
+    if ($runCorp) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Token refresh',
+        'stage' => 'token_refresh',
+      ]);
+    }
     if (!$runCorp) {
       $results['token_refresh'] = $this->skipPayload($stats, 'token_refresh', false, 'scope');
     } elseif ($this->shouldRun($stats, 'token_refresh', (int)$options['ttl_tokens'], $force, false)) {
@@ -80,6 +128,15 @@ final class CronSyncService
     }
 
     $structuresEmpty = $this->isStructuresEmpty($corpId);
+    if ($runCorp) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Structures',
+        'stage' => 'structures',
+      ]);
+    }
     try {
       if (!$runCorp) {
         $results['structures'] = $this->skipPayload($stats, 'structures', $structuresEmpty, 'scope');
@@ -94,6 +151,15 @@ final class CronSyncService
     }
 
     $contractsEmpty = $this->isContractsEmpty($corpId);
+    if ($runCorp) {
+      $currentStep++;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => 'Contracts',
+        'stage' => 'contracts',
+      ]);
+    }
     if (!$runCorp) {
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
@@ -106,6 +172,12 @@ final class CronSyncService
     $this->persistStats($corpId, $stats);
 
     $results['finished_at'] = gmdate('c');
+    $this->reportProgress($progressCb, [
+      'current' => $totalSteps,
+      'total' => $totalSteps,
+      'label' => 'Sync complete',
+      'stage' => 'completed',
+    ]);
     return $results;
   }
 
@@ -198,5 +270,12 @@ final class CronSyncService
       ['cid' => $corpId]
     );
     return $count === 0;
+  }
+
+  private function reportProgress(?callable $callback, array $payload): void
+  {
+    if ($callback) {
+      $callback($payload);
+    }
   }
 }
