@@ -53,6 +53,11 @@ final class RouteService
 
     $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf);
     if ($result['found'] === false) {
+      $dnfWithoutHard = $this->withoutHardRules($dnf);
+      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard);
+      if ($fallbackResult['found'] === true) {
+        throw new \RuntimeException('Route blocked by DNF rules.');
+      }
       throw new \RuntimeException('No viable route found.');
     }
 
@@ -288,6 +293,17 @@ final class RouteService
       'soft' => $soft,
       'hard' => $hard,
     ];
+  }
+
+  private function withoutHardRules(array $dnf): array
+  {
+    $dnf['hard'] = [
+      'system' => [],
+      'constellation' => [],
+      'region' => [],
+      'edge' => [],
+    ];
+    return $dnf;
   }
 
   private function isSystemHardBlocked(int $systemId, array $systems, array $dnf): bool
