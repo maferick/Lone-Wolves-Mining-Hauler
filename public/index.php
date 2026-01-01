@@ -388,7 +388,7 @@ switch ($path) {
           $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
 
           $dnfNotes = [];
-          $softRules = $route['used_soft_dnf'] ?? [];
+          $softRules = $route['used_soft_dnf_rules'] ?? [];
           if (is_array($softRules)) {
             foreach ($softRules as $rule) {
               if (!empty($rule['reason'])) {

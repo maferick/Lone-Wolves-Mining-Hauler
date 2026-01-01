@@ -25,6 +25,7 @@ final class RouteService
     'systems' => [],
     'adjacency' => [],
     'name_to_id' => [],
+    'health' => [],
   ];
 
   public function __construct(Db $db, array $config = [])
@@ -37,18 +38,36 @@ final class RouteService
   public function findRoute(string $fromSystemName, string $toSystemName, string $profile = 'shortest'): array
   {
     $graph = $this->loadGraph();
-    $fromId = $this->resolveSystemId($fromSystemName, $graph);
-    $toId = $this->resolveSystemId($toSystemName, $graph);
+    $graphHealth = $graph['health'] ?? [];
+    if (empty($graphHealth['ready'])) {
+      $reason = $graphHealth['reason'] ?? 'graph_not_ready';
+      throw new RouteException('Graph is not ready for routing.', [
+        'reason' => $reason,
+        'graph' => $graphHealth,
+      ]);
+    }
 
-    if ($fromId === 0 || $toId === 0) {
-      throw new \RuntimeException('Unknown system name.');
+    $fromId = $this->resolveSystemIdByName($fromSystemName);
+    $toId = $this->resolveSystemIdByName($toSystemName);
+
+    if (!isset($graph['systems'][$fromId]) || !isset($graph['systems'][$toId])) {
+      throw new RouteException('Graph missing system nodes.', [
+        'reason' => 'graph_missing_system',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+      ]);
     }
 
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();
+    $dnfCounts = $this->countDnfRules($dnf);
 
     if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf) || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf)) {
-      throw new \RuntimeException('Route blocked by DNF rules.');
+      throw new RouteException('Pickup or destination blocked by DNF rules.', [
+        'reason' => 'pickup_destination_blocked',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
     }
 
     $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf);
@@ -56,9 +75,19 @@ final class RouteService
       $dnfWithoutHard = $this->withoutHardRules($dnf);
       $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard);
       if ($fallbackResult['found'] === true) {
-        throw new \RuntimeException('Route blocked by DNF rules.');
+        throw new RouteException('Route blocked by DNF rules.', [
+          'reason' => 'blocked_by_dnf',
+          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+          'blocked_count_hard' => $dnfCounts['hard'],
+          'blocked_count_soft' => $dnfCounts['soft'],
+        ]);
       }
-      throw new \RuntimeException('No viable route found.');
+      throw new RouteException('No viable route found.', [
+        'reason' => 'no_viable_route',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
     }
 
     $pathIds = $this->buildPath($fromId, $toId, $result['prev']);
@@ -77,6 +106,7 @@ final class RouteService
 
     $counts = $this->countSecurityComposition($pathIds, $graph['systems']);
     $usedSoft = $this->collectSoftRules($pathIds, $graph['systems'], $dnf);
+    $usedSoftFlag = !empty($usedSoft);
 
     return [
       'path' => $path,
@@ -84,7 +114,10 @@ final class RouteService
       'hs_count' => $counts['high'],
       'ls_count' => $counts['low'],
       'ns_count' => $counts['null'],
-      'used_soft_dnf' => array_values($usedSoft),
+      'used_soft_dnf' => $usedSoftFlag,
+      'used_soft_dnf_rules' => array_values($usedSoft),
+      'blocked_count_hard' => $dnfCounts['hard'],
+      'blocked_count_soft' => $dnfCounts['soft'],
       'profile' => $profile,
     ];
   }
@@ -98,10 +131,12 @@ final class RouteService
 
     $systems = [];
     $nameToId = [];
+    $graphSource = 'map_system';
     $rows = $this->db->select(
       "SELECT system_id, system_name, security, region_id, constellation_id FROM map_system"
     );
     if (empty($rows)) {
+      $graphSource = 'eve_system';
       $rows = $this->db->select(
         "SELECT s.system_id,
                 s.system_name,
@@ -138,24 +173,126 @@ final class RouteService
       $adjacency[$to][$from] = true;
     }
 
+    $health = $this->buildGraphHealth($systems, $adjacency, count($edges), $graphSource);
+
     self::$graphCache = [
       'loaded_at' => $now,
       'systems' => $systems,
       'adjacency' => $adjacency,
       'name_to_id' => $nameToId,
+      'health' => $health,
     ];
 
     return self::$graphCache;
   }
 
-  private function resolveSystemId(string $systemName, array $graph): int
+  public function resolveSystemIdByName(string $systemName): int
   {
-    $key = strtolower(trim($systemName));
-    if ($key === '') {
-      return 0;
+    $normalized = $this->normalizeSystemName($systemName);
+    if ($normalized === '') {
+      throw new RouteException('System name is required.', [
+        'reason' => 'invalid_system_name',
+      ]);
     }
 
-    return (int)($graph['name_to_id'][$key] ?? 0);
+    $exactMatches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM map_system
+        WHERE LOWER(system_name) = :name
+        LIMIT 2",
+      ['name' => $normalized]
+    );
+    if (count($exactMatches) > 1) {
+      throw new RouteException('System name is ambiguous.', [
+        'reason' => 'ambiguous_system_name',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
+      ]);
+    }
+    if (count($exactMatches) === 1) {
+      return (int)$exactMatches[0]['system_id'];
+    }
+
+    $matches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM map_system
+        WHERE LOWER(system_name) LIKE :like
+        ORDER BY system_name
+        LIMIT 10",
+      ['like' => '%' . $normalized . '%']
+    );
+    if (count($matches) > 1) {
+      throw new RouteException('System name is ambiguous.', [
+        'reason' => 'ambiguous_system_name',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
+      ]);
+    }
+    if (count($matches) === 1) {
+      return (int)$matches[0]['system_id'];
+    }
+
+    $exactMatches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM eve_system
+        WHERE LOWER(system_name) = :name
+        LIMIT 2",
+      ['name' => $normalized]
+    );
+    if (count($exactMatches) > 1) {
+      throw new RouteException('System name is ambiguous.', [
+        'reason' => 'ambiguous_system_name',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
+      ]);
+    }
+    if (count($exactMatches) === 1) {
+      return (int)$exactMatches[0]['system_id'];
+    }
+
+    $matches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM eve_system
+        WHERE LOWER(system_name) LIKE :like
+        ORDER BY system_name
+        LIMIT 10",
+      ['like' => '%' . $normalized . '%']
+    );
+    if (count($matches) > 1) {
+      throw new RouteException('System name is ambiguous.', [
+        'reason' => 'ambiguous_system_name',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
+      ]);
+    }
+    if (count($matches) === 1) {
+      return (int)$matches[0]['system_id'];
+    }
+
+    throw new RouteException('Unknown system name.', [
+      'reason' => 'unknown_system_name',
+    ]);
+  }
+
+  public function getGraphStatus(): array
+  {
+    $graph = $this->loadGraph();
+    return $graph['health'] ?? [];
+  }
+
+  public function getNodeDegree(int $systemId): int
+  {
+    $graph = $this->loadGraph();
+    if (!isset($graph['adjacency'][$systemId])) {
+      return 0;
+    }
+    return count($graph['adjacency'][$systemId]);
+  }
+
+  private function normalizeSystemName(string $name): string
+  {
+    $normalized = trim($name);
+    if ($normalized === '') {
+      return '';
+    }
+    $normalized = preg_replace('/\s+/', ' ', $normalized);
+    return strtolower((string)$normalized);
   }
 
   private function normalizeProfile(string $profile): string
@@ -330,6 +467,17 @@ final class RouteService
     return isset($dnf['hard']['edge'][$key]);
   }
 
+  private function countDnfRules(array $dnf): array
+  {
+    $hard = 0;
+    $soft = 0;
+    foreach (['system', 'constellation', 'region', 'edge'] as $scope) {
+      $hard += count($dnf['hard'][$scope] ?? []);
+      $soft += count($dnf['soft'][$scope] ?? []);
+    }
+    return ['hard' => $hard, 'soft' => $soft];
+  }
+
   private function securityPenalty(int $systemId, array $systems, string $profile): float
   {
     $system = $systems[$systemId] ?? null;
@@ -444,5 +592,72 @@ final class RouteService
     $a = min($fromId, $toId);
     $b = max($fromId, $toId);
     return $a . ':' . $b;
+  }
+
+  private function buildGraphHealth(array $systems, array $adjacency, int $edgeCount, string $graphSource): array
+  {
+    $nodeCount = count($systems);
+    $health = [
+      'node_count' => $nodeCount,
+      'edge_count' => $edgeCount,
+      'graph_source' => $graphSource,
+      'graph_loaded' => $nodeCount > 0 && $edgeCount > 0,
+      'ready' => false,
+      'reason' => null,
+      'warnings' => [],
+      'errors' => [],
+      'checked_systems' => [],
+    ];
+
+    if ($nodeCount === 0 || $edgeCount === 0) {
+      $health['reason'] = 'graph_empty';
+      $health['errors'][] = 'Graph tables are empty.';
+      return $health;
+    }
+
+    $nodeCountTooSmall = false;
+    if ($nodeCount < 1000) {
+      $health['errors'][] = 'Graph node count below expected minimum.';
+      $nodeCountTooSmall = true;
+    }
+
+    $criticalNames = ['Eldjaerin', 'Jita'];
+    foreach ($criticalNames as $name) {
+      $row = $this->db->one(
+        "SELECT system_id, system_name
+           FROM map_system
+          WHERE LOWER(system_name) = LOWER(:name)
+          LIMIT 1",
+        ['name' => $name]
+      );
+      if ($row === null) {
+        $health['warnings'][] = sprintf('System %s not found in map_system.', $name);
+        $health['checked_systems'][$name] = [
+          'system_id' => null,
+          'degree' => 0,
+          'present' => false,
+        ];
+        continue;
+      }
+
+      $systemId = (int)$row['system_id'];
+      $degree = isset($adjacency[$systemId]) ? count($adjacency[$systemId]) : 0;
+      $health['checked_systems'][$name] = [
+        'system_id' => $systemId,
+        'degree' => $degree,
+        'present' => true,
+      ];
+      if ($degree === 0) {
+        $health['errors'][] = sprintf('Graph missing edges for system %s.', $name);
+      }
+    }
+
+    if (!empty($health['errors'])) {
+      $health['reason'] = $nodeCountTooSmall ? 'graph_too_small' : 'graph_missing_edges';
+      return $health;
+    }
+
+    $health['ready'] = true;
+    return $health;
   }
 }

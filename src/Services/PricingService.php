@@ -71,7 +71,7 @@ final class PricingService
     $baseJumpCost = $jumps * $ratePerJump;
     $lowPenalty = $ls * $ratePerJump * self::SECURITY_MULTIPLIERS['low'];
     $nullPenalty = $ns * $ratePerJump * self::SECURITY_MULTIPLIERS['null'];
-    $softPenalty = $this->softDnfPenalty($route['used_soft_dnf'] ?? [], $ratePerJump);
+    $softPenalty = $this->softDnfPenalty($route['used_soft_dnf_rules'] ?? [], $ratePerJump);
     $jumpSubtotal = $baseJumpCost + $lowPenalty + $nullPenalty + $softPenalty['total'];
     $collateralFee = $collateral * $collateralRate;
     $priceTotal = max($minPrice, $jumpSubtotal + $collateralFee);
@@ -142,14 +142,15 @@ final class PricingService
       return null;
     }
 
+    $systemId = $this->routeService->resolveSystemIdByName($name);
     $row = $this->db->one(
-      "SELECT system_id, system_name FROM map_system WHERE LOWER(system_name) = LOWER(:name) LIMIT 1",
-      ['name' => $name]
+      "SELECT system_id, system_name FROM map_system WHERE system_id = :id LIMIT 1",
+      ['id' => $systemId]
     );
     if ($row === null) {
       $row = $this->db->one(
-        "SELECT system_id, system_name FROM eve_system WHERE LOWER(system_name) = LOWER(:name) LIMIT 1",
-        ['name' => $name]
+        "SELECT system_id, system_name FROM eve_system WHERE system_id = :id LIMIT 1",
+        ['id' => $systemId]
       );
     }
 
