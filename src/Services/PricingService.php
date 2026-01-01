@@ -146,6 +146,12 @@ final class PricingService
       "SELECT system_id, system_name FROM map_system WHERE LOWER(system_name) = LOWER(:name) LIMIT 1",
       ['name' => $name]
     );
+    if ($row === null) {
+      $row = $this->db->one(
+        "SELECT system_id, system_name FROM eve_system WHERE LOWER(system_name) = LOWER(:name) LIMIT 1",
+        ['name' => $name]
+      );
+    }
 
     if ($row === null) {
       return null;
