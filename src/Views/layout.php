@@ -46,22 +46,22 @@ $body = $body ?? '';
       </div>
 
       <nav class="nav">
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
-        <?php if ($isLoggedIn): ?>
-          <?php if ($canAdmin): ?>
-            <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
-          <?php endif; ?>
-          <a class="nav-link" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
-        <?php else: ?>
-          <a class="nav-link" href="<?= ($basePath ?: '') ?>/login/">Login</a>
-        <?php endif; ?>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/health/">Health</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/docs/">Docs</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Home</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/#quote">Quote</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>
       </nav>
 
       <div class="topbar-actions">
         <?php if ($isLoggedIn): ?>
           <span class="topbar-user">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
+          <?php if ($canAdmin): ?>
+            <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+          <?php endif; ?>
+          <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
+        <?php else: ?>
+          <a class="btn ghost" href="<?= ($basePath ?: '') ?>/login/">Login</a>
         <?php endif; ?>
         <span class="pill">2026</span>
         <span class="pill subtle">Dark Ops</span>
