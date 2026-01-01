@@ -325,7 +325,7 @@ ob_start();
       submitBtn.disabled = true;
       submitBtn.textContent = 'Quoting...';
       try {
-        const resp = await fetch(`${basePath}/api/quote`, {
+        const resp = await fetch(`${basePath}/api/quote/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -364,7 +364,7 @@ ob_start();
       requestStatus.textContent = 'Creating request...';
       requestStatus.style.display = 'inline';
       try {
-        const resp = await fetch(`${basePath}/api/requests/create`, {
+        const resp = await fetch(`${basePath}/api/requests/create/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
