@@ -1,8 +1,11 @@
 <?php
 declare(strict_types=1);
 
+use App\Auth\Auth;
+
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $me = $authCtx['display_name'] ?? 'User';
+$canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
 ?>
 <div class="adminbar">
   <div class="adminbar-left">
@@ -14,6 +17,9 @@ $me = $authCtx['display_name'] ?? 'User';
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/esi/">ESI</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/cron/">Cron</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Webhooks</a>
+    <?php if ($canRights): ?>
+      <a class="nav-link" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
+    <?php endif; ?>
   </div>
   <div class="adminbar-right">
     <span class="pill subtle"><?= htmlspecialchars($me, ENT_QUOTES, 'UTF-8') ?></span>

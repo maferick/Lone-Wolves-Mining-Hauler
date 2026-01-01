@@ -57,9 +57,6 @@ $body = $body ?? '';
       <div class="topbar-actions">
         <?php if ($isLoggedIn): ?>
           <span class="topbar-user">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
-          <?php if ($canRights): ?>
-            <a class="btn rights" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
-          <?php endif; ?>
           <?php if ($canAdmin): ?>
             <a class="btn admin" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
           <?php endif; ?>
