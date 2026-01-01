@@ -168,15 +168,9 @@ switch ($path) {
     $defaultPriority = strtolower(trim($defaultPriority)) === 'high' ? 'high' : 'normal';
 
     if ($dbOk && $db !== null) {
-      $systemRows = $db->select("SELECT system_name FROM eve_system ORDER BY system_name");
-      $systemOptions = [];
-      foreach ($systemRows as $row) {
-        $name = trim((string)($row['system_name'] ?? ''));
-        if ($name === '') continue;
-        $systemOptions[] = ['name' => $name, 'label' => 'System'];
-      }
-
       $accessRules = [
+        'systems' => [],
+        'regions' => [],
         'structures' => [],
       ];
       $corpIdForAccess = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
@@ -191,6 +185,48 @@ switch ($path) {
             $accessRules = array_replace_recursive($accessRules, $decoded);
           }
         }
+      }
+
+      $systemRows = $db->select("SELECT system_id, system_name, region_id FROM map_system ORDER BY system_name");
+      if (!$systemRows) {
+        $systemRows = $db->select(
+          "SELECT s.system_id, s.system_name, c.region_id
+             FROM eve_system s
+             JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+            ORDER BY s.system_name"
+        );
+      }
+
+      $allowedSystemIds = [];
+      foreach ($accessRules['systems'] ?? [] as $rule) {
+        if (!empty($rule['allowed'])) {
+          $allowedSystemIds[] = (int)($rule['id'] ?? 0);
+        }
+      }
+      $allowedRegionIds = [];
+      foreach ($accessRules['regions'] ?? [] as $rule) {
+        if (!empty($rule['allowed'])) {
+          $allowedRegionIds[] = (int)($rule['id'] ?? 0);
+        }
+      }
+      $allowedSystemIds = array_values(array_filter($allowedSystemIds));
+      $allowedRegionIds = array_values(array_filter($allowedRegionIds));
+      $hasAccessAllowlist = !empty($allowedSystemIds) || !empty($allowedRegionIds);
+
+      $systemOptions = [];
+      foreach ($systemRows as $row) {
+        $systemId = (int)($row['system_id'] ?? 0);
+        $name = trim((string)($row['system_name'] ?? ''));
+        if ($name === '') continue;
+        if ($hasAccessAllowlist) {
+          $regionId = (int)($row['region_id'] ?? 0);
+          $allowed = in_array($systemId, $allowedSystemIds, true)
+            || in_array($regionId, $allowedRegionIds, true);
+          if (!$allowed) {
+            continue;
+          }
+        }
+        $systemOptions[] = ['name' => $name, 'label' => 'System'];
       }
 
       $structureRules = $accessRules['structures'] ?? [];

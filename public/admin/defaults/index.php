@@ -21,11 +21,6 @@ $msg = null;
 $errors = [];
 
 $defaults = [
-  'routing.defaults' => [
-    'route_policy' => 'balanced',
-    'avoid_low' => true,
-    'avoid_null' => true,
-  ],
   'access.rules' => [
     'systems' => [],
     'regions' => [],
@@ -40,7 +35,7 @@ $defaults = [
 
 $settingRows = $db->select(
   "SELECT setting_key, setting_json FROM app_setting
-    WHERE corp_id = :cid AND setting_key IN ('routing.defaults','access.rules','discord.templates')",
+    WHERE corp_id = :cid AND setting_key IN ('access.rules','discord.templates')",
   ['cid' => $corpId]
 );
 
@@ -73,15 +68,6 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $routePolicy = (string)($_POST['routing_policy'] ?? 'balanced');
-  $allowedPolicies = ['balanced' => 'Balanced'];
-  if (!array_key_exists($routePolicy, $allowedPolicies)) {
-    $routePolicy = 'balanced';
-  }
-
-  $avoidLow = isset($_POST['routing_avoid_low']);
-  $avoidNull = isset($_POST['routing_avoid_null']);
-
   $requestPostEnabled = isset($_POST['discord_request_post_enabled']);
 
   $systemNameToId = [];
@@ -203,11 +189,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   if ($errors === []) {
     $updates = [
-      'routing.defaults' => [
-        'route_policy' => $routePolicy,
-        'avoid_low' => $avoidLow,
-        'avoid_null' => $avoidNull,
-      ],
       'access.rules' => $accessRules,
       'discord.templates' => [
         'request_post' => [
@@ -280,42 +261,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php endif; ?>
 
     <form method="post">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">
-          <h3>Routing Defaults</h3>
-          <p class="muted">Route policy and hazard avoidance.</p>
-        </div>
-        <div class="content">
-          <div class="row">
-            <div>
-              <div class="label">Route policy</div>
-              <select class="input" name="routing_policy">
-                <?php
-                $selectedPolicy = (string)($settings['routing.defaults']['route_policy'] ?? 'balanced');
-                $policyOptions = ['balanced' => 'Balanced'];
-                foreach ($policyOptions as $value => $label):
-                ?>
-                  <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selectedPolicy === $value ? 'selected' : '' ?>>
-                    <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
-            </div>
-            <div>
-              <div class="label">Avoidance</div>
-              <label class="checkbox">
-                <input type="checkbox" name="routing_avoid_low" <?= !empty($settings['routing.defaults']['avoid_low']) ? 'checked' : '' ?> />
-                Avoid low-sec
-              </label>
-              <label class="checkbox" style="margin-top:8px;">
-                <input type="checkbox" name="routing_avoid_null" <?= !empty($settings['routing.defaults']['avoid_null']) ? 'checked' : '' ?> />
-                Avoid null-sec
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
           <h3>Access Rules</h3>
