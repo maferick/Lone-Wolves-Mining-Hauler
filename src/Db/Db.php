@@ -14,15 +14,23 @@ final class Db {
     $dbCfg = $config['db'] ?? [];
     $host = (string)($dbCfg['host'] ?? '127.0.0.1');
     $port = (int)($dbCfg['port'] ?? 3306);
-    $name = (string)($dbCfg['name'] ?? '');
-    $user = (string)($dbCfg['user'] ?? '');
-    $pass = (string)($dbCfg['pass'] ?? '');
+    $name = (string)($dbCfg['name'] ?? (getenv('DB_NAME') ?: ''));
+    $user = (string)($dbCfg['user'] ?? (getenv('DB_USER') ?: ''));
+    $pass = (string)($dbCfg['pass'] ?? (getenv('DB_PASS') ?: ''));
+
     if ($name === '' || $user === '') {
-      // fallback to getenv for deployments where config array is minimal
-      $name = $name ?: (string)(getenv('DB_NAME') ?: '');
-      $user = $user ?: (string)(getenv('DB_USER') ?: '');
-      $pass = $pass ?: (string)(getenv('DB_PASS') ?: '');
+      throw new \RuntimeException('DB config missing name/user.');
     }
+
+    $dsn = 'mysql:host=' . $host . ';port=' . $port . ';dbname=' . $name . ';charset=utf8mb4';
+    $pdo = new \PDO($dsn, $user, $pass, [
+      \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+      \PDO::ATTR_EMULATE_PREPARES => false,
+    ]);
+
+    return new self($pdo);
+  }
+
     if ($name === '' || $user === '') {
       throw new \RuntimeException('DB config missing name/user.');
     }
