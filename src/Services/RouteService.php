@@ -112,10 +112,10 @@ final class RouteService
       ]);
     }
 
-    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf, $accessAllowlist);
+    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf);
     if ($result['found'] === false) {
       $dnfWithoutHard = $this->withoutHardRules($dnf);
-      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard, $accessAllowlist);
+      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard);
       if ($fallbackResult['found'] === true) {
         throw new RouteException('Route blocked by DNF rules.', [
           'reason' => 'blocked_by_dnf',
@@ -357,8 +357,7 @@ final class RouteService
     int $toId,
     string $profile,
     array $graph,
-    array $dnf,
-    array $accessAllowlist = []
+    array $dnf
   ): array
   {
     $dist = [];
@@ -387,9 +386,6 @@ final class RouteService
 
       $neighbors = $graph['adjacency'][$currentId] ?? [];
       foreach ($neighbors as $neighborId => $_) {
-        if (!$this->isSystemAllowed($neighborId, $accessAllowlist)) {
-          continue;
-        }
         if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf)) {
           continue;
         }
@@ -798,19 +794,6 @@ final class RouteService
     }
 
     $systemLookup = $this->loadSystemDetails($routeIds);
-    $accessAllowlist = $this->buildAccessAllowlist($systemLookup, $context);
-    if (!empty($accessAllowlist)) {
-      foreach ($routeIds as $systemId) {
-        if (!$this->isSystemAllowed((int)$systemId, $accessAllowlist)) {
-          throw new RouteException('Route not allowed by access rules.', [
-            'reason' => 'route_not_allowed',
-            'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
-            'blocked_count_hard' => $dnfCounts['hard'],
-            'blocked_count_soft' => $dnfCounts['soft'],
-          ]);
-        }
-      }
-    }
     if ($this->routeViolatesHardDnf($routeIds, $systemLookup, $dnf)) {
       error_log('CCP route violated hard DNF rules.');
       throw new RouteException('No viable route found (local+CCP)', [
