@@ -53,7 +53,8 @@ final class RouteService
     $dnf = $this->loadDnfRules();
     $dnfCounts = $this->countDnfRules($dnf);
     $hardAvoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
-    $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems']);
+    $avoidLowsec = $this->shouldAvoidLowsec($fromId, $toId, $graph['systems']);
+    $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems'], $avoidLowsec);
     $avoidCount = count($avoidSystemIds);
     $accessAllowlist = $this->buildAccessAllowlist($graph['systems'], $context);
     $hasAccessAllowlist = !empty($accessAllowlist);
@@ -84,8 +85,9 @@ final class RouteService
         $profile,
         $dnf,
         $dnfCounts,
-        $hardAvoidSystemIds,
+        $avoidSystemIds,
         $avoidCount,
+        $avoidLowsec,
         array_merge($context, ['graph_reason' => $reason])
       );
     }
@@ -97,8 +99,9 @@ final class RouteService
         $profile,
         $dnf,
         $dnfCounts,
-        $hardAvoidSystemIds,
+        $avoidSystemIds,
         $avoidCount,
+        $avoidLowsec,
         array_merge($context, ['graph_reason' => 'graph_missing_system'])
       );
     }
@@ -112,10 +115,10 @@ final class RouteService
       ]);
     }
 
-    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf);
+    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf, $avoidLowsec);
     if ($result['found'] === false) {
       $dnfWithoutHard = $this->withoutHardRules($dnf);
-      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard);
+      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard, $avoidLowsec);
       if ($fallbackResult['found'] === true) {
         throw new RouteException('Route blocked by DNF rules.', [
           'reason' => 'blocked_by_dnf',
@@ -357,7 +360,8 @@ final class RouteService
     int $toId,
     string $profile,
     array $graph,
-    array $dnf
+    array $dnf,
+    bool $avoidLowsec
   ): array
   {
     $dist = [];
@@ -389,7 +393,7 @@ final class RouteService
         if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf)) {
           continue;
         }
-        if ($this->isProfileSecurityBlocked($neighborId, $graph['systems'], $profile)) {
+        if ($this->isProfileSecurityBlocked($neighborId, $graph['systems'], $profile, $avoidLowsec)) {
           continue;
         }
         if ($this->isEdgeHardBlocked($currentId, $neighborId, $dnf)) {
@@ -758,6 +762,7 @@ final class RouteService
     array $dnfCounts,
     array $avoidSystemIds,
     int $avoidCount,
+    bool $avoidLowsec,
     array $context
   ): array {
     if ($this->esiRouteService === null) {
@@ -822,7 +827,7 @@ final class RouteService
       ];
     }
 
-    if ($profile === 'safest') {
+    if ($profile === 'safest' || $avoidLowsec) {
       foreach ($systemLookup as $system) {
         if ($this->normalizedSecurity((float)($system['security'] ?? 0.0)) < self::SECURITY_HIGHSEC_MIN) {
           throw new RouteException('CCP route included low/null-sec systems.', [
@@ -978,18 +983,23 @@ final class RouteService
     return $details;
   }
 
-  private function isProfileSecurityBlocked(int $systemId, array $systems, string $profile): bool
+  private function isProfileSecurityBlocked(int $systemId, array $systems, string $profile, bool $avoidLowsec): bool
   {
-    if ($profile !== 'safest') {
+    if ($profile !== 'safest' && !$avoidLowsec) {
       return false;
     }
     $security = $this->normalizedSecurity((float)($systems[$systemId]['security'] ?? 0.0));
     return $security < self::SECURITY_HIGHSEC_MIN;
   }
 
-  private function mergeSecurityAvoids(array $avoidSystemIds, string $profile, array $systems): array
+  private function mergeSecurityAvoids(
+    array $avoidSystemIds,
+    string $profile,
+    array $systems,
+    bool $avoidLowsec
+  ): array
   {
-    if ($profile !== 'safest') {
+    if ($profile !== 'safest' && !$avoidLowsec) {
       return $avoidSystemIds;
     }
 
@@ -1023,6 +1033,32 @@ final class RouteService
   private function normalizedSecurity(float $security): float
   {
     return round($security, 1);
+  }
+
+  private function shouldAvoidLowsec(int $fromId, int $toId, array $systems): bool
+  {
+    $fromSecurity = $this->fetchSystemSecurity($fromId, $systems);
+    $toSecurity = $this->fetchSystemSecurity($toId, $systems);
+
+    if ($fromSecurity === null || $toSecurity === null) {
+      return false;
+    }
+
+    return $fromSecurity >= self::SECURITY_HIGHSEC_MIN && $toSecurity >= self::SECURITY_HIGHSEC_MIN;
+  }
+
+  private function fetchSystemSecurity(int $systemId, array $systems): ?float
+  {
+    if (isset($systems[$systemId])) {
+      return $this->normalizedSecurity((float)$systems[$systemId]['security']);
+    }
+
+    $details = $this->loadSystemDetails([$systemId]);
+    if (isset($details[$systemId])) {
+      return $this->normalizedSecurity((float)($details[$systemId]['security'] ?? 0.0));
+    }
+
+    return null;
   }
 
   private function isBackfillEnabled(?int $corpId): bool
