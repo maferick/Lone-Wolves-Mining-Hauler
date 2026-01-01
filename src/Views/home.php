@@ -26,8 +26,10 @@ ob_start();
       </div>
     </div>
     <div class="card-footer">
-      <a class="btn" href="<?= ($basePath ?: '') ?>/docs">Open Docs</a>
-      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/health">Health Endpoint</a>
+      <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Login (EVE SSO)</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/docs/">Docs</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/health/">Health</a>
     </div>
   </div>
 

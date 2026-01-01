@@ -39,10 +39,18 @@ return [
     ],
   ],
 
+  'sso' => [
+    'scopes' => array_values(array_filter(explode(' ', getenv('EVE_SCOPES') ?: 'esi-contracts.read_corporation_contracts.v1'))),
+  ],
+
   'security' => [
     'csrf_key' => getenv('CSRF_KEY') ?: 'change-me-please',
-    'session_name' => getenv('SESSION_NAME') ?: 'corp_hauling_session',
-    'session_secure' => (getenv('SESSION_SECURE') ?: '0') === '1',
+    'session' => [
+      'name' => getenv('SESSION_NAME') ?: 'corp_hauling_session',
+      'secure' => (getenv('SESSION_SECURE') ?: '0') === '1',
+      'httponly' => true,
+      'samesite' => 'Lax',
+    ],
     'api_key' => getenv('API_KEY') ?: '',
   ],
 ];

@@ -34,8 +34,10 @@ $body = $body ?? '';
 
       <nav class="nav">
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/health">Health</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/docs">Docs</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/login/">Login</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/health/">Health</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/docs/">Docs</a>
       </nav>
 
       <div class="topbar-actions">

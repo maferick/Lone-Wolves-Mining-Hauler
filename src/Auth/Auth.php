@@ -115,7 +115,7 @@ final class Auth
   {
     if (!$ctx['user_id']) {
       http_response_code(302);
-      header('Location: ' . self::url('/login'));
+      header('Location: ' . self::url('/login/'));
       exit;
     }
   }

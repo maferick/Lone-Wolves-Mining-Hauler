@@ -11,7 +11,7 @@ final class Db {
    */
   public static function fromConfig(array $config): self
   {
-    $dbCfg = $config['db'] ?? [];
+    $dbCfg = $config['db'] ?? $config;
     $host = (string)($dbCfg['host'] ?? '127.0.0.1');
     $port = (int)($dbCfg['port'] ?? 3306);
     $name = (string)($dbCfg['name'] ?? (getenv('DB_NAME') ?: ''));
@@ -44,11 +44,226 @@ final class Db {
   }
 
   public function insert(string $table, array $data): int {
+    if (str_starts_with(ltrim($table), 'INSERT') || str_contains($table, ' ')) {
+      $st = $this->pdo->prepare($table);
+      $st->execute($data);
+      return (int)$this->pdo->lastInsertId();
+    }
+
     $cols = array_keys($data);
     $sql = "INSERT INTO {$table} (`" . implode('`,`',$cols) . "`) VALUES (:" . implode(',:',$cols) . ")";
     $st = $this->pdo->prepare($sql);
     $st->execute($data);
     return (int)$this->pdo->lastInsertId();
+  }
+
+  public function select(string $sql, array $params = []): array
+  {
+    $st = $this->pdo->prepare($sql);
+    $st->execute($params);
+    return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+  }
+
+  public function one(string $sql, array $params = []): ?array
+  {
+    $st = $this->pdo->prepare($sql);
+    $st->execute($params);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    return $row !== false ? $row : null;
+  }
+
+  public function scalar(string $sql, array $params = [])
+  {
+    return $this->fetchValue($sql, $params);
+  }
+
+  public function execute(string $sql, array $params = []): int
+  {
+    $st = $this->pdo->prepare($sql);
+    $st->execute($params);
+    return $st->rowCount();
+  }
+
+  public function tx(callable $fn)
+  {
+    $this->pdo->beginTransaction();
+    try {
+      $result = $fn($this);
+      $this->pdo->commit();
+      return $result;
+    } catch (\Throwable $e) {
+      if ($this->pdo->inTransaction()) {
+        $this->pdo->rollBack();
+      }
+      throw $e;
+    }
+  }
+
+  public function audit(
+    ?int $corpId,
+    ?int $actorUserId,
+    ?int $actorCharacterId,
+    string $action,
+    ?string $entityTable,
+    ?string $entityPk,
+    $before,
+    $after,
+    ?string $ipAddress,
+    ?string $userAgent
+  ): void {
+    $beforeJson = $before !== null ? self::jsonEncode($before) : null;
+    $afterJson = $after !== null ? self::jsonEncode($after) : null;
+    $ipBin = $ipAddress ? inet_pton($ipAddress) : null;
+
+    $this->execute(
+      "INSERT INTO audit_log
+        (corp_id, actor_user_id, actor_character_id, action, entity_table, entity_pk, before_json, after_json, ip_address, user_agent)
+       VALUES
+        (:corp_id, :actor_user_id, :actor_character_id, :action, :entity_table, :entity_pk, :before_json, :after_json, :ip_address, :user_agent)",
+      [
+        'corp_id' => $corpId,
+        'actor_user_id' => $actorUserId,
+        'actor_character_id' => $actorCharacterId,
+        'action' => $action,
+        'entity_table' => $entityTable,
+        'entity_pk' => $entityPk,
+        'before_json' => $beforeJson,
+        'after_json' => $afterJson,
+        'ip_address' => $ipBin,
+        'user_agent' => $userAgent,
+      ]
+    );
+  }
+
+  public function upsertEntity(int $entityId, string $entityType, string $name, ?array $extraJson = null, ?string $category = null, string $source = 'esi'): void
+  {
+    $this->execute(
+      "INSERT INTO eve_entity
+        (entity_id, entity_type, name, category, extra_json, source, last_seen_at)
+       VALUES
+        (:entity_id, :entity_type, :name, :category, :extra_json, :source, UTC_TIMESTAMP())
+       ON DUPLICATE KEY UPDATE
+        name=VALUES(name),
+        category=VALUES(category),
+        extra_json=VALUES(extra_json),
+        source=VALUES(source),
+        last_seen_at=UTC_TIMESTAMP()",
+      [
+        'entity_id' => $entityId,
+        'entity_type' => $entityType,
+        'name' => $name,
+        'category' => $category,
+        'extra_json' => $extraJson !== null ? self::jsonEncode($extraJson) : null,
+        'source' => $source,
+      ]
+    );
+  }
+
+  public function esiCacheGet(?int $corpId, string $cacheKeyBin): array
+  {
+    $row = $this->one(
+      "SELECT response_json, etag, expires_at, status_code
+         FROM esi_cache
+        WHERE corp_id <=> :corp_id AND cache_key = :cache_key
+        LIMIT 1",
+      [
+        'corp_id' => $corpId,
+        'cache_key' => $cacheKeyBin,
+      ]
+    );
+
+    if (!$row) {
+      return ['hit' => false, 'json' => null, 'etag' => null];
+    }
+
+    return [
+      'hit' => true,
+      'json' => $row['response_json'],
+      'etag' => $row['etag'],
+      'expires_at' => $row['expires_at'],
+      'status_code' => $row['status_code'],
+    ];
+  }
+
+  public function esiCachePut(
+    ?int $corpId,
+    string $cacheKeyBin,
+    string $method,
+    string $url,
+    ?array $query,
+    ?array $body,
+    int $statusCode,
+    ?string $etag,
+    ?string $lastModified,
+    int $ttlSeconds,
+    string $responseJson,
+    ?string $errorText = null
+  ): void {
+    $expiresAt = gmdate('Y-m-d H:i:s', time() + max(30, $ttlSeconds));
+    $fetchedAt = gmdate('Y-m-d H:i:s');
+    $responseSha = hash('sha256', $responseJson, true);
+
+    $this->execute(
+      "INSERT INTO esi_cache
+        (corp_id, cache_key, http_method, url, query_json, body_json, status_code, etag, last_modified,
+         expires_at, fetched_at, ttl_seconds, response_json, response_sha256, error_text)
+       VALUES
+        (:corp_id, :cache_key, :http_method, :url, :query_json, :body_json, :status_code, :etag, :last_modified,
+         :expires_at, :fetched_at, :ttl_seconds, :response_json, :response_sha256, :error_text)
+       ON DUPLICATE KEY UPDATE
+        status_code=VALUES(status_code),
+        etag=VALUES(etag),
+        last_modified=VALUES(last_modified),
+        expires_at=VALUES(expires_at),
+        fetched_at=VALUES(fetched_at),
+        ttl_seconds=VALUES(ttl_seconds),
+        response_json=VALUES(response_json),
+        response_sha256=VALUES(response_sha256),
+        error_text=VALUES(error_text)",
+      [
+        'corp_id' => $corpId,
+        'cache_key' => $cacheKeyBin,
+        'http_method' => strtoupper($method),
+        'url' => $url,
+        'query_json' => $query !== null ? self::jsonEncode($query) : null,
+        'body_json' => $body !== null ? self::jsonEncode($body) : null,
+        'status_code' => $statusCode,
+        'etag' => $etag,
+        'last_modified' => $lastModified,
+        'expires_at' => $expiresAt,
+        'fetched_at' => $fetchedAt,
+        'ttl_seconds' => $ttlSeconds,
+        'response_json' => $responseJson,
+        'response_sha256' => $responseSha,
+        'error_text' => $errorText,
+      ]
+    );
+  }
+
+  public static function esiCacheKey(string $method, string $url, ?array $query, ?array $body): string
+  {
+    $payload = strtoupper($method) . "\n" . $url . "\n";
+    $payload .= $query !== null ? self::jsonEncode($query) : '';
+    $payload .= "\n";
+    $payload .= $body !== null ? self::jsonEncode($body) : '';
+    return hash('sha256', $payload, true);
+  }
+
+  public static function jsonEncode($value): string
+  {
+    return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+  }
+
+  public static function jsonDecode(string $json, $default = null)
+  {
+    try {
+      return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable $e) {
+      if ($default !== null) {
+        return $default;
+      }
+      throw $e;
+    }
   }
 
   public function setConfig(string $key, string $value): void {
