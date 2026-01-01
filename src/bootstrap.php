@@ -84,6 +84,7 @@ if ($basePath === '') {
   if ($script !== '') {
     $guess = preg_replace('#/public/index\.php$#', '', $script);
     $guess = preg_replace('#/index\.php$#', '', (string)$guess);
+    $guess = preg_replace('#/(admin|api)(/.*)?$#', '', (string)$guess);
     $guess = rtrim((string)$guess, '/');
     $basePath = $guess;
   }
