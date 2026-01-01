@@ -21,10 +21,6 @@ $msg = null;
 $errors = [];
 
 $defaults = [
-  'pricing.defaults' => [
-    'min_fee' => 1000000,
-    'per_jump' => 1000000,
-  ],
   'routing.defaults' => [
     'route_policy' => 'safest',
     'avoid_low' => true,
@@ -44,7 +40,7 @@ $defaults = [
 
 $settingRows = $db->select(
   "SELECT setting_key, setting_json FROM app_setting
-    WHERE corp_id = :cid AND setting_key IN ('pricing.defaults','routing.defaults','access.rules','discord.templates')",
+    WHERE corp_id = :cid AND setting_key IN ('routing.defaults','access.rules','discord.templates')",
   ['cid' => $corpId]
 );
 
@@ -77,15 +73,6 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $minFeeRaw = trim((string)($_POST['pricing_min_fee'] ?? ''));
-  $perJumpRaw = trim((string)($_POST['pricing_per_jump'] ?? ''));
-
-  $minFee = (int)preg_replace('/[^0-9]/', '', $minFeeRaw);
-  $perJump = (int)preg_replace('/[^0-9]/', '', $perJumpRaw);
-
-  if ($minFee < 0) $errors[] = 'Minimum fee must be zero or higher.';
-  if ($perJump < 0) $errors[] = 'Per jump fee must be zero or higher.';
-
   $routePolicy = (string)($_POST['routing_policy'] ?? 'safest');
   $allowedPolicies = ['safest' => 'Safest', 'shortest' => 'Shortest'];
   if (!array_key_exists($routePolicy, $allowedPolicies)) {
@@ -216,10 +203,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   if ($errors === []) {
     $updates = [
-      'pricing.defaults' => [
-        'min_fee' => $minFee,
-        'per_jump' => $perJump,
-      ],
       'routing.defaults' => [
         'route_policy' => $routePolicy,
         'avoid_low' => $avoidLow,
@@ -297,25 +280,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php endif; ?>
 
     <form method="post">
-      <div class="card" style="margin-bottom:16px;">
-        <div class="card-header">
-          <h3>Pricing Defaults</h3>
-          <p class="muted">Baseline fees for quote calculations.</p>
-        </div>
-        <div class="content">
-          <div class="row">
-            <div>
-              <div class="label">Minimum fee (ISK)</div>
-              <input class="input" name="pricing_min_fee" value="<?= htmlspecialchars((string)($settings['pricing.defaults']['min_fee'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-            </div>
-            <div>
-              <div class="label">Per jump fee (ISK)</div>
-              <input class="input" name="pricing_per_jump" value="<?= htmlspecialchars((string)($settings['pricing.defaults']['per_jump'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
           <h3>Routing Defaults</h3>

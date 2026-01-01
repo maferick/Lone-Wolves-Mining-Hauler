@@ -19,10 +19,42 @@ if ($method === 'GET') {
   }
 
   $rows = $db->select(
-    "SELECT dnf_rule_id, scope_type, id_a, id_b, severity, is_hard_block, reason, active, created_at, updated_at
+    "SELECT dnf_rule.dnf_rule_id,
+            dnf_rule.scope_type,
+            dnf_rule.id_a,
+            dnf_rule.id_b,
+            dnf_rule.severity,
+            dnf_rule.is_hard_block,
+            dnf_rule.reason,
+            dnf_rule.active,
+            dnf_rule.created_at,
+            dnf_rule.updated_at,
+            CASE
+              WHEN dnf_rule.scope_type = 'system' THEN sys_a.system_name
+              WHEN dnf_rule.scope_type = 'constellation' THEN const_a.constellation_name
+              WHEN dnf_rule.scope_type = 'region' THEN reg_a.region_name
+              WHEN dnf_rule.scope_type = 'edge' THEN sys_a.system_name
+              ELSE NULL
+            END AS name_a,
+            CASE
+              WHEN dnf_rule.scope_type = 'edge' THEN sys_b.system_name
+              ELSE NULL
+            END AS name_b
        FROM dnf_rule
+       LEFT JOIN eve_system sys_a
+         ON sys_a.system_id = dnf_rule.id_a
+        AND dnf_rule.scope_type IN ('system', 'edge')
+       LEFT JOIN eve_system sys_b
+         ON sys_b.system_id = dnf_rule.id_b
+        AND dnf_rule.scope_type = 'edge'
+       LEFT JOIN eve_constellation const_a
+         ON const_a.constellation_id = dnf_rule.id_a
+        AND dnf_rule.scope_type = 'constellation'
+       LEFT JOIN eve_region reg_a
+         ON reg_a.region_id = dnf_rule.id_a
+        AND dnf_rule.scope_type = 'region'
        {$where}
-      ORDER BY dnf_rule_id DESC",
+      ORDER BY dnf_rule.dnf_rule_id DESC",
     $params
   );
 
