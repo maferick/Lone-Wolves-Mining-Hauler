@@ -15,6 +15,11 @@ Auth::requirePerm($authCtx, 'esi.manage');
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 $data = api_read_json();
 $scope = (string)($data['scope'] ?? 'all');
+$useSde = !empty($data['sde']);
+if ($scope === 'sde') {
+  $scope = 'universe';
+  $useSde = true;
+}
 if (!in_array($scope, ['all', 'universe'], true)) {
   $scope = 'all';
 }
@@ -32,7 +37,7 @@ if ($cronCharId <= 0 && $scope !== 'universe') {
 }
 
 $jobQueue = new JobQueueService($db);
-$jobId = $jobQueue->enqueueCronSync($corpId, $cronCharId, $scope, $force, [
+$jobId = $jobQueue->enqueueCronSync($corpId, $cronCharId, $scope, $force, $useSde, [
   'actor_user_id' => $authCtx['user_id'] ?? null,
   'actor_character_id' => $authCtx['character_id'] ?? null,
   'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,

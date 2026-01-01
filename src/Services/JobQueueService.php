@@ -18,11 +18,13 @@ final class JobQueueService
     int $characterId,
     string $scope,
     bool $force,
+    bool $useSde,
     array $auditContext = []
   ): int {
     $payload = [
       'scope' => $scope,
       'force' => $force,
+      'sde' => $useSde,
       'character_id' => $characterId,
       'progress' => [
         'current' => 0,

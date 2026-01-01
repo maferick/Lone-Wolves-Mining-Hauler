@@ -30,6 +30,7 @@ $corpId = (int)($job['corp_id'] ?? 0);
 $charId = (int)($payload['character_id'] ?? 0);
 $scope = (string)($payload['scope'] ?? 'all');
 $force = !empty($payload['force']);
+$useSde = !empty($payload['sde']);
 
 $cronService = new CronSyncService($db, $config, $services['esi']);
 $jobQueue->updateProgress($jobId, [
@@ -44,6 +45,7 @@ try {
   $result = $cronService->run($corpId, $charId, [
     'force' => $force,
     'scope' => $scope,
+    'sde' => $useSde,
     'on_progress' => function (array $progress) use ($jobQueue, $jobId): void {
       $jobQueue->updateProgress(
         $jobId,

@@ -31,6 +31,11 @@ $runError = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $scope = (string)($_POST['scope'] ?? 'all');
+  $useSde = !empty($_POST['sde']);
+  if ($scope === 'sde') {
+    $scope = 'universe';
+    $useSde = true;
+  }
   if (!in_array($scope, ['all', 'universe'], true)) {
     $scope = 'all';
   }
@@ -39,7 +44,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } else {
     $force = isset($_POST['force']) && $_POST['force'] === '1';
     try {
-      $runResult = $cronService->run($corpId, $cronCharId, ['force' => $force, 'scope' => $scope]);
+      $runResult = $cronService->run($corpId, $cronCharId, [
+        'force' => $force,
+        'scope' => $scope,
+        'sde' => $useSde,
+      ]);
       $cronStats = $cronService->getStats($corpId);
     } catch (Throwable $e) {
       $runError = $e->getMessage();
@@ -51,6 +60,7 @@ $cmd = $cronCharId > 0
   ? sprintf('php bin/cron_sync.php %d %d', $corpId, $cronCharId)
   : sprintf('php bin/cron_sync.php %d <character_id>', $corpId);
 $cmdUniverse = sprintf('php bin/cron_sync.php %d --scope=universe', $corpId);
+$cmdUniverseSde = sprintf('php bin/cron_sync.php %d --scope=universe --sde', $corpId);
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -78,6 +88,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
     </div>
 
+    <p class="muted" style="margin-top:12px;">Universe/map bootstrap command (force SDE + auto-update):</p>
+    <div class="pill" style="margin:12px 0;">
+      <code><?= htmlspecialchars($cmdUniverseSde, ENT_QUOTES, 'UTF-8') ?></code>
+    </div>
+
     <p class="muted" style="margin-top:12px;">Example crontab entry (runs every minute):</p>
     <div class="pill" style="margin:12px 0;">
       <code>* * * * * <?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
@@ -100,6 +115,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <button class="btn" type="submit" name="scope" value="all">Run sync now</button>
       <button class="btn ghost" type="submit" name="force" value="1">Run full sync (ignore cooldowns)</button>
       <button class="btn ghost" type="submit" name="scope" value="universe">Initialize universe & maps</button>
+      <button class="btn ghost" type="submit" name="scope" value="sde">Initialize universe & maps (SDE)</button>
     </form>
 
     <div id="cron-async" style="margin-top:16px;">
@@ -207,7 +223,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     }
   };
 
-  const startJob = async (scope, force) => {
+  const startJob = async (scope, force, useSde) => {
     stopPolling();
     setProgress({ current: 0, total: 0, label: 'Queueing...' });
     renderLog([{ time: new Date().toISOString(), message: 'Queueing cron sync...' }]);
@@ -216,7 +232,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       const resp = await fetch(`${basePath}/api/cron/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope, force: force ? 1 : 0 })
+        body: JSON.stringify({ scope, force: force ? 1 : 0, sde: useSde ? 1 : 0 })
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -235,9 +251,10 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     const submitter = event.submitter;
     if (!submitter) return;
     event.preventDefault();
-    const scope = submitter.value === 'universe' ? 'universe' : 'all';
+    const scope = submitter.value === 'universe' || submitter.value === 'sde' ? submitter.value : 'all';
     const force = submitter.name === 'force';
-    startJob(scope, force);
+    const useSde = submitter.value === 'sde';
+    startJob(scope, force, useSde);
   });
 })();
 </script>

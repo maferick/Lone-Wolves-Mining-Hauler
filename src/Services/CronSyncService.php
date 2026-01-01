@@ -32,6 +32,7 @@ final class CronSyncService
     $options = array_merge([
       'force' => false,
       'scope' => 'all',
+      'sde' => false,
       'ttl_universe' => 86400,
       'ttl_stargate' => 86400,
       'ttl_tokens' => 300,
@@ -43,6 +44,8 @@ final class CronSyncService
 
     $force = (bool)$options['force'];
     $scope = (string)$options['scope'];
+    $useSde = (bool)$options['sde'];
+    $this->universe->setForceSde($useSde);
     $runUniverse = in_array($scope, ['all', 'universe'], true);
     $runCorp = $scope === 'all';
     $progressCb = is_callable($options['on_progress'] ?? null) ? $options['on_progress'] : null;
@@ -70,6 +73,7 @@ final class CronSyncService
     $results = [
       'force' => $force,
       'scope' => $scope,
+      'sde' => $useSde,
       'started_at' => gmdate('c'),
     ];
 

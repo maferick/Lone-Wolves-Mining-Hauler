@@ -6,7 +6,7 @@ declare(strict_types=1);
  * bin/cron_sync.php
  *
  * Usage:
- *   php bin/cron_sync.php <corp_id> [character_id_with_token] [--force] [--scope=all|universe]
+ *   php bin/cron_sync.php <corp_id> [character_id_with_token] [--force] [--scope=all|universe|sde] [--sde]
  *
  * Syncs:
  * - Universe regions/constellations/systems
@@ -20,7 +20,7 @@ use App\Services\CronSyncService;
 use App\Services\EsiService;
 
 if ($argc < 2) {
-  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> [character_id] [--force] [--scope=all|universe]\n");
+  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> [character_id] [--force] [--scope=all|universe|sde] [--sde]\n");
   exit(2);
 }
 
@@ -28,6 +28,7 @@ $corpId = (int)$argv[1];
 $charId = $argc >= 3 ? (int)$argv[2] : 0;
 $force = in_array('--force', $argv, true) || in_array('--full', $argv, true);
 $scope = 'all';
+$useSde = in_array('--sde', $argv, true);
 
 foreach ($argv as $arg) {
   if ($arg === '--init-universe' || $arg === '--universe') {
@@ -39,8 +40,13 @@ foreach ($argv as $arg) {
   }
 }
 
+if ($scope === 'sde') {
+  $scope = 'universe';
+  $useSde = true;
+}
+
 if (!in_array($scope, ['all', 'universe'], true)) {
-  fwrite(STDERR, "Invalid scope. Allowed values: all, universe.\n");
+  fwrite(STDERR, "Invalid scope. Allowed values: all, universe, sde.\n");
   exit(2);
 }
 
@@ -62,7 +68,11 @@ try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
   $cron = new CronSyncService($db, $config, $esi);
-  $results = $cron->run($corpId, $charId, ['force' => $force, 'scope' => $scope]);
+  $results = $cron->run($corpId, $charId, [
+    'force' => $force,
+    'scope' => $scope,
+    'sde' => $useSde,
+  ]);
 
   echo json_encode(['ok' => true, 'result' => $results], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
   exit(0);

@@ -14,6 +14,10 @@ use App\Db\Db;
 final class UniverseDataService
 {
   private const SDE_LATEST_JSONL_URL = 'https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip';
+  private const SDE_META_FILENAME = 'sde_meta.json';
+  private const SDE_UPDATE_CHECK_SECONDS = 21600;
+
+  private bool $forceSde = false;
 
   public function __construct(
     private Db $db,
@@ -802,7 +806,12 @@ final class UniverseDataService
 
   private function isSdeEnabled(): bool
   {
-    return (bool)($this->config['sde']['enabled'] ?? false);
+    return $this->forceSde || (bool)($this->config['sde']['enabled'] ?? false);
+  }
+
+  public function setForceSde(bool $forceSde): void
+  {
+    $this->forceSde = $forceSde;
   }
 
   private function sdePath(string $fileName): string
@@ -899,6 +908,11 @@ final class UniverseDataService
     $hasJumps = $this->sdeFilePath('mapSolarSystemJumps') !== null;
     $hasStargates = $this->sdeFilePath('mapStargates') !== null;
     if ($hasSystems && ($hasJumps || $hasStargates)) {
+      $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+      if ($basePath === '') {
+        throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
+      }
+      $this->maybeRefreshSde($basePath);
       return;
     }
 
@@ -932,6 +946,11 @@ final class UniverseDataService
       }
     }
     if ($missing === []) {
+      $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+      if ($basePath === '') {
+        throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
+      }
+      $this->maybeRefreshSde($basePath);
       return;
     }
 
@@ -952,7 +971,102 @@ final class UniverseDataService
     }
   }
 
-  private function downloadLatestSde(string $targetDir): void
+  private function maybeRefreshSde(string $basePath, bool $force = false): void
+  {
+    $meta = $this->readSdeMeta($basePath);
+    $now = time();
+    $lastChecked = (int)($meta['last_checked'] ?? 0);
+    if (!$force && $lastChecked > 0 && ($now - $lastChecked) < self::SDE_UPDATE_CHECK_SECONDS) {
+      return;
+    }
+
+    $head = $this->fetchSdeHead();
+    $previousEtag = $meta['etag'] ?? null;
+    $previousLastModified = $meta['last_modified'] ?? null;
+    $meta['last_checked'] = $now;
+
+    if (!$head) {
+      $this->writeSdeMeta($basePath, $meta);
+      return;
+    }
+
+    $etag = $head['etag'] ?? null;
+    $lastModified = $head['last_modified'] ?? null;
+    $meta['etag'] = $etag ?? $previousEtag;
+    $meta['last_modified'] = $lastModified ?? $previousLastModified;
+
+    $changed = false;
+    if ($etag && $etag !== $previousEtag) {
+      $changed = true;
+    }
+    if (!$changed && $lastModified && $lastModified !== $previousLastModified) {
+      $changed = true;
+    }
+
+    if ($changed || $force) {
+      $this->downloadLatestSde($basePath, $head);
+      $meta['downloaded_at'] = gmdate('c');
+      $meta['etag'] = $etag ?? $previousEtag;
+      $meta['last_modified'] = $lastModified ?? $previousLastModified;
+    }
+
+    $this->writeSdeMeta($basePath, $meta);
+  }
+
+  private function readSdeMeta(string $basePath): array
+  {
+    $path = $basePath . DIRECTORY_SEPARATOR . self::SDE_META_FILENAME;
+    if (!is_file($path)) {
+      return [];
+    }
+    $contents = @file_get_contents($path);
+    if ($contents === false) {
+      return [];
+    }
+    $decoded = Db::jsonDecode($contents, []);
+    return is_array($decoded) ? $decoded : [];
+  }
+
+  private function writeSdeMeta(string $basePath, array $meta): void
+  {
+    $path = $basePath . DIRECTORY_SEPARATOR . self::SDE_META_FILENAME;
+    @file_put_contents($path, Db::jsonEncode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+  }
+
+  private function fetchSdeHead(): ?array
+  {
+    $headers = [];
+    $ch = curl_init(self::SDE_LATEST_JSONL_URL);
+    curl_setopt($ch, CURLOPT_NOBODY, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_USERAGENT, $this->config['esi']['user_agent'] ?? 'CorpHauling/1.0');
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function ($curl, $headerLine) use (&$headers) {
+      $len = strlen($headerLine);
+      $headerLine = trim($headerLine);
+      if ($headerLine === '' || !str_contains($headerLine, ':')) {
+        return $len;
+      }
+      [$name, $value] = explode(':', $headerLine, 2);
+      $headers[strtolower(trim($name))] = trim($value);
+      return $len;
+    });
+    $ok = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+
+    if ($ok === false || $status < 200 || $status >= 300) {
+      return null;
+    }
+
+    return [
+      'etag' => $headers['etag'] ?? null,
+      'last_modified' => $headers['last-modified'] ?? null,
+    ];
+  }
+
+  private function downloadLatestSde(string $targetDir, ?array $head = null): void
   {
     if (!is_dir($targetDir)) {
       if (!mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
@@ -970,6 +1084,7 @@ final class UniverseDataService
     $zipPath = $tempZip . '.zip';
     rename($tempZip, $zipPath);
 
+    $headers = [];
     $ch = curl_init(self::SDE_LATEST_JSONL_URL);
     $fp = fopen($zipPath, 'wb');
     if ($fp === false) {
@@ -980,6 +1095,16 @@ final class UniverseDataService
     curl_setopt($ch, CURLOPT_TIMEOUT, 120);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
     curl_setopt($ch, CURLOPT_USERAGENT, $this->config['esi']['user_agent'] ?? 'CorpHauling/1.0');
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function ($curl, $headerLine) use (&$headers) {
+      $len = strlen($headerLine);
+      $headerLine = trim($headerLine);
+      if ($headerLine === '' || !str_contains($headerLine, ':')) {
+        return $len;
+      }
+      [$name, $value] = explode(':', $headerLine, 2);
+      $headers[strtolower(trim($name))] = trim($value);
+      return $len;
+    });
     $ok = curl_exec($ch);
     $errno = curl_errno($ch);
     $err = $errno ? curl_error($ch) : null;
@@ -1001,6 +1126,13 @@ final class UniverseDataService
     $zip->extractTo($targetDir);
     $zip->close();
     @unlink($zipPath);
+
+    $meta = $this->readSdeMeta($targetDir);
+    $meta['downloaded_at'] = gmdate('c');
+    $meta['last_checked'] = time();
+    $meta['etag'] = $headers['etag'] ?? ($head['etag'] ?? ($meta['etag'] ?? null));
+    $meta['last_modified'] = $headers['last-modified'] ?? ($head['last_modified'] ?? ($meta['last_modified'] ?? null));
+    $this->writeSdeMeta($targetDir, $meta);
   }
 
   private function readSdeRows(string $filePath, callable $handler): void
