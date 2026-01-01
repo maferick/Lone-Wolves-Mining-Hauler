@@ -67,8 +67,8 @@ final class RouteService
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();
     $dnfCounts = $this->countDnfRules($dnf);
-    $avoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
-    $avoidSystemIds = $this->mergeSecurityAvoids($avoidSystemIds, $profile, $graph['systems']);
+    $hardAvoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
+    $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems']);
     $avoidCount = count($avoidSystemIds);
 
     if ($profile === 'safest') {
@@ -109,7 +109,7 @@ final class RouteService
         $profile,
         $dnf,
         $dnfCounts,
-        $avoidSystemIds,
+        $hardAvoidSystemIds,
         $avoidCount,
         $context
       );
