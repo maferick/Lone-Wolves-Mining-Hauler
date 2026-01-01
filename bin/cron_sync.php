@@ -10,7 +10,7 @@ declare(strict_types=1);
  *
  * Syncs:
  * - Universe regions/constellations/systems
- * - Corp structures (requires esi-structures.read_corporation_structures.v1)
+ * - Corp structures (requires esi-corporations.read_structures.v1)
  * - Corp contracts (requires esi-contracts.read_corporation_contracts.v1)
  */
 
