@@ -103,7 +103,7 @@ ob_start();
       statusEl.textContent = 'Validating contract via ESI...';
 
       try {
-        const resp = await fetch(`${basePath}/api/contracts/attach`, {
+        const resp = await fetch(`${basePath}/api/contracts/attach/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
