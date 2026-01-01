@@ -159,6 +159,113 @@ final class UniverseDataService
     ];
   }
 
+  public function syncStargateGraph(int $ttlSeconds = 86400, bool $truncate = true): array
+  {
+    $results = [
+      'map_system_count' => 0,
+      'map_edge_count' => 0,
+      'systems_fetched' => 0,
+      'stargates_fetched' => 0,
+      'edges_discovered' => 0,
+    ];
+
+    $systemCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_system");
+    if ($systemCount === 0) {
+      $results['universe'] = $this->syncUniverse($ttlSeconds);
+    }
+
+    if ($truncate) {
+      $this->db->execute("TRUNCATE map_edge");
+      $this->db->execute("TRUNCATE map_system");
+    }
+
+    $this->db->execute(
+      "INSERT INTO map_system (system_id, system_name, security, region_id, constellation_id)
+       SELECT s.system_id,
+              s.system_name,
+              CASE WHEN s.has_security = 1 THEN s.security_status ELSE 0.0 END,
+              c.region_id,
+              s.constellation_id
+         FROM eve_system s
+         JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+       ON DUPLICATE KEY UPDATE
+         system_name=VALUES(system_name),
+         security=VALUES(security),
+         region_id=VALUES(region_id),
+         constellation_id=VALUES(constellation_id)"
+    );
+
+    $results['map_system_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_system");
+    $systemRows = $this->db->select("SELECT system_id FROM map_system");
+    $edges = [];
+
+    foreach ($systemRows as $row) {
+      $systemId = (int)$row['system_id'];
+      if ($systemId <= 0) {
+        continue;
+      }
+      $system = $this->fetchJson("/v4/universe/systems/{$systemId}/", $ttlSeconds);
+      $results['systems_fetched']++;
+      if (!$system) {
+        continue;
+      }
+
+      $stargates = $system['stargates'] ?? null;
+      if (!is_array($stargates) || $stargates === []) {
+        continue;
+      }
+
+      foreach ($stargates as $stargateId) {
+        $stargateId = (int)$stargateId;
+        if ($stargateId <= 0) {
+          continue;
+        }
+        $gate = $this->fetchJson("/v1/universe/stargates/{$stargateId}/", $ttlSeconds);
+        $results['stargates_fetched']++;
+        if (!$gate) {
+          continue;
+        }
+        $destination = $gate['destination'] ?? null;
+        $destSystemId = (int)($destination['system_id'] ?? 0);
+        if ($destSystemId <= 0 || $destSystemId === $systemId) {
+          continue;
+        }
+        $from = min($systemId, $destSystemId);
+        $to = max($systemId, $destSystemId);
+        $edges["{$from}:{$to}"] = [$from, $to];
+      }
+    }
+
+    $results['edges_discovered'] = count($edges);
+
+    $edges = array_values($edges);
+    $chunkSize = 500;
+    $totalEdges = count($edges);
+    for ($offset = 0; $offset < $totalEdges; $offset += $chunkSize) {
+      $chunk = array_slice($edges, $offset, $chunkSize);
+      if ($chunk === []) {
+        continue;
+      }
+      $placeholders = [];
+      $params = [];
+      foreach ($chunk as $idx => $edge) {
+        $fromKey = "from_{$idx}";
+        $toKey = "to_{$idx}";
+        $placeholders[] = "(:{$fromKey}, :{$toKey})";
+        $params[$fromKey] = $edge[0];
+        $params[$toKey] = $edge[1];
+      }
+      $this->db->execute(
+        "INSERT IGNORE INTO map_edge (from_system_id, to_system_id) VALUES " . implode(',', $placeholders),
+        $params
+      );
+    }
+
+    $results['map_edge_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_edge");
+
+    return $results;
+  }
+
   private function fetchIdList(string $path, int $ttlSeconds): array
   {
     $resp = $this->esi->get($path, null, null, $ttlSeconds);

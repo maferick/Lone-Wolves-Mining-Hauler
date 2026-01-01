@@ -56,6 +56,18 @@ try {
     'token_refresh' => $sso->refreshCorpTokens($corpId),
   ];
 
+  $graphEdgeCount = (int)$db->fetchValue("SELECT COUNT(*) FROM map_edge");
+  $graphSystemCount = (int)$db->fetchValue("SELECT COUNT(*) FROM map_system");
+  if ($graphEdgeCount === 0 || $graphSystemCount === 0) {
+    $results['stargate_graph'] = $universe->syncStargateGraph();
+  } else {
+    $results['stargate_graph'] = [
+      'skipped' => true,
+      'map_system_count' => $graphSystemCount,
+      'map_edge_count' => $graphEdgeCount,
+    ];
+  }
+
   try {
     $results['structures'] = $universe->syncCorpStructures($corpId, $charId);
   } catch (Throwable $e) {
