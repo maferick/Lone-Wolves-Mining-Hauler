@@ -46,23 +46,10 @@ final class RouteService
   {
     $graph = $this->loadGraph();
     $graphHealth = $graph['health'] ?? [];
-    if (empty($graphHealth['ready'])) {
-      $reason = $graphHealth['reason'] ?? 'graph_not_ready';
-      throw new RouteException('Graph is not ready for routing.', [
-        'reason' => $reason,
-        'graph' => $graphHealth,
-      ]);
-    }
+    $graphReady = !empty($graphHealth['ready']);
 
     $fromId = $this->resolveSystemIdByName($fromSystemName);
     $toId = $this->resolveSystemIdByName($toSystemName);
-
-    if (!isset($graph['systems'][$fromId]) || !isset($graph['systems'][$toId])) {
-      throw new RouteException('Graph missing system nodes.', [
-        'reason' => 'graph_missing_system',
-        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
-      ]);
-    }
 
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();
@@ -70,6 +57,33 @@ final class RouteService
     $hardAvoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
     $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems']);
     $avoidCount = count($avoidSystemIds);
+
+    if (!$graphReady) {
+      $reason = $graphHealth['reason'] ?? 'graph_not_ready';
+      return $this->fallbackToCcpRoute(
+        $fromId,
+        $toId,
+        $profile,
+        $dnf,
+        $dnfCounts,
+        $hardAvoidSystemIds,
+        $avoidCount,
+        array_merge($context, ['graph_reason' => $reason])
+      );
+    }
+
+    if (!isset($graph['systems'][$fromId]) || !isset($graph['systems'][$toId])) {
+      return $this->fallbackToCcpRoute(
+        $fromId,
+        $toId,
+        $profile,
+        $dnf,
+        $dnfCounts,
+        $hardAvoidSystemIds,
+        $avoidCount,
+        array_merge($context, ['graph_reason' => 'graph_missing_system'])
+      );
+    }
 
     if ($profile === 'safest') {
       $fromSecurity = (float)($graph['systems'][$fromId]['security'] ?? 0.0);
@@ -103,16 +117,12 @@ final class RouteService
           'blocked_count_soft' => $dnfCounts['soft'],
         ]);
       }
-      return $this->fallbackToCcpRoute(
-        $fromId,
-        $toId,
-        $profile,
-        $dnf,
-        $dnfCounts,
-        $hardAvoidSystemIds,
-        $avoidCount,
-        $context
-      );
+      throw new RouteException('No viable route found (local).', [
+        'reason' => 'no_viable_route',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
     }
 
     $pathIds = $this->buildPath($fromId, $toId, $result['prev']);
