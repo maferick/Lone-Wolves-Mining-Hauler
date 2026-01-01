@@ -425,7 +425,7 @@ final class UniverseDataService
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id', '_key']);
-      $regionName = trim((string)$this->pickSdeValue($row, ['regionName', 'region_name']));
+      $regionName = $this->extractSdeName($row, ['regionName', 'region_name', 'name']);
       if ($regionId <= 0 || $regionName === '') {
         return;
       }
@@ -465,7 +465,7 @@ final class UniverseDataService
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id', '_key']);
-      $constellationName = trim((string)$this->pickSdeValue($row, ['constellationName', 'constellation_name']));
+      $constellationName = $this->extractSdeName($row, ['constellationName', 'constellation_name', 'name']);
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id']);
       if ($constellationId <= 0 || $regionId <= 0 || $constellationName === '') {
         return;
@@ -514,9 +514,9 @@ final class UniverseDataService
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
       $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID', '_key']);
-      $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
+      $systemName = $this->extractSdeName($row, ['solarSystemName', 'system_name', 'systemName', 'name']);
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id']);
-      $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
+      $security = (float)$this->pickSdeValue($row, ['security', 'security_status', 'securityStatus'], 0.0);
       if ($systemId <= 0 || $constellationId <= 0 || $systemName === '') {
         return;
       }
@@ -567,10 +567,10 @@ final class UniverseDataService
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, $constellationRegions) {
       $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID', '_key']);
-      $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
+      $systemName = $this->extractSdeName($row, ['solarSystemName', 'system_name', 'systemName', 'name']);
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id']);
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id']);
-      $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
+      $security = (float)$this->pickSdeValue($row, ['security', 'security_status', 'securityStatus'], 0.0);
       if ($regionId <= 0 && $constellationId > 0) {
         $regionId = (int)($constellationRegions[$constellationId] ?? 0);
       }
@@ -727,11 +727,14 @@ final class UniverseDataService
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
       $stationId = (int)$this->pickSdeValue($row, ['stationID', 'stationId', 'station_id', '_key']);
       $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID']);
-      $stationName = trim((string)$this->pickSdeValue($row, ['stationName', 'station_name', 'name']));
+      $stationName = $this->extractSdeName($row, ['stationName', 'station_name', 'name']);
       $stationTypeId = $this->pickSdeValue($row, ['stationTypeID', 'stationTypeId', 'station_type_id']);
       $stationTypeId = $stationTypeId !== null ? (int)$stationTypeId : null;
-      if ($stationId <= 0 || $systemId <= 0 || $stationName === '') {
+      if ($stationId <= 0 || $systemId <= 0) {
         return;
+      }
+      if ($stationName === '') {
+        $stationName = 'Station ' . $stationId;
       }
       $batch[] = [
         'station_id' => $stationId,
@@ -1214,6 +1217,27 @@ final class UniverseDataService
       return $value;
     }
     return ['_key' => $row['_key'] ?? null, '_value' => $value];
+  }
+
+  private function extractSdeName(array $row, array $keys): string
+  {
+    $value = $this->pickSdeValue($row, $keys, null);
+    if (is_array($value)) {
+      $name = $value['en'] ?? null;
+      if (is_string($name)) {
+        return trim($name);
+      }
+      foreach ($value as $entry) {
+        if (is_string($entry) && $entry !== '') {
+          return trim($entry);
+        }
+      }
+      return '';
+    }
+    if (is_string($value)) {
+      return trim($value);
+    }
+    return '';
   }
 
   private function pickSdeValue(array $row, array $keys, $default = null)
