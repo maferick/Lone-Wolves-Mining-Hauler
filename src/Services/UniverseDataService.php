@@ -326,14 +326,19 @@ final class UniverseDataService
 
     $systemFile = $this->sdeFilePath('mapSolarSystems');
     $jumpFile = $this->sdeFilePath('mapSolarSystemJumps');
-    if ($systemFile === null || $jumpFile === null) {
+    $stargateFile = $this->sdeFilePath('mapStargates');
+    if ($systemFile === null || ($jumpFile === null && $stargateFile === null)) {
       throw new \RuntimeException('Missing required SDE graph files.');
     }
 
     $this->importSdeMapSystems($systemFile);
     $results['map_system_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_system");
 
-    $results['edges_discovered'] = $this->importSdeMapEdges($jumpFile);
+    if ($jumpFile !== null) {
+      $results['edges_discovered'] = $this->importSdeMapEdges($jumpFile);
+    } else {
+      $results['edges_discovered'] = $this->importSdeMapEdgesFromStargates($stargateFile);
+    }
     $results['map_edge_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_edge");
 
     return $results;
@@ -560,6 +565,41 @@ final class UniverseDataService
     return $count;
   }
 
+  private function importSdeMapEdgesFromStargates(?string $filePath): int
+  {
+    if ($filePath === null) {
+      return 0;
+    }
+    $count = 0;
+    $batch = [];
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
+      $fromId = (int)$this->pickSdeValue($row, [
+        'solarSystemID',
+        'solarSystemId',
+        'solar_system_id',
+        'fromSolarSystemID',
+        'fromSolarSystemId',
+        'from_system_id',
+      ]);
+      $toId = $this->extractSdeDestinationSystemId($row);
+      if ($fromId <= 0 || $toId <= 0 || $fromId === $toId) {
+        return;
+      }
+      $from = min($fromId, $toId);
+      $to = max($fromId, $toId);
+      $batch[] = [$from, $to];
+      $count++;
+      if (count($batch) >= 1000) {
+        $this->flushMapEdgeBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushMapEdgeBatch($batch);
+    }
+    return $count;
+  }
+
   private function flushMapEdgeBatch(array $batch): void
   {
     $placeholders = [];
@@ -608,6 +648,39 @@ final class UniverseDataService
     return null;
   }
 
+  private function extractSdeDestinationSystemId(array $row): int
+  {
+    $direct = $this->pickSdeValue($row, [
+      'destinationSolarSystemID',
+      'destinationSolarSystemId',
+      'destination_system_id',
+      'toSolarSystemID',
+      'toSolarSystemId',
+      'to_system_id',
+    ]);
+    if ($direct !== null && $direct !== '') {
+      return (int)$direct;
+    }
+    $destination = $row['destination'] ?? null;
+    if (is_array($destination)) {
+      $nested = $this->pickSdeValue($destination, [
+        'solarSystemID',
+        'solarSystemId',
+        'solar_system_id',
+        'destinationSolarSystemID',
+        'destinationSolarSystemId',
+        'destination_system_id',
+        'toSolarSystemID',
+        'toSolarSystemId',
+        'to_system_id',
+      ]);
+      if ($nested !== null && $nested !== '') {
+        return (int)$nested;
+      }
+    }
+    return 0;
+  }
+
   private function hasSdeUniverseFiles(): bool
   {
     return $this->sdeFilePath('mapRegions') !== null
@@ -618,7 +691,8 @@ final class UniverseDataService
   private function hasSdeGraphFiles(): bool
   {
     return $this->sdeFilePath('mapSolarSystems') !== null
-      && $this->sdeFilePath('mapSolarSystemJumps') !== null;
+      && ($this->sdeFilePath('mapSolarSystemJumps') !== null
+        || $this->sdeFilePath('mapStargates') !== null);
   }
 
   private function ensureSdeUniverseFiles(): void
@@ -628,7 +702,32 @@ final class UniverseDataService
 
   private function ensureSdeGraphFiles(): void
   {
-    $this->ensureSdeFiles(['mapSolarSystems', 'mapSolarSystemJumps']);
+    $hasSystems = $this->sdeFilePath('mapSolarSystems') !== null;
+    $hasJumps = $this->sdeFilePath('mapSolarSystemJumps') !== null;
+    $hasStargates = $this->sdeFilePath('mapStargates') !== null;
+    if ($hasSystems && ($hasJumps || $hasStargates)) {
+      return;
+    }
+
+    $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+    if ($basePath === '') {
+      throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
+    }
+    $this->downloadLatestSde($basePath);
+
+    $hasSystems = $this->sdeFilePath('mapSolarSystems') !== null;
+    $hasJumps = $this->sdeFilePath('mapSolarSystemJumps') !== null;
+    $hasStargates = $this->sdeFilePath('mapStargates') !== null;
+    if (!($hasSystems && ($hasJumps || $hasStargates))) {
+      $missing = [];
+      if (!$hasSystems) {
+        $missing[] = 'mapSolarSystems';
+      }
+      if (!($hasJumps || $hasStargates)) {
+        $missing[] = 'mapSolarSystemJumps/mapStargates';
+      }
+      throw new \RuntimeException('Missing required SDE files after download: ' . implode(', ', $missing));
+    }
   }
 
   private function ensureSdeFiles(array $requiredBaseNames): void
