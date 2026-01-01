@@ -16,6 +16,8 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Hauling Settings';
 $apiKey = (string)($config['security']['api_key'] ?? '');
+$graphStatus = $services['route']->getGraphStatus();
+$graphEmpty = empty($graphStatus['graph_loaded']);
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -26,6 +28,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <p class="muted">Manage routing profiles, reward tolerance, DNF rules, and rate plans.</p>
   </div>
   <div class="content">
+    <?php if ($graphEmpty): ?>
+      <div class="alert alert-warning" style="margin-bottom:12px;">
+        Stargate graph data is missing. Populate map_system and map_edge to enable routing.
+      </div>
+    <?php endif; ?>
     <div class="row" style="align-items:flex-start;">
       <div style="flex:1;">
         <div class="label">Default routing profile</div>

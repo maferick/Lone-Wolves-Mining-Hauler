@@ -341,7 +341,10 @@ ob_start();
         });
         const data = await resp.json();
         if (!data.ok) {
-          showError(data.error || 'Quote failed.');
+          const friendlyError = data.error === 'no_viable_route'
+            ? 'No viable route found.'
+            : (data.error || 'Quote failed.');
+          showError(friendlyError);
           return;
         }
         currentQuoteId = data.quote_id;

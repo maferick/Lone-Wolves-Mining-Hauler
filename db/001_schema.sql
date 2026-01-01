@@ -657,6 +657,7 @@ CREATE TABLE IF NOT EXISTS map_system (
   region_id          BIGINT UNSIGNED NOT NULL,
   constellation_id   BIGINT UNSIGNED NOT NULL,
   PRIMARY KEY (system_id),
+  UNIQUE KEY uq_map_system_name (system_name),
   KEY idx_map_system_name (system_name),
   KEY idx_map_system_security (security),
   KEY idx_map_system_region (region_id),

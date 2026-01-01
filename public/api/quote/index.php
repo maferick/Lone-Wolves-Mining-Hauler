@@ -52,6 +52,24 @@ try {
     'breakdown' => $quote['breakdown'],
     'route' => $quote['route'],
   ]);
+} catch (\App\Services\RouteException $e) {
+  $details = $e->getDetails();
+  $responseDetails = [
+    'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
+    'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
+    'profile' => $payload['profile'] ?? $defaultProfile,
+    'resolved_ids' => $details['resolved_ids'] ?? null,
+    'graph_loaded' => (bool)($details['graph']['graph_loaded'] ?? false),
+    'reason' => $details['reason'] ?? 'no_viable_route',
+    'blocked_count_hard' => $details['blocked_count_hard'] ?? null,
+    'blocked_count_soft' => $details['blocked_count_soft'] ?? null,
+  ];
+  error_log('Route failure: ' . json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  api_send_json([
+    'ok' => false,
+    'error' => 'no_viable_route',
+    'details' => $responseDetails,
+  ], 400);
 } catch (Throwable $e) {
   api_send_json([
     'ok' => false,
