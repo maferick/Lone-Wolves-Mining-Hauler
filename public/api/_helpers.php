@@ -10,9 +10,20 @@ function api_send_json($data, int $code = 200): void {
 
 function api_read_json(): array {
   $raw = file_get_contents('php://input') ?: '';
-  if (trim($raw) === '') return [];
-  $data = json_decode($raw, true);
-  return is_array($data) ? $data : [];
+  $data = [];
+  if (trim($raw) !== '') {
+    $data = json_decode($raw, true);
+  }
+  if (is_array($data)) {
+    return $data;
+  }
+  if (!empty($_POST)) {
+    return $_POST;
+  }
+  if (!empty($_GET)) {
+    return $_GET;
+  }
+  return [];
 }
 
 function api_key_ok(): bool {
