@@ -180,11 +180,14 @@ $GLOBALS['authCtx'] = $authCtx;
 $services = [];
 
 if ($db !== null) {
+  $routeService = new \App\Services\RouteService($db, $config);
   $services = [
     'esi' => new \App\Services\EsiService($db, $config),
     'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
     'esi_client' => new \App\Services\EsiClient($db, $config),
     'eve_public' => new \App\Services\EvePublicDataService($db, $config, new \App\Services\EsiClient($db, $config)),
+    'route' => $routeService,
+    'pricing' => new \App\Services\PricingService($db, $routeService, $config),
   ];
 } else {
   $services = [

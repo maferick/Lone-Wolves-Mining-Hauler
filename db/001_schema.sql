@@ -644,6 +644,74 @@ CREATE TABLE IF NOT EXISTS app_setting (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================
+-- Hauling Routing & Pricing (local stargate graph + quoting)
+-- =========================
+
+CREATE TABLE IF NOT EXISTS map_system (
+  system_id          BIGINT UNSIGNED NOT NULL,
+  system_name        VARCHAR(255) NOT NULL,
+  security           DECIMAL(4,3) NOT NULL DEFAULT 0.000,
+  region_id          BIGINT UNSIGNED NOT NULL,
+  constellation_id   BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (system_id),
+  KEY idx_map_system_name (system_name),
+  KEY idx_map_system_security (security),
+  KEY idx_map_system_region (region_id),
+  KEY idx_map_system_const (constellation_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS map_edge (
+  from_system_id     BIGINT UNSIGNED NOT NULL,
+  to_system_id       BIGINT UNSIGNED NOT NULL,
+  PRIMARY KEY (from_system_id, to_system_id),
+  KEY idx_map_edge_to (to_system_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS dnf_rule (
+  dnf_rule_id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  scope_type         ENUM('system','constellation','region','edge') NOT NULL,
+  id_a               BIGINT UNSIGNED NOT NULL,
+  id_b               BIGINT UNSIGNED NULL,
+  severity           INT NOT NULL DEFAULT 1,
+  is_hard_block      TINYINT(1) NOT NULL DEFAULT 0,
+  reason             VARCHAR(255) NULL,
+  active             TINYINT(1) NOT NULL DEFAULT 1,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (dnf_rule_id),
+  KEY idx_dnf_scope (scope_type, id_a),
+  KEY idx_dnf_active (active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS quote (
+  quote_id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NOT NULL,
+  from_system_id     BIGINT UNSIGNED NOT NULL,
+  to_system_id       BIGINT UNSIGNED NOT NULL,
+  profile            VARCHAR(32) NOT NULL,
+  route_json         JSON NOT NULL,
+  breakdown_json     JSON NOT NULL,
+  price_total        DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  created_at         DATETIME NOT NULL,
+  PRIMARY KEY (quote_id),
+  KEY idx_quote_corp (corp_id),
+  KEY idx_quote_route (from_system_id, to_system_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS rate_plan (
+  rate_plan_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NOT NULL,
+  service_class      VARCHAR(32) NOT NULL,
+  rate_per_jump      DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  collateral_rate    DECIMAL(10,6) NOT NULL DEFAULT 0.000000,
+  min_price          DECIMAL(16,2) NOT NULL DEFAULT 0.00,
+  updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (rate_plan_id),
+  UNIQUE KEY uniq_rate_plan (corp_id, service_class)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =========================
 -- Helpful “name first” views (UI should join these instead of showing raw IDs)
 -- =========================
 
@@ -691,4 +759,3 @@ LEFT JOIN eve_entity t_ent
     WHEN 'station' THEN 'station'
     WHEN 'structure' THEN 'structure'
     ELSE 'unknown' END;
-
