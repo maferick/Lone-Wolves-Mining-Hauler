@@ -31,13 +31,6 @@ final class Db {
     return new self($pdo);
   }
 
-    if ($name === '' || $user === '') {
-      throw new \RuntimeException('DB config missing name/user.');
-    }
-    $dsn = 'mysql:host=' . $host . ';port=' . $port . ';dbname=' . $name . ';charset=utf8mb4';
-    return new self($dsn, $user, $pass);
-  }
-
   private PDO $pdo;
 
   public function __construct(PDO $pdo) {
