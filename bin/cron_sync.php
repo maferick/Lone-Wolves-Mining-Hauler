@@ -6,7 +6,7 @@ declare(strict_types=1);
  * bin/cron_sync.php
  *
  * Usage:
- *   php bin/cron_sync.php <corp_id> <character_id_with_token>
+ *   php bin/cron_sync.php <corp_id> [character_id_with_token]
  *
  * Syncs:
  * - Universe regions/constellations/systems
@@ -21,13 +21,27 @@ use App\Services\EsiService;
 use App\Services\SsoService;
 use App\Services\UniverseDataService;
 
-if ($argc < 3) {
-  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> <character_id>\n");
+if ($argc < 2) {
+  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> [character_id]\n");
   exit(2);
 }
 
 $corpId = (int)$argv[1];
-$charId = (int)$argv[2];
+$charId = $argc >= 3 ? (int)$argv[2] : 0;
+
+if ($charId <= 0) {
+  $setting = $db->one(
+    "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'esi.cron' LIMIT 1",
+    ['cid' => $corpId]
+  );
+  $settingJson = $setting ? \App\Db\Db::jsonDecode($setting['setting_json'], []) : [];
+  $charId = (int)($settingJson['character_id'] ?? 0);
+}
+
+if ($charId <= 0) {
+  fwrite(STDERR, "No cron character configured. Provide character_id or set in admin panel.\n");
+  exit(2);
+}
 
 try {
   $esiClient = new EsiClient($db, $config);
@@ -39,6 +53,7 @@ try {
 
   $results = [
     'universe' => $universe->syncUniverse(),
+    'token_refresh' => $sso->refreshCorpTokens($corpId),
   ];
 
   try {

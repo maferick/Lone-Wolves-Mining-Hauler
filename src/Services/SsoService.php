@@ -59,6 +59,49 @@ final class SsoService
   }
 
   /**
+   * Refresh tokens for a corp if they are near expiry.
+   */
+  public function refreshCorpTokens(int $corpId, int $minValidSeconds = 300): array
+  {
+    $tokens = $this->db->select(
+      "SELECT token_id, corp_id, owner_type, owner_id, owner_name, access_token, refresh_token, expires_at, scopes, token_status
+         FROM sso_token
+        WHERE corp_id = :corp_id AND owner_type = 'character'
+        ORDER BY updated_at DESC",
+      ['corp_id' => $corpId]
+    );
+
+    $refreshed = 0;
+    $errors = [];
+
+    foreach ($tokens as $token) {
+      try {
+        $beforeExpires = (string)($token['expires_at'] ?? '');
+        $beforeAccess = (string)($token['access_token'] ?? '');
+        $after = $this->ensureAccessToken($token, $minValidSeconds);
+        $didRefresh = ($beforeExpires !== (string)($after['expires_at'] ?? ''))
+          || ($beforeAccess !== (string)($after['access_token'] ?? ''));
+        if ($didRefresh) {
+          $refreshed++;
+        }
+      } catch (\Throwable $e) {
+        $errors[] = [
+          'token_id' => (int)$token['token_id'],
+          'owner_id' => (int)$token['owner_id'],
+          'error' => $e->getMessage(),
+        ];
+      }
+    }
+
+    return [
+      'tokens' => count($tokens),
+      'refreshed' => $refreshed,
+      'errors' => count($errors),
+      'error_details' => $errors,
+    ];
+  }
+
+  /**
    * Refresh access token using refresh_token grant.
    * Requires:
    * - Basic auth header with EVE client_id:client_secret
