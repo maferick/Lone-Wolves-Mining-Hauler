@@ -133,6 +133,49 @@ try {
 
 $authCtx = Auth::context($db);
 
+// Corp branding/profile (if logged in)
+if ($db !== null && ($authCtx['corp_id'] ?? 0) > 0) {
+  $corpId = (int)$authCtx['corp_id'];
+  $corpRow = $db->one(
+    "SELECT corp_id, corp_name, ticker, alliance_id, alliance_name
+       FROM corp WHERE corp_id = :cid LIMIT 1",
+    ['cid' => $corpId]
+  );
+  $profileRow = $db->one(
+    "SELECT setting_json
+       FROM app_setting
+      WHERE corp_id = :cid AND setting_key = 'corp.profile' LIMIT 1",
+    ['cid' => $corpId]
+  );
+  $profileJson = [];
+  if ($profileRow && !empty($profileRow['setting_json'])) {
+    $decoded = json_decode((string)$profileRow['setting_json'], true);
+    if (is_array($decoded)) {
+      $profileJson = $decoded;
+    }
+  }
+
+  $corpName = trim((string)($profileJson['corp_name'] ?? ($corpRow['corp_name'] ?? '')));
+  $corpTicker = (string)($profileJson['ticker'] ?? ($corpRow['ticker'] ?? ''));
+  $allianceId = $profileJson['alliance_id'] ?? ($corpRow['alliance_id'] ?? null);
+  $allianceName = $profileJson['alliance_name'] ?? ($corpRow['alliance_name'] ?? null);
+
+  $config['corp'] = [
+    'id' => $corpId,
+    'name' => $corpName !== '' ? $corpName : ($corpRow['corp_name'] ?? null),
+    'ticker' => $corpTicker !== '' ? $corpTicker : ($corpRow['ticker'] ?? null),
+    'alliance_id' => $allianceId !== '' ? $allianceId : null,
+    'alliance_name' => $allianceName !== '' ? $allianceName : null,
+  ];
+
+  if (!empty($config['corp']['name'])) {
+    $config['app']['name'] = (string)$config['corp']['name'];
+  }
+}
+
+$GLOBALS['config'] = $config;
+$GLOBALS['authCtx'] = $authCtx;
+
 // Service container (lightweight)
 $services = [];
 

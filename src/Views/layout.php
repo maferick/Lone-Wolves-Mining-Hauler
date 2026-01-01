@@ -5,7 +5,13 @@ declare(strict_types=1);
  * src/Views/layout.php
  * Dark, modern 2026 look & feel.
  */
-$appName = htmlspecialchars($appName ?? 'Corp Hauling', ENT_QUOTES, 'UTF-8');
+$authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
+$isLoggedIn = !empty($authCtx['user_id']);
+$canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
+$displayName = (string)($authCtx['display_name'] ?? 'Guest');
+$corpId = (int)($config['corp']['id'] ?? 0);
+$corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/logo?size=64" : null;
+$appName = htmlspecialchars($appName ?? ($config['app']['name'] ?? 'Corp Hauling'), ENT_QUOTES, 'UTF-8');
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
@@ -16,6 +22,9 @@ $body = $body ?? '';
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
   <title><?= $title ?></title>
+  <?php if ($corpLogoUrl): ?>
+    <link rel="icon" href="<?= htmlspecialchars($corpLogoUrl, ENT_QUOTES, 'UTF-8') ?>" />
+  <?php endif; ?>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -25,7 +34,11 @@ $body = $body ?? '';
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-dot"></div>
+        <?php if ($corpLogoUrl): ?>
+          <img class="brand-logo" src="<?= htmlspecialchars($corpLogoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="Corp logo" />
+        <?php else: ?>
+          <div class="brand-dot"></div>
+        <?php endif; ?>
         <div class="brand-text">
           <div class="brand-name"><?= $appName ?></div>
           <div class="brand-sub">In-house logistics • routing • contracts • dispatch</div>
@@ -34,13 +47,22 @@ $body = $body ?? '';
 
       <nav class="nav">
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/login/">Login</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+        <?php if ($isLoggedIn): ?>
+          <?php if ($canAdmin): ?>
+            <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+          <?php endif; ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
+        <?php else: ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/login/">Login</a>
+        <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/health/">Health</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/docs/">Docs</a>
       </nav>
 
       <div class="topbar-actions">
+        <?php if ($isLoggedIn): ?>
+          <span class="topbar-user">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
+        <?php endif; ?>
         <span class="pill">2026</span>
         <span class="pill subtle">Dark Ops</span>
       </div>

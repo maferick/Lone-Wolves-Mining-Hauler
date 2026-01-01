@@ -2,6 +2,10 @@
 declare(strict_types=1);
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+$authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
+$isLoggedIn = !empty($authCtx['user_id']);
+$canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
+$displayName = (string)($authCtx['display_name'] ?? 'Guest');
 
 ob_start();
 ?>
@@ -10,6 +14,9 @@ ob_start();
     <div class="card-header">
       <h2>Operational Dashboard</h2>
       <p class="muted">Single include pattern: config → db → auth → services.</p>
+      <?php if ($isLoggedIn): ?>
+        <div class="pill subtle" style="margin-top:10px; display:inline-flex;">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></div>
+      <?php endif; ?>
     </div>
     <div class="kpi-row">
       <div class="kpi">
@@ -26,8 +33,14 @@ ob_start();
       </div>
     </div>
     <div class="card-footer">
-      <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Login (EVE SSO)</a>
-      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+      <?php if ($isLoggedIn): ?>
+        <?php if ($canAdmin): ?>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+        <?php endif; ?>
+        <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
+      <?php else: ?>
+        <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Login (EVE SSO)</a>
+      <?php endif; ?>
       <a class="btn ghost" href="<?= ($basePath ?: '') ?>/docs/">Docs</a>
       <a class="btn ghost" href="<?= ($basePath ?: '') ?>/health/">Health</a>
     </div>
