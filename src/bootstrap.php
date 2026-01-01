@@ -27,6 +27,9 @@ spl_autoload_register(function (string $class): void {
   if (file_exists($file)) require_once $file;
 });
 
+// Ensure DB operations pass through the canonical functionsdb.php shim.
+require_once __DIR__ . '/Db/functionsdb.php';
+
 // Load .env if present (simple parser)
 $envPath = __DIR__ . '/../.env';
 if (file_exists($envPath)) {
