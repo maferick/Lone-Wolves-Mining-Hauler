@@ -66,8 +66,22 @@ final class EsiClient
     if ($cacheEnabled) {
       $cached = $this->db->esiCacheGet($corpId, $cacheKeyBin);
       if ($cached['hit'] && $cached['json'] !== null) {
-        // Fast-path: if TTL still valid and we don't want revalidate, return immediately
-        // We still revalidate with ETag to be safe; if you want ultra-low latency, add a config flag.
+        $expiresAt = $cached['expires_at'] ?? null;
+        $statusCode = isset($cached['status_code']) ? (int)$cached['status_code'] : 0;
+        if ($expiresAt && $statusCode > 0 && $statusCode < 400) {
+          $expiresTs = strtotime((string)$expiresAt);
+          if ($expiresTs !== false && $expiresTs > time()) {
+            return [
+              'ok' => true,
+              'status' => $statusCode,
+              'headers' => [],
+              'json' => $this->safeDecode($cached['json']),
+              'raw' => $cached['json'],
+              'from_cache' => true,
+            ];
+          }
+        }
+        // Otherwise, revalidate with ETag when available.
       }
     }
 
