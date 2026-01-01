@@ -14,6 +14,8 @@ $corpId = (int)($authCtx['corp_id'] ?? 0);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • ESI';
+$returnPath = ($basePath ?: '') . '/admin/esi/';
+$ssoUrl = ($basePath ?: '') . '/login/?mode=esi&start=1&return=' . urlencode($returnPath);
 
 $msg = null;
 $cronCharId = 0;
@@ -106,7 +108,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
 
     <div style="margin-bottom:12px;">
-      <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Add/Refresh Token (SSO)</a>
+      <a class="sso-button" href="<?= htmlspecialchars($ssoUrl, ENT_QUOTES, 'UTF-8') ?>">
+        <img src="https://web.ccpgamescdn.com/eveonlineassets/developers/eve-sso-login-black-small.png" alt="Log in with EVE Online" />
+      </a>
     </div>
 
     <table class="table">

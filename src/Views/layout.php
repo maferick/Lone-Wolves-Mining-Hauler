@@ -49,7 +49,9 @@ $body = $body ?? '';
       <nav class="nav">
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Home</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/operations">Operations</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/#quote">Quote</a>
+        <?php if ($isLoggedIn): ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/#quote">Quote</a>
+        <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>

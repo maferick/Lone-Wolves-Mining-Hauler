@@ -17,6 +17,8 @@ use App\Db\Db;
 
 $code = $_GET['code'] ?? '';
 $state = $_GET['state'] ?? '';
+$mode = $_SESSION['sso_mode'] ?? 'member';
+$returnTo = $_SESSION['sso_return_to'] ?? '';
 
 if ($db === null || !isset($services['sso_login'], $services['eve_public'])) {
   http_response_code(503);
@@ -37,6 +39,7 @@ if (($_SESSION['sso_state'] ?? '') !== $state) {
 }
 
 unset($_SESSION['sso_state']);
+unset($_SESSION['sso_mode'], $_SESSION['sso_return_to']);
 
 try {
   $tokens = $services['sso_login']->exchangeCode($code);
@@ -71,9 +74,10 @@ try {
 
   $expiresIn = (int)($tokens['expires_in'] ?? 0);
   $expiresAt = gmdate('Y-m-d H:i:s', time() + max(60, $expiresIn));
+  $storeToken = $mode === 'esi';
 
   $isAdmin = false;
-  $db->tx(function(Db $db) use (&$isAdmin, $corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes) {
+  $db->tx(function(Db $db) use (&$isAdmin, $corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes, $storeToken) {
 
     // Ensure corp row
     $db->execute(
@@ -164,29 +168,31 @@ try {
       );
     }
 
-    // Upsert SSO token (owner_type=character)
-    $db->execute(
-      "INSERT INTO sso_token (corp_id, owner_type, owner_id, owner_name, access_token, refresh_token, expires_at, scopes, token_status)
-       VALUES (:cid, 'character', :oid, :oname, :at, :rt, :exp, :scopes, 'ok')
-       ON DUPLICATE KEY UPDATE
-         owner_name=VALUES(owner_name),
-         access_token=VALUES(access_token),
-         refresh_token=VALUES(refresh_token),
-         expires_at=VALUES(expires_at),
-         scopes=VALUES(scopes),
-         token_status='ok',
-         last_error=NULL,
-         last_refreshed_at=UTC_TIMESTAMP()",
-      [
-        'cid'=>$corpId,
-        'oid'=>$characterId,
-        'oname'=>$characterName,
-        'at'=>$tokens['access_token'],
-        'rt'=>$tokens['refresh_token'],
-        'exp'=>$expiresAt,
-        'scopes'=>$scopes,
-      ]
-    );
+    if ($storeToken) {
+      // Upsert SSO token (owner_type=character)
+      $db->execute(
+        "INSERT INTO sso_token (corp_id, owner_type, owner_id, owner_name, access_token, refresh_token, expires_at, scopes, token_status)
+         VALUES (:cid, 'character', :oid, :oname, :at, :rt, :exp, :scopes, 'ok')
+         ON DUPLICATE KEY UPDATE
+           owner_name=VALUES(owner_name),
+           access_token=VALUES(access_token),
+           refresh_token=VALUES(refresh_token),
+           expires_at=VALUES(expires_at),
+           scopes=VALUES(scopes),
+           token_status='ok',
+           last_error=NULL,
+           last_refreshed_at=UTC_TIMESTAMP()",
+        [
+          'cid'=>$corpId,
+          'oid'=>$characterId,
+          'oname'=>$characterName,
+          'at'=>$tokens['access_token'],
+          'rt'=>$tokens['refresh_token'],
+          'exp'=>$expiresAt,
+          'scopes'=>$scopes,
+        ]
+      );
+    }
 
     // Assign roles:
     // - if first user ever, admin
@@ -250,6 +256,11 @@ try {
   // Redirect to admin for admins; otherwise return to dashboard.
   $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
   $redirectPath = $isAdmin ? '/admin/' : '/';
+  $returnTo = (string)$returnTo;
+  if ($returnTo !== '' && str_starts_with($returnTo, '/') && !str_starts_with($returnTo, '//')) {
+    header('Location: ' . $returnTo);
+    exit;
+  }
   header('Location: ' . ($base ?: '') . $redirectPath);
   exit;
 
