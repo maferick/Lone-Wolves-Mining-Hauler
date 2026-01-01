@@ -238,6 +238,11 @@ final class PricingService
 
   private function chooseShipClass(float $volume): array
   {
+    $maxVolume = max(self::SHIP_CLASSES);
+    if ($volume > $maxVolume) {
+      throw new \InvalidArgumentException('oversized_volume:' . $maxVolume);
+    }
+
     foreach (self::SHIP_CLASSES as $class => $maxVolume) {
       if ($volume <= $maxVolume) {
         return [
