@@ -38,6 +38,10 @@ return [
       'sso_verify' => getenv('SSO_VERIFY_URL') ?: 'https://login.eveonline.com/oauth/verify',
     ],
   ],
+  'sde' => [
+    'enabled' => (getenv('SDE_ENABLED') ?: '0') === '1',
+    'path' => getenv('SDE_PATH') ?: '',
+  ],
 
   'sso' => [
     'scopes' => array_values(array_filter(explode(' ', getenv('EVE_SCOPES') ?: 'esi-contracts.read_corporation_contracts.v1 esi-corporations.read_structures.v1'))),
