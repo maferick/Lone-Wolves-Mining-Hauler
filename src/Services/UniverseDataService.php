@@ -22,6 +22,9 @@ final class UniverseDataService
 
   public function syncUniverse(int $ttlSeconds = 86400): array
   {
+    if ($this->isSdeEnabled() && $this->hasSdeUniverseFiles()) {
+      return $this->syncUniverseFromSde();
+    }
     $regionIds = $this->fetchIdList('/v1/universe/regions/', $ttlSeconds);
     $regionUpserts = 0;
     foreach ($regionIds as $regionId) {
@@ -161,6 +164,9 @@ final class UniverseDataService
 
   public function syncStargateGraph(int $ttlSeconds = 86400, bool $truncate = true): array
   {
+    if ($this->isSdeEnabled() && $this->hasSdeGraphFiles()) {
+      return $this->syncStargateGraphFromSde($truncate);
+    }
     $results = [
       'map_system_count' => 0,
       'map_edge_count' => 0,
@@ -269,6 +275,368 @@ final class UniverseDataService
     $results['map_edge_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_edge");
 
     return $results;
+  }
+
+  private function syncUniverseFromSde(): array
+  {
+    $results = [
+      'regions_fetched' => 0,
+      'constellations_fetched' => 0,
+      'systems_fetched' => 0,
+      'source' => 'sde',
+    ];
+
+    $regionFile = $this->sdePath('mapRegions.csv');
+    $constellationFile = $this->sdePath('mapConstellations.csv');
+    $systemFile = $this->sdePath('mapSolarSystems.csv');
+
+    $results['regions_fetched'] = $this->importSdeRegions($regionFile);
+    $results['constellations_fetched'] = $this->importSdeConstellations($constellationFile);
+    $results['systems_fetched'] = $this->importSdeSystems($systemFile);
+
+    return $results;
+  }
+
+  private function syncStargateGraphFromSde(bool $truncate): array
+  {
+    $results = [
+      'map_system_count' => 0,
+      'map_edge_count' => 0,
+      'edges_discovered' => 0,
+      'source' => 'sde',
+    ];
+
+    if ($truncate) {
+      try {
+        $this->db->execute("TRUNCATE map_edge");
+        $this->db->execute("TRUNCATE map_system");
+      } catch (Throwable $e) {
+        $this->db->execute("DELETE FROM map_edge");
+        $this->db->execute("DELETE FROM map_system");
+      }
+    }
+
+    $systemFile = $this->sdePath('mapSolarSystems.csv');
+    $jumpFile = $this->sdePath('mapSolarSystemJumps.csv');
+
+    $this->importSdeMapSystems($systemFile);
+    $results['map_system_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_system");
+
+    $results['edges_discovered'] = $this->importSdeMapEdges($jumpFile);
+    $results['map_edge_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_edge");
+
+    return $results;
+  }
+
+  private function importSdeRegions(string $filePath): int
+  {
+    $count = 0;
+    $batch = [];
+    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+      $regionName = trim((string)$this->pickSdeValue($row, ['regionName', 'region_name']));
+      if ($regionId <= 0 || $regionName === '') {
+        return;
+      }
+      $batch[] = ['region_id' => $regionId, 'region_name' => $regionName];
+      $count++;
+      if (count($batch) >= 500) {
+        $this->flushRegionBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushRegionBatch($batch);
+    }
+    return $count;
+  }
+
+  private function flushRegionBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $row) {
+      $placeholders[] = "(:region_id_{$idx}, :region_name_{$idx})";
+      $params["region_id_{$idx}"] = $row['region_id'];
+      $params["region_name_{$idx}"] = $row['region_name'];
+    }
+    $this->db->execute(
+      "INSERT INTO eve_region (region_id, region_name)
+       VALUES " . implode(',', $placeholders) . "
+       ON DUPLICATE KEY UPDATE region_name=VALUES(region_name), updated_at=UTC_TIMESTAMP()",
+      $params
+    );
+  }
+
+  private function importSdeConstellations(string $filePath): int
+  {
+    $count = 0;
+    $batch = [];
+    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+      $constellationName = trim((string)$this->pickSdeValue($row, ['constellationName', 'constellation_name']));
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+      if ($constellationId <= 0 || $regionId <= 0 || $constellationName === '') {
+        return;
+      }
+      $batch[] = [
+        'constellation_id' => $constellationId,
+        'constellation_name' => $constellationName,
+        'region_id' => $regionId,
+      ];
+      $count++;
+      if (count($batch) >= 500) {
+        $this->flushConstellationBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushConstellationBatch($batch);
+    }
+    return $count;
+  }
+
+  private function flushConstellationBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $row) {
+      $placeholders[] = "(:constellation_id_{$idx}, :region_id_{$idx}, :constellation_name_{$idx})";
+      $params["constellation_id_{$idx}"] = $row['constellation_id'];
+      $params["region_id_{$idx}"] = $row['region_id'];
+      $params["constellation_name_{$idx}"] = $row['constellation_name'];
+    }
+    $this->db->execute(
+      "INSERT INTO eve_constellation (constellation_id, region_id, constellation_name)
+       VALUES " . implode(',', $placeholders) . "
+       ON DUPLICATE KEY UPDATE
+         region_id=VALUES(region_id),
+         constellation_name=VALUES(constellation_name),
+         updated_at=UTC_TIMESTAMP()",
+      $params
+    );
+  }
+
+  private function importSdeSystems(string $filePath): int
+  {
+    $count = 0;
+    $batch = [];
+    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID']);
+      $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+      $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
+      if ($systemId <= 0 || $constellationId <= 0 || $systemName === '') {
+        return;
+      }
+      $batch[] = [
+        'system_id' => $systemId,
+        'constellation_id' => $constellationId,
+        'system_name' => $systemName,
+        'security_status' => $security,
+      ];
+      $count++;
+      if (count($batch) >= 500) {
+        $this->flushSystemBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushSystemBatch($batch);
+    }
+    return $count;
+  }
+
+  private function flushSystemBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $row) {
+      $placeholders[] = "(:system_id_{$idx}, :constellation_id_{$idx}, :system_name_{$idx}, :security_status_{$idx}, 1)";
+      $params["system_id_{$idx}"] = $row['system_id'];
+      $params["constellation_id_{$idx}"] = $row['constellation_id'];
+      $params["system_name_{$idx}"] = $row['system_name'];
+      $params["security_status_{$idx}"] = $row['security_status'];
+    }
+    $this->db->execute(
+      "INSERT INTO eve_system (system_id, constellation_id, system_name, security_status, has_security)
+       VALUES " . implode(',', $placeholders) . "
+       ON DUPLICATE KEY UPDATE
+         constellation_id=VALUES(constellation_id),
+         system_name=VALUES(system_name),
+         security_status=VALUES(security_status),
+         has_security=VALUES(has_security),
+         updated_at=UTC_TIMESTAMP()",
+      $params
+    );
+  }
+
+  private function importSdeMapSystems(string $filePath): void
+  {
+    $batch = [];
+    $this->readSdeCsv($filePath, function (array $row) use (&$batch) {
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID']);
+      $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+      $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
+      if ($systemId <= 0 || $regionId <= 0 || $constellationId <= 0 || $systemName === '') {
+        return;
+      }
+      $batch[] = [
+        'system_id' => $systemId,
+        'system_name' => $systemName,
+        'security' => $security,
+        'region_id' => $regionId,
+        'constellation_id' => $constellationId,
+      ];
+      if (count($batch) >= 500) {
+        $this->flushMapSystemBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushMapSystemBatch($batch);
+    }
+  }
+
+  private function flushMapSystemBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $row) {
+      $placeholders[] = "(:system_id_{$idx}, :system_name_{$idx}, :security_{$idx}, :region_id_{$idx}, :constellation_id_{$idx})";
+      $params["system_id_{$idx}"] = $row['system_id'];
+      $params["system_name_{$idx}"] = $row['system_name'];
+      $params["security_{$idx}"] = $row['security'];
+      $params["region_id_{$idx}"] = $row['region_id'];
+      $params["constellation_id_{$idx}"] = $row['constellation_id'];
+    }
+    $this->db->execute(
+      "INSERT INTO map_system (system_id, system_name, security, region_id, constellation_id)
+       VALUES " . implode(',', $placeholders) . "
+       ON DUPLICATE KEY UPDATE
+         system_name=VALUES(system_name),
+         security=VALUES(security),
+         region_id=VALUES(region_id),
+         constellation_id=VALUES(constellation_id)",
+      $params
+    );
+  }
+
+  private function importSdeMapEdges(string $filePath): int
+  {
+    $count = 0;
+    $batch = [];
+    $this->readSdeCsv($filePath, function (array $row) use (&$batch, &$count) {
+      $fromId = (int)$this->pickSdeValue($row, ['fromSolarSystemID', 'from_system_id', 'fromSolarSystemId']);
+      $toId = (int)$this->pickSdeValue($row, ['toSolarSystemID', 'to_system_id', 'toSolarSystemId']);
+      if ($fromId <= 0 || $toId <= 0 || $fromId === $toId) {
+        return;
+      }
+      $from = min($fromId, $toId);
+      $to = max($fromId, $toId);
+      $batch[] = [$from, $to];
+      $count++;
+      if (count($batch) >= 1000) {
+        $this->flushMapEdgeBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushMapEdgeBatch($batch);
+    }
+    return $count;
+  }
+
+  private function flushMapEdgeBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $edge) {
+      $placeholders[] = "(:from_{$idx}, :to_{$idx})";
+      $params["from_{$idx}"] = $edge[0];
+      $params["to_{$idx}"] = $edge[1];
+    }
+    $this->db->execute(
+      "INSERT IGNORE INTO map_edge (from_system_id, to_system_id)
+       VALUES " . implode(',', $placeholders),
+      $params
+    );
+  }
+
+  private function isSdeEnabled(): bool
+  {
+    return (bool)($this->config['sde']['enabled'] ?? false);
+  }
+
+  private function sdePath(string $fileName): string
+  {
+    $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+    return $basePath === '' ? $fileName : $basePath . DIRECTORY_SEPARATOR . $fileName;
+  }
+
+  private function hasSdeUniverseFiles(): bool
+  {
+    return $this->hasSdeFile('mapRegions.csv')
+      && $this->hasSdeFile('mapConstellations.csv')
+      && $this->hasSdeFile('mapSolarSystems.csv');
+  }
+
+  private function hasSdeGraphFiles(): bool
+  {
+    return $this->hasSdeFile('mapSolarSystems.csv')
+      && $this->hasSdeFile('mapSolarSystemJumps.csv');
+  }
+
+  private function hasSdeFile(string $fileName): bool
+  {
+    $path = $this->sdePath($fileName);
+    return $path !== '' && is_file($path) && is_readable($path);
+  }
+
+  private function readSdeCsv(string $filePath, callable $handler): void
+  {
+    $handle = fopen($filePath, 'rb');
+    if ($handle === false) {
+      throw new \RuntimeException("Failed to open SDE file: {$filePath}");
+    }
+
+    $headers = fgetcsv($handle);
+    if (!is_array($headers)) {
+      fclose($handle);
+      throw new \RuntimeException("Invalid SDE CSV header: {$filePath}");
+    }
+    $headerMap = [];
+    foreach ($headers as $idx => $name) {
+      $key = trim((string)$name);
+      if ($key !== '') {
+        $headerMap[$key] = $idx;
+      }
+    }
+
+    while (($row = fgetcsv($handle)) !== false) {
+      if ($row === [null] || $row === []) {
+        continue;
+      }
+      $assoc = [];
+      foreach ($headerMap as $name => $idx) {
+        $assoc[$name] = $row[$idx] ?? null;
+      }
+      $handler($assoc);
+    }
+
+    fclose($handle);
+  }
+
+  private function pickSdeValue(array $row, array $keys, $default = null)
+  {
+    foreach ($keys as $key) {
+      if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') {
+        return $row[$key];
+      }
+    }
+    return $default;
   }
 
   private function fetchIdList(string $path, int $ttlSeconds): array
