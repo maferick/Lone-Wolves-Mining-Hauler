@@ -53,6 +53,10 @@ final class HaulRequestService
     }
 
     $shipClass = (string)($breakdown['ship_class']['service_class'] ?? '');
+    $routePolicy = (string)($route['profile'] ?? $route['route_profile'] ?? '');
+    if ($routePolicy === '') {
+      $routePolicy = $this->normalizeRoutePolicy((string)($quote['profile'] ?? 'balanced'));
+    }
 
     $requestId = $this->db->insert('haul_request', [
       'corp_id' => $corpId,
@@ -72,7 +76,7 @@ final class HaulRequestService
       'quote_id' => (int)$quote['quote_id'],
       'ship_class' => $shipClass !== '' ? $shipClass : null,
       'expected_jumps' => (int)($route['jumps'] ?? 0),
-      'route_policy' => (string)($quote['profile'] ?? 'normal'),
+      'route_policy' => $routePolicy,
       'route_system_ids' => $routeIds ? Db::jsonEncode($routeIds) : null,
       'price_breakdown_json' => Db::jsonEncode($breakdown),
       'status' => 'awaiting_contract',
@@ -95,5 +99,18 @@ final class HaulRequestService
       'route' => $route,
       'breakdown' => $breakdown,
     ];
+  }
+
+  private function normalizeRoutePolicy(string $policy): string
+  {
+    $normalized = strtolower(trim($policy));
+    if (in_array($normalized, ['normal', 'high'], true)) {
+      return 'balanced';
+    }
+    $allowed = ['shortest', 'balanced', 'safest', 'avoid_low', 'avoid_null', 'custom'];
+    if (!in_array($normalized, $allowed, true)) {
+      return 'balanced';
+    }
+    return $normalized;
   }
 }
