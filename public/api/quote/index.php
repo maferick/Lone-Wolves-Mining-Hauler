@@ -8,6 +8,13 @@ use App\Db\Db;
 
 api_require_key();
 
+if ($db === null || !isset($services['pricing'])) {
+  api_send_json([
+    'ok' => false,
+    'error' => 'database_unavailable',
+  ], 503);
+}
+
 $payload = api_read_json();
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
@@ -42,7 +49,13 @@ try {
     'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
     'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
     'profile' => $payload['profile'] ?? $defaultProfile,
-  ], $corpId);
+  ], $corpId, [
+    'corp_id' => $authCtx['corp_id'] ?? null,
+    'actor_user_id' => $authCtx['user_id'] ?? null,
+    'actor_character_id' => $authCtx['character_id'] ?? null,
+    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+  ]);
 
   api_send_json([
     'ok' => true,
@@ -63,6 +76,7 @@ try {
     'reason' => $details['reason'] ?? 'no_viable_route',
     'blocked_count_hard' => $details['blocked_count_hard'] ?? null,
     'blocked_count_soft' => $details['blocked_count_soft'] ?? null,
+    'message' => $e->getMessage(),
   ];
   error_log('Route failure: ' . json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
   api_send_json([

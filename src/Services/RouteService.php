@@ -10,6 +10,7 @@ final class RouteService
   private Db $db;
   private array $config;
   private int $cacheTtl;
+  private ?EsiRouteService $esiRouteService;
 
   private const PROFILE_PENALTIES = [
     'shortest' => ['low' => 0.0, 'null' => 0.0],
@@ -28,14 +29,20 @@ final class RouteService
     'health' => [],
   ];
 
-  public function __construct(Db $db, array $config = [])
+  public function __construct(Db $db, array $config = [], ?EsiRouteService $esiRouteService = null)
   {
     $this->db = $db;
     $this->config = $config;
     $this->cacheTtl = (int)($config['routing']['cache_ttl_seconds'] ?? 300);
+    $this->esiRouteService = $esiRouteService;
   }
 
-  public function findRoute(string $fromSystemName, string $toSystemName, string $profile = 'shortest'): array
+  public function findRoute(
+    string $fromSystemName,
+    string $toSystemName,
+    string $profile = 'shortest',
+    array $context = []
+  ): array
   {
     $graph = $this->loadGraph();
     $graphHealth = $graph['health'] ?? [];
@@ -60,6 +67,8 @@ final class RouteService
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();
     $dnfCounts = $this->countDnfRules($dnf);
+    $avoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
+    $avoidCount = count($avoidSystemIds);
 
     if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf) || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf)) {
       throw new RouteException('Pickup or destination blocked by DNF rules.', [
@@ -82,12 +91,16 @@ final class RouteService
           'blocked_count_soft' => $dnfCounts['soft'],
         ]);
       }
-      throw new RouteException('No viable route found.', [
-        'reason' => 'no_viable_route',
-        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
-        'blocked_count_hard' => $dnfCounts['hard'],
-        'blocked_count_soft' => $dnfCounts['soft'],
-      ]);
+      return $this->fallbackToCcpRoute(
+        $fromId,
+        $toId,
+        $profile,
+        $dnf,
+        $dnfCounts,
+        $avoidSystemIds,
+        $avoidCount,
+        $context
+      );
     }
 
     $pathIds = $this->buildPath($fromId, $toId, $result['prev']);
@@ -119,6 +132,9 @@ final class RouteService
       'blocked_count_hard' => $dnfCounts['hard'],
       'blocked_count_soft' => $dnfCounts['soft'],
       'profile' => $profile,
+      'route_profile' => $profile,
+      'route_source' => 'local',
+      'avoid_count' => $avoidCount,
     ];
   }
 
@@ -659,5 +675,408 @@ final class RouteService
 
     $health['ready'] = true;
     return $health;
+  }
+
+  private function fallbackToCcpRoute(
+    int $fromId,
+    int $toId,
+    string $profile,
+    array $dnf,
+    array $dnfCounts,
+    array $avoidSystemIds,
+    int $avoidCount,
+    array $context
+  ): array {
+    if ($this->esiRouteService === null) {
+      throw new RouteException('No viable route found (local+CCP)', [
+        'reason' => 'no_viable_route',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
+    }
+
+    $corpId = isset($context['corp_id']) ? (int)$context['corp_id'] : null;
+    $flag = $this->mapProfileToCcpFlag($profile);
+
+    try {
+      $routeIds = $this->esiRouteService->fetchRouteSystemIds($fromId, $toId, $flag, $avoidSystemIds, $corpId);
+    } catch (\Throwable $e) {
+      throw new RouteException('CCP route unavailable, and local graph had no route', [
+        'reason' => 'ccp_route_unavailable',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+        'esi_error' => $e->getMessage(),
+      ]);
+    }
+
+    if (empty($routeIds)) {
+      throw new RouteException('No viable route found (local+CCP)', [
+        'reason' => 'no_viable_route',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
+    }
+
+    $systemLookup = $this->loadSystemDetails($routeIds);
+    if ($this->routeViolatesHardDnf($routeIds, $systemLookup, $dnf)) {
+      error_log('CCP route violated hard DNF rules.');
+      throw new RouteException('No viable route found (local+CCP)', [
+        'reason' => 'ccp_route_contains_hard_dnf',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'blocked_count_hard' => $dnfCounts['hard'],
+        'blocked_count_soft' => $dnfCounts['soft'],
+      ]);
+    }
+
+    $path = [];
+    foreach ($routeIds as $systemId) {
+      $system = $systemLookup[$systemId] ?? null;
+      if ($system === null) {
+        $path[] = [
+          'system_id' => $systemId,
+          'system_name' => 'Unknown',
+          'security' => 0.0,
+        ];
+        continue;
+      }
+      $path[] = [
+        'system_id' => $systemId,
+        'system_name' => $system['system_name'],
+        'security' => $system['security'],
+      ];
+    }
+
+    $counts = $this->countSecurityComposition($routeIds, $systemLookup);
+
+    if ($this->isBackfillEnabled($corpId)) {
+      $this->backfillRouteEdges($routeIds, $systemLookup, $context);
+    }
+
+    return [
+      'path' => $path,
+      'jumps' => max(0, count($routeIds) - 1),
+      'hs_count' => $counts['high'],
+      'ls_count' => $counts['low'],
+      'ns_count' => $counts['null'],
+      'used_soft_dnf' => false,
+      'used_soft_dnf_rules' => [],
+      'blocked_count_hard' => $dnfCounts['hard'],
+      'blocked_count_soft' => $dnfCounts['soft'],
+      'profile' => $profile,
+      'route_profile' => $profile,
+      'route_source' => 'ccp',
+      'avoid_count' => $avoidCount,
+    ];
+  }
+
+  private function mapProfileToCcpFlag(string $profile): string
+  {
+    return match ($profile) {
+      'balanced', 'safest' => 'secure',
+      'unsafe' => 'insecure',
+      default => 'shortest',
+    };
+  }
+
+  private function collectHardAvoidSystemIds(array $dnf, array $systems): array
+  {
+    $avoid = [];
+    foreach ($dnf['hard']['system'] ?? [] as $systemId => $_rule) {
+      $avoid[] = (int)$systemId;
+    }
+
+    $constellations = array_keys($dnf['hard']['constellation'] ?? []);
+    $regions = array_keys($dnf['hard']['region'] ?? []);
+
+    if (!empty($constellations) || !empty($regions)) {
+      foreach ($systems as $systemId => $system) {
+        if (!empty($constellations) && in_array((int)$system['constellation_id'], $constellations, true)) {
+          $avoid[] = (int)$systemId;
+        }
+        if (!empty($regions) && in_array((int)$system['region_id'], $regions, true)) {
+          $avoid[] = (int)$systemId;
+        }
+      }
+    }
+
+    return array_values(array_unique($avoid));
+  }
+
+  private function loadSystemDetails(array $systemIds): array
+  {
+    $systemIds = array_values(array_unique(array_map('intval', $systemIds)));
+    if (empty($systemIds)) {
+      return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($systemIds), '?'));
+    $mapRows = $this->db->select(
+      "SELECT system_id, system_name, security, region_id, constellation_id
+         FROM map_system
+        WHERE system_id IN ({$placeholders})",
+      $systemIds
+    );
+
+    $details = [];
+    foreach ($mapRows as $row) {
+      $systemId = (int)$row['system_id'];
+      $details[$systemId] = [
+        'system_id' => $systemId,
+        'system_name' => (string)$row['system_name'],
+        'security' => (float)$row['security'],
+        'region_id' => (int)$row['region_id'],
+        'constellation_id' => (int)$row['constellation_id'],
+      ];
+    }
+
+    $missing = array_diff($systemIds, array_keys($details));
+    if (!empty($missing)) {
+      $placeholders = implode(',', array_fill(0, count($missing), '?'));
+      $eveRows = $this->db->select(
+        "SELECT s.system_id,
+                s.system_name,
+                s.security_status AS security,
+                c.region_id,
+                s.constellation_id
+           FROM eve_system s
+           JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+          WHERE s.system_id IN ({$placeholders})",
+        array_values($missing)
+      );
+      foreach ($eveRows as $row) {
+        $systemId = (int)$row['system_id'];
+        $details[$systemId] = [
+          'system_id' => $systemId,
+          'system_name' => (string)$row['system_name'],
+          'security' => (float)$row['security'],
+          'region_id' => (int)$row['region_id'],
+          'constellation_id' => (int)$row['constellation_id'],
+        ];
+      }
+    }
+
+    $missing = array_diff($systemIds, array_keys($details));
+    if (!empty($missing)) {
+      $placeholders = implode(',', array_fill(0, count($missing), '?'));
+      $entityRows = $this->db->select(
+        "SELECT entity_id, name
+           FROM eve_entity
+          WHERE entity_type = 'system' AND entity_id IN ({$placeholders})",
+        array_values($missing)
+      );
+      foreach ($entityRows as $row) {
+        $systemId = (int)$row['entity_id'];
+        $details[$systemId] = [
+          'system_id' => $systemId,
+          'system_name' => (string)$row['name'],
+          'security' => 0.0,
+          'region_id' => null,
+          'constellation_id' => null,
+        ];
+      }
+    }
+
+    $missing = array_diff($systemIds, array_keys($details));
+    foreach ($missing as $systemId) {
+      $details[$systemId] = [
+        'system_id' => (int)$systemId,
+        'system_name' => 'Unknown',
+        'security' => 0.0,
+        'region_id' => null,
+        'constellation_id' => null,
+      ];
+    }
+
+    return $details;
+  }
+
+  private function routeViolatesHardDnf(array $routeIds, array $systems, array $dnf): bool
+  {
+    foreach ($routeIds as $systemId) {
+      if ($this->isSystemHardBlocked($systemId, $systems, $dnf)) {
+        return true;
+      }
+    }
+
+    $count = count($routeIds);
+    for ($i = 1; $i < $count; $i++) {
+      if ($this->isEdgeHardBlocked($routeIds[$i - 1], $routeIds[$i], $dnf)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private function isBackfillEnabled(?int $corpId): bool
+  {
+    $settingRow = null;
+    if ($corpId !== null) {
+      $settingRow = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.backfill_edges' LIMIT 1",
+        ['cid' => $corpId]
+      );
+    }
+    if ($settingRow === null) {
+      $settingRow = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.backfill_edges' LIMIT 1"
+      );
+    }
+
+    if ($settingRow && !empty($settingRow['setting_json'])) {
+      $decoded = Db::jsonDecode((string)$settingRow['setting_json'], null);
+      if (is_bool($decoded)) {
+        return $decoded;
+      }
+      if (is_array($decoded) && isset($decoded['enabled'])) {
+        return (bool)$decoded['enabled'];
+      }
+    }
+
+    return ($this->config['app']['env'] ?? 'dev') === 'dev';
+  }
+
+  private function backfillRouteEdges(array $routeIds, array $systems, array $context): void
+  {
+    try {
+      $this->db->tx(function (Db $db) use ($routeIds, $systems, $context) {
+        $this->backfillSystems($db, $routeIds, $systems, $context);
+        $this->backfillEdges($db, $routeIds, $context);
+      });
+    } catch (\Throwable $e) {
+      error_log('Route backfill failed: ' . $e->getMessage());
+    }
+
+    self::$graphCache['loaded_at'] = 0;
+  }
+
+  private function backfillSystems(Db $db, array $routeIds, array $systems, array $context): void
+  {
+    $existing = $db->select(
+      "SELECT system_id FROM map_system WHERE system_id IN (" . implode(',', array_fill(0, count($routeIds), '?')) . ")",
+      array_values($routeIds)
+    );
+    $existingIds = array_map(fn($row) => (int)$row['system_id'], $existing);
+    $missing = array_values(array_diff($routeIds, $existingIds));
+    if (empty($missing)) {
+      return;
+    }
+
+    $columns = $this->getMapSystemColumns();
+    $baseColumns = array_intersect(['system_id', 'system_name', 'security', 'region_id', 'constellation_id', 'updated_at'], $columns);
+
+    foreach ($missing as $systemId) {
+      $system = $systems[$systemId] ?? [
+        'system_name' => 'Unknown',
+        'security' => 0.0,
+        'region_id' => null,
+        'constellation_id' => null,
+      ];
+
+      $data = [
+        'system_id' => $systemId,
+        'system_name' => (string)($system['system_name'] ?? 'Unknown'),
+        'security' => (float)($system['security'] ?? 0.0),
+        'region_id' => $system['region_id'] ?? null,
+        'constellation_id' => $system['constellation_id'] ?? null,
+      ];
+
+      if (in_array('updated_at', $baseColumns, true)) {
+        $data['updated_at'] = gmdate('Y-m-d H:i:s');
+      }
+
+      $columnsToInsert = array_keys(array_intersect_key($data, array_flip($baseColumns)));
+      if (empty($columnsToInsert)) {
+        continue;
+      }
+
+      $placeholders = implode(',', array_map(fn($col) => ':' . $col, $columnsToInsert));
+      $colList = implode(',', $columnsToInsert);
+      $db->execute(
+        "INSERT IGNORE INTO map_system ({$colList}) VALUES ({$placeholders})",
+        array_intersect_key($data, array_flip($columnsToInsert))
+      );
+
+      $this->auditBackfill($db, $context, 'map_system', (string)$systemId, null, $data);
+    }
+  }
+
+  private function backfillEdges(Db $db, array $routeIds, array $context): void
+  {
+    $columns = $this->getMapEdgeColumns();
+    $baseColumns = array_intersect(['from_system_id', 'to_system_id', 'edge_type', 'weight', 'updated_at'], $columns);
+
+    $count = count($routeIds);
+    for ($i = 1; $i < $count; $i++) {
+      $from = (int)$routeIds[$i - 1];
+      $to = (int)$routeIds[$i];
+      foreach ([[$from, $to], [$to, $from]] as $pair) {
+        [$a, $b] = $pair;
+        $data = [
+          'from_system_id' => $a,
+          'to_system_id' => $b,
+          'edge_type' => 'stargate',
+          'weight' => 1,
+        ];
+        if (in_array('updated_at', $baseColumns, true)) {
+          $data['updated_at'] = gmdate('Y-m-d H:i:s');
+        }
+
+        $columnsToInsert = array_keys(array_intersect_key($data, array_flip($baseColumns)));
+        if (empty($columnsToInsert)) {
+          continue;
+        }
+
+        $placeholders = implode(',', array_map(fn($col) => ':' . $col, $columnsToInsert));
+        $colList = implode(',', $columnsToInsert);
+        $db->execute(
+          "INSERT IGNORE INTO map_edge ({$colList}) VALUES ({$placeholders})",
+          array_intersect_key($data, array_flip($columnsToInsert))
+        );
+
+        $this->auditBackfill($db, $context, 'map_edge', $a . ':' . $b, null, $data);
+      }
+    }
+  }
+
+  private function getMapEdgeColumns(): array
+  {
+    static $columns = null;
+    if ($columns !== null) {
+      return $columns;
+    }
+    $rows = $this->db->select("SHOW COLUMNS FROM map_edge");
+    $columns = array_map(fn($row) => (string)$row['Field'], $rows);
+    return $columns;
+  }
+
+  private function getMapSystemColumns(): array
+  {
+    static $columns = null;
+    if ($columns !== null) {
+      return $columns;
+    }
+    $rows = $this->db->select("SHOW COLUMNS FROM map_system");
+    $columns = array_map(fn($row) => (string)$row['Field'], $rows);
+    return $columns;
+  }
+
+  private function auditBackfill(Db $db, array $context, string $table, string $pk, $before, $after): void
+  {
+    $db->audit(
+      isset($context['corp_id']) ? (int)$context['corp_id'] : null,
+      isset($context['actor_user_id']) ? (int)$context['actor_user_id'] : null,
+      isset($context['actor_character_id']) ? (int)$context['actor_character_id'] : null,
+      'map.backfill_edge',
+      $table,
+      $pk,
+      $before,
+      $after,
+      $context['ip_address'] ?? null,
+      $context['user_agent'] ?? null
+    );
   }
 }

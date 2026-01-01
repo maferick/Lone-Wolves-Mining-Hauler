@@ -30,7 +30,7 @@ final class PricingService
     $this->config = $config;
   }
 
-  public function quote(array $payload, int $corpId = 0): array
+  public function quote(array $payload, int $corpId = 0, array $context = []): array
   {
     $from = trim((string)($payload['pickup'] ?? $payload['pickup_system'] ?? $payload['from_system'] ?? ''));
     $to = trim((string)($payload['destination'] ?? $payload['destination_system'] ?? $payload['to_system'] ?? ''));
@@ -54,7 +54,7 @@ final class PricingService
       throw new \InvalidArgumentException('Unknown system name.');
     }
 
-    $route = $this->routeService->findRoute($fromSystem['system_name'], $toSystem['system_name'], $profile);
+    $route = $this->routeService->findRoute($fromSystem['system_name'], $toSystem['system_name'], $profile, $context);
 
     $ship = $this->chooseShipClass($volume);
     $ratePlan = $this->getRatePlan($corpId, $ship['service_class']);
