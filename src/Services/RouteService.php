@@ -96,6 +96,17 @@ final class RouteService
     $rows = $this->db->select(
       "SELECT system_id, system_name, security, region_id, constellation_id FROM map_system"
     );
+    if (empty($rows)) {
+      $rows = $this->db->select(
+        "SELECT s.system_id,
+                s.system_name,
+                s.security_status AS security,
+                c.region_id,
+                s.constellation_id
+           FROM eve_system s
+           JOIN eve_constellation c ON c.constellation_id = s.constellation_id"
+      );
+    }
     foreach ($rows as $row) {
       $systemId = (int)$row['system_id'];
       $systems[$systemId] = [
