@@ -37,7 +37,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>" data-api-key="<?= htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') ?>" data-corp-id="<?= (int)$corpId ?>">
   <div class="card-header">
     <h2>Routing & Pricing Controls</h2>
-    <p class="muted">Manage routing profiles, reward tolerance, DNF rules, and rate plans.</p>
+    <p class="muted">Manage routing priority, reward tolerance, DNF rules, and rate plans.</p>
   </div>
   <div class="content">
     <?php if ($graphEmpty): ?>
@@ -47,14 +47,13 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php endif; ?>
     <div class="row" style="align-items:flex-start;">
       <div style="flex:1;">
-        <div class="label">Default routing profile</div>
+        <div class="label">Default priority</div>
         <div class="row">
-          <select class="input" id="routing-profile">
-            <option value="shortest">Shortest</option>
-            <option value="balanced">Balanced</option>
-            <option value="safest">Safest</option>
+          <select class="input" id="routing-priority">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
           </select>
-          <button class="btn" type="button" id="save-profile">Save</button>
+          <button class="btn" type="button" id="save-priority">Save</button>
         </div>
       </div>
       <div style="flex:1;">
@@ -68,6 +67,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <button class="btn" type="button" id="save-tolerance">Save</button>
         </div>
         <div class="muted" id="tolerance-note" style="margin-top:6px;"></div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <h3>Priority surcharge</h3>
+      <div class="muted">Add an ISK surcharge for higher priority requests.</div>
+      <div class="row" style="margin-top:10px;">
+        <input class="input" id="priority-fee-normal" type="number" step="0.01" min="0" placeholder="Normal priority add-on" />
+        <input class="input" id="priority-fee-high" type="number" step="0.01" min="0" placeholder="High priority add-on" />
+        <button class="btn" type="button" id="save-priority-fee">Save</button>
       </div>
     </div>
 
@@ -225,11 +234,21 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     buildDnfOptions(dnfListMap[type], dnfLookupData[type], event.target.value);
   });
 
-  const loadProfile = async () => {
+  const loadPriority = async () => {
     const data = await fetchJson(`${basePath}/api/admin/routing-profile/?corp_id=${corpId}`);
     if (data.ok) {
-      document.getElementById('routing-profile').value = data.profile;
+      document.getElementById('routing-priority').value = data.priority;
     }
+  };
+
+  const loadPriorityFees = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/priority-fee/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const fees = data.priority_fee || {};
+    const normalInput = document.getElementById('priority-fee-normal');
+    const highInput = document.getElementById('priority-fee-high');
+    if (normalInput) normalInput.value = fees.normal ?? 0;
+    if (highInput) highInput.value = fees.high ?? 0;
   };
 
   const loadTolerance = async () => {
@@ -300,13 +319,27 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     });
   };
 
-  document.getElementById('save-profile')?.addEventListener('click', async () => {
-    const profile = document.getElementById('routing-profile').value;
+  document.getElementById('save-priority')?.addEventListener('click', async () => {
+    const priority = document.getElementById('routing-priority').value;
     await fetchJson(`${basePath}/api/admin/routing-profile/`, {
       method: 'POST',
-      body: JSON.stringify({ corp_id: corpId, profile }),
+      body: JSON.stringify({ corp_id: corpId, priority }),
     });
-    loadProfile();
+    loadPriority();
+  });
+
+  document.getElementById('save-priority-fee')?.addEventListener('click', async () => {
+    const normal = parseFloat(document.getElementById('priority-fee-normal')?.value || '0');
+    const high = parseFloat(document.getElementById('priority-fee-high')?.value || '0');
+    await fetchJson(`${basePath}/api/admin/priority-fee/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        normal: Number.isFinite(normal) ? normal : 0,
+        high: Number.isFinite(high) ? high : 0,
+      }),
+    });
+    loadPriorityFees();
   });
 
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
@@ -383,7 +416,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     loadDnfRules();
   });
 
-  loadProfile();
+  loadPriority();
+  loadPriorityFees();
   loadTolerance();
   loadRatePlans();
   loadDnfRules();

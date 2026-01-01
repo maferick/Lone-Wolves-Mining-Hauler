@@ -19,7 +19,7 @@ $contractStats = $contractStats ?? [
 ];
 $contractStatsAvailable = $contractStatsAvailable ?? false;
 $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => ''];
-$defaultProfile = $defaultProfile ?? 'shortest';
+$defaultPriority = $defaultPriority ?? 'normal';
 $apiKey = $apiKey ?? '';
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
 $pickupLocationOptions = $pickupLocationOptions ?? [];
@@ -120,12 +120,12 @@ ob_start();
           <input class="input" type="text" name="collateral" placeholder="e.g. 300m, 2.65b, 400,000,000" />
         </label>
         <label class="form-field">
-          <span class="form-label">Route profile</span>
-          <select class="input" name="profile">
+          <span class="form-label">Priority</span>
+          <select class="input" name="priority">
             <?php
-            $profiles = ['shortest' => 'Shortest', 'balanced' => 'Balanced', 'safest' => 'Safest'];
-            foreach ($profiles as $value => $label):
-              $selected = $defaultProfile === $value ? 'selected' : '';
+            $priorities = ['normal' => 'Normal', 'high' => 'High'];
+            foreach ($priorities as $value => $label):
+              $selected = $defaultPriority === $value ? 'selected' : '';
             ?>
               <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selected ?>><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
@@ -186,7 +186,7 @@ ob_start();
     const destinationInput = document.querySelector('input[name="destination_system"]');
     const volumeInput = document.querySelector('input[name="volume_m3"]');
     const collateralInput = document.querySelector('input[name="collateral"]');
-    const profileInput = document.querySelector('select[name="profile"]');
+    const priorityInput = document.querySelector('select[name="priority"]');
     const pickupList = document.getElementById('pickup-location-list');
     const destinationList = document.getElementById('destination-location-list');
     const submitBtn = document.getElementById('quote-submit');
@@ -278,7 +278,7 @@ ob_start();
           </div>
           <div>
             <div class="label">Costs</div>
-            <div>Jump ${fmtIsk(costs.jump_subtotal || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)}</div>
+            <div>Jump ${fmtIsk(costs.jump_subtotal || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)} • Priority ${fmtIsk(costs.priority_fee || 0)}</div>
           </div>
           <div>
             <div class="label">DNF notes</div>
@@ -314,7 +314,7 @@ ob_start();
       const destination = destinationInput?.value.trim();
       const volume = parseFloat(volumeInput?.value || '0');
       const collateral = parseIsk(collateralInput?.value || '');
-      const profile = profileInput?.value || 'shortest';
+      const priority = priorityInput?.value || 'normal';
 
       if (!pickup || !destination) {
         showError('Pickup and destination systems are required.');
@@ -343,7 +343,7 @@ ob_start();
             destination,
             volume_m3: volume,
             collateral_isk: collateral,
-            profile,
+            priority,
           }),
         });
         const data = await resp.json();
