@@ -55,6 +55,26 @@ final class RouteService
     $hardAvoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
     $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems']);
     $avoidCount = count($avoidSystemIds);
+    $accessAllowlist = $this->buildAccessAllowlist($graph['systems'], $context);
+    $hasAccessAllowlist = !empty($accessAllowlist);
+
+    if ($profile === 'safest') {
+      $fromSecurity = $this->normalizedSecurity((float)($graph['systems'][$fromId]['security'] ?? 0.0));
+      $toSecurity = $this->normalizedSecurity((float)($graph['systems'][$toId]['security'] ?? 0.0));
+      if ($fromSecurity < self::SECURITY_HIGHSEC_MIN || $toSecurity < self::SECURITY_HIGHSEC_MIN) {
+        throw new RouteException('Pickup or destination is not high-sec for safest routing.', [
+          'reason' => 'pickup_destination_not_highsec',
+          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        ]);
+      }
+    }
+
+    if ($hasAccessAllowlist && (!$this->isSystemAllowed($fromId, $accessAllowlist) || !$this->isSystemAllowed($toId, $accessAllowlist))) {
+      throw new RouteException('Pickup or destination not allowed by access rules.', [
+        'reason' => 'pickup_destination_not_allowed',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+      ]);
+    }
 
     if (!$graphReady) {
       $reason = $graphHealth['reason'] ?? 'graph_not_ready';
@@ -83,17 +103,6 @@ final class RouteService
       );
     }
 
-    if ($profile === 'safest') {
-      $fromSecurity = $this->normalizedSecurity((float)($graph['systems'][$fromId]['security'] ?? 0.0));
-      $toSecurity = $this->normalizedSecurity((float)($graph['systems'][$toId]['security'] ?? 0.0));
-      if ($fromSecurity < self::SECURITY_HIGHSEC_MIN || $toSecurity < self::SECURITY_HIGHSEC_MIN) {
-        throw new RouteException('Pickup or destination is not high-sec for safest routing.', [
-          'reason' => 'pickup_destination_not_highsec',
-          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
-        ]);
-      }
-    }
-
     if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf) || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf)) {
       throw new RouteException('Pickup or destination blocked by DNF rules.', [
         'reason' => 'pickup_destination_blocked',
@@ -103,10 +112,10 @@ final class RouteService
       ]);
     }
 
-    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf);
+    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf, $accessAllowlist);
     if ($result['found'] === false) {
       $dnfWithoutHard = $this->withoutHardRules($dnf);
-      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard);
+      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard, $accessAllowlist);
       if ($fallbackResult['found'] === true) {
         throw new RouteException('Route blocked by DNF rules.', [
           'reason' => 'blocked_by_dnf',
@@ -343,7 +352,14 @@ final class RouteService
     return $profile;
   }
 
-  private function dijkstra(int $fromId, int $toId, string $profile, array $graph, array $dnf): array
+  private function dijkstra(
+    int $fromId,
+    int $toId,
+    string $profile,
+    array $graph,
+    array $dnf,
+    array $accessAllowlist = []
+  ): array
   {
     $dist = [];
     $prev = [];
@@ -371,6 +387,9 @@ final class RouteService
 
       $neighbors = $graph['adjacency'][$currentId] ?? [];
       foreach ($neighbors as $neighborId => $_) {
+        if (!$this->isSystemAllowed($neighborId, $accessAllowlist)) {
+          continue;
+        }
         if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf)) {
           continue;
         }
@@ -412,6 +431,38 @@ final class RouteService
       array_unshift($path, $current);
     }
     return $path;
+  }
+
+  private function buildAccessAllowlist(array $systems, array $context): array
+  {
+    $allowedSystemIds = array_values(array_filter(array_map('intval', $context['access_system_ids'] ?? [])));
+    $allowedRegionIds = array_values(array_filter(array_map('intval', $context['access_region_ids'] ?? [])));
+
+    if (empty($allowedSystemIds) && empty($allowedRegionIds)) {
+      return [];
+    }
+
+    $allow = [];
+    foreach ($allowedSystemIds as $systemId) {
+      $allow[$systemId] = true;
+    }
+    if (!empty($allowedRegionIds)) {
+      foreach ($systems as $systemId => $system) {
+        if (in_array((int)($system['region_id'] ?? 0), $allowedRegionIds, true)) {
+          $allow[(int)$systemId] = true;
+        }
+      }
+    }
+
+    return $allow;
+  }
+
+  private function isSystemAllowed(int $systemId, array $allowlist): bool
+  {
+    if (empty($allowlist)) {
+      return true;
+    }
+    return isset($allowlist[$systemId]);
   }
 
   private function loadDnfRules(): array
@@ -747,6 +798,19 @@ final class RouteService
     }
 
     $systemLookup = $this->loadSystemDetails($routeIds);
+    $accessAllowlist = $this->buildAccessAllowlist($systemLookup, $context);
+    if (!empty($accessAllowlist)) {
+      foreach ($routeIds as $systemId) {
+        if (!$this->isSystemAllowed((int)$systemId, $accessAllowlist)) {
+          throw new RouteException('Route not allowed by access rules.', [
+            'reason' => 'route_not_allowed',
+            'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+            'blocked_count_hard' => $dnfCounts['hard'],
+            'blocked_count_soft' => $dnfCounts['soft'],
+          ]);
+        }
+      }
+    }
     if ($this->routeViolatesHardDnf($routeIds, $systemLookup, $dnf)) {
       error_log('CCP route violated hard DNF rules.');
       throw new RouteException('No viable route found (local+CCP)', [

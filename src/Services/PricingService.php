@@ -12,10 +12,10 @@ final class PricingService
   private RouteService $routeService;
 
   private const SHIP_CLASSES = [
-    'BR' => 62000,
-    'DST' => 180000,
-    'FREIGHTER' => 1200000,
-    'JF' => 99999999,
+    'BR' => 12500,
+    'DST' => 62500,
+    'JF' => 360000,
+    'FREIGHTER' => 950000,
   ];
 
   private const SECURITY_MULTIPLIERS = [
@@ -56,7 +56,13 @@ final class PricingService
 
     $priority = $this->normalizePriority($priority);
     $routeProfile = 'balanced';
-    $route = $this->routeService->findRoute($fromSystem['system_name'], $toSystem['system_name'], $routeProfile, $context);
+    $accessRules = $this->loadAccessRules($corpId);
+    $route = $this->routeService->findRoute(
+      $fromSystem['system_name'],
+      $toSystem['system_name'],
+      $routeProfile,
+      array_merge($context, $accessRules)
+    );
 
     $ship = $this->chooseShipClass($volume);
     $ratePlan = $this->getRatePlan($corpId, $ship['service_class']);
@@ -277,6 +283,43 @@ final class PricingService
       'rate_per_jump' => 0,
       'collateral_rate' => 0,
       'min_price' => 0,
+    ];
+  }
+
+  private function loadAccessRules(int $corpId): array
+  {
+    $allowedSystemIds = [];
+    $allowedRegionIds = [];
+    if ($corpId <= 0) {
+      return [
+        'access_system_ids' => $allowedSystemIds,
+        'access_region_ids' => $allowedRegionIds,
+      ];
+    }
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row && !empty($row['setting_json'])) {
+      $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+      if (is_array($decoded)) {
+        foreach ($decoded['systems'] ?? [] as $rule) {
+          if (!empty($rule['allowed'])) {
+            $allowedSystemIds[] = (int)($rule['id'] ?? 0);
+          }
+        }
+        foreach ($decoded['regions'] ?? [] as $rule) {
+          if (!empty($rule['allowed'])) {
+            $allowedRegionIds[] = (int)($rule['id'] ?? 0);
+          }
+        }
+      }
+    }
+
+    return [
+      'access_system_ids' => array_values(array_filter($allowedSystemIds)),
+      'access_region_ids' => array_values(array_filter($allowedRegionIds)),
     ];
   }
 }
