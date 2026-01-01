@@ -212,9 +212,15 @@ try {
     // Store initial settings (idempotent)
     $db->execute(
       "INSERT INTO app_setting (corp_id, setting_key, setting_json)
-       VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :cid, 'corp_name', :cname, 'alliance_id', :aid, 'alliance_name', :aname))
+       VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :cid_profile, 'corp_name', :cname, 'alliance_id', :aid, 'alliance_name', :aname))
        ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json)",
-      ['cid'=>$corpId,'cname'=>$corpName,'aid'=>$allianceId,'aname'=>$allianceName]
+      [
+        'cid' => $corpId,
+        'cid_profile' => $corpId,
+        'cname' => $corpName,
+        'aid' => $allianceId,
+        'aname' => $allianceName,
+      ]
     );
 
     // Persist user_id to session (outside tx is fine, but safe here too)
