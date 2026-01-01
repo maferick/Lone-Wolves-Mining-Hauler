@@ -11,6 +11,8 @@ $queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'completed
 $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => '', 'volume' => '', 'collateral' => ''];
 $quoteErrors = $quoteErrors ?? [];
 $quoteResult = $quoteResult ?? null;
+$pickupLocationOptions = $pickupLocationOptions ?? [];
+$destinationLocationOptions = $destinationLocationOptions ?? [];
 
 ob_start();
 ?>
@@ -61,12 +63,12 @@ ob_start();
     <form method="post" class="content" action="<?= htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') ?>">
       <div class="form-grid">
         <label class="form-field">
-          <span class="form-label">Pickup system</span>
-          <input class="input" type="text" name="pickup_system" value="<?= htmlspecialchars($quoteInput['pickup_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Jita" />
+          <span class="form-label">Pickup system or structure</span>
+          <input class="input" type="text" name="pickup_system" list="pickup-location-list" value="<?= htmlspecialchars($quoteInput['pickup_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Jita" autocomplete="off" />
         </label>
         <label class="form-field">
-          <span class="form-label">Destination system</span>
-          <input class="input" type="text" name="destination_system" value="<?= htmlspecialchars($quoteInput['destination_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Amarr" />
+          <span class="form-label">Destination system or structure</span>
+          <input class="input" type="text" name="destination_system" list="destination-location-list" value="<?= htmlspecialchars($quoteInput['destination_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Amarr" autocomplete="off" />
         </label>
         <label class="form-field">
           <span class="form-label">Volume</span>
@@ -109,6 +111,8 @@ ob_start();
           <strong>Quote:</strong> <?= htmlspecialchars($quoteResult['quote'], ENT_QUOTES, 'UTF-8') ?> (<?= number_format($quoteResult['volume']) ?> m³, collateral <?= number_format((float)$quoteResult['collateral'], 2) ?> ISK)
         </div>
       <?php endif; ?>
+      <datalist id="pickup-location-list"></datalist>
+      <datalist id="destination-location-list"></datalist>
     </form>
   </div>
 
@@ -126,6 +130,41 @@ ob_start();
     </ul>
   </div>
 </section>
+<script>
+  (() => {
+    const pickupLocations = <?= json_encode($pickupLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const destinationLocations = <?= json_encode($destinationLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const minChars = 3;
+
+    const buildOptions = (listEl, items, value) => {
+      listEl.innerHTML = '';
+      if (!value || value.length < minChars) return;
+      const query = value.toLowerCase();
+      let count = 0;
+      for (const item of items || []) {
+        if (!item.name.toLowerCase().startsWith(query)) continue;
+        const option = document.createElement('option');
+        option.value = item.name;
+        if (item.label) option.label = item.label;
+        listEl.appendChild(option);
+        count += 1;
+        if (count >= 50) break;
+      }
+    };
+
+    const pickupInput = document.querySelector('input[name="pickup_system"]');
+    const destinationInput = document.querySelector('input[name="destination_system"]');
+    const pickupList = document.getElementById('pickup-location-list');
+    const destinationList = document.getElementById('destination-location-list');
+
+    pickupInput?.addEventListener('input', () => {
+      buildOptions(pickupList, pickupLocations, pickupInput.value);
+    });
+    destinationInput?.addEventListener('input', () => {
+      buildOptions(destinationList, destinationLocations, destinationInput.value);
+    });
+  })();
+</script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/layout.php';
