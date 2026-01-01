@@ -68,7 +68,19 @@ final class RouteService
     $dnf = $this->loadDnfRules();
     $dnfCounts = $this->countDnfRules($dnf);
     $avoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
+    $avoidSystemIds = $this->mergeSecurityAvoids($avoidSystemIds, $profile, $graph['systems']);
     $avoidCount = count($avoidSystemIds);
+
+    if ($profile === 'safest') {
+      $fromSecurity = (float)($graph['systems'][$fromId]['security'] ?? 0.0);
+      $toSecurity = (float)($graph['systems'][$toId]['security'] ?? 0.0);
+      if ($fromSecurity < self::SECURITY_HIGHSEC_MIN || $toSecurity < self::SECURITY_HIGHSEC_MIN) {
+        throw new RouteException('Pickup or destination is not high-sec for safest routing.', [
+          'reason' => 'pickup_destination_not_highsec',
+          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        ]);
+      }
+    }
 
     if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf) || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf)) {
       throw new RouteException('Pickup or destination blocked by DNF rules.', [
@@ -349,6 +361,9 @@ final class RouteService
       $neighbors = $graph['adjacency'][$currentId] ?? [];
       foreach ($neighbors as $neighborId => $_) {
         if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf)) {
+          continue;
+        }
+        if ($this->isProfileSecurityBlocked($neighborId, $graph['systems'], $profile)) {
           continue;
         }
         if ($this->isEdgeHardBlocked($currentId, $neighborId, $dnf)) {
@@ -749,6 +764,19 @@ final class RouteService
       ];
     }
 
+    if ($profile === 'safest') {
+      foreach ($systemLookup as $system) {
+        if ((float)($system['security'] ?? 0.0) < self::SECURITY_HIGHSEC_MIN) {
+          throw new RouteException('CCP route included low/null-sec systems.', [
+            'reason' => 'ccp_route_not_highsec',
+            'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+            'blocked_count_hard' => $dnfCounts['hard'],
+            'blocked_count_soft' => $dnfCounts['soft'],
+          ]);
+        }
+      }
+    }
+
     $counts = $this->countSecurityComposition($routeIds, $systemLookup);
 
     if ($this->isBackfillEnabled($corpId)) {
@@ -891,6 +919,30 @@ final class RouteService
     }
 
     return $details;
+  }
+
+  private function isProfileSecurityBlocked(int $systemId, array $systems, string $profile): bool
+  {
+    if ($profile !== 'safest') {
+      return false;
+    }
+    $security = (float)($systems[$systemId]['security'] ?? 0.0);
+    return $security < self::SECURITY_HIGHSEC_MIN;
+  }
+
+  private function mergeSecurityAvoids(array $avoidSystemIds, string $profile, array $systems): array
+  {
+    if ($profile !== 'safest') {
+      return $avoidSystemIds;
+    }
+
+    foreach ($systems as $systemId => $system) {
+      if ((float)($system['security'] ?? 0.0) < self::SECURITY_HIGHSEC_MIN) {
+        $avoidSystemIds[] = (int)$systemId;
+      }
+    }
+
+    return array_values(array_unique($avoidSystemIds));
   }
 
   private function routeViolatesHardDnf(array $routeIds, array $systems, array $dnf): bool
