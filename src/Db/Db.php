@@ -6,6 +6,24 @@ namespace App\Db;
 use PDO;
 
 final class Db {
+  /**
+   * Factory: build Db from config array (src/Config/config.php).
+   */
+  public static function fromConfig(array $config): self
+  {
+    $dbCfg = $config['db'] ?? [];
+    $host = (string)($dbCfg['host'] ?? '127.0.0.1');
+    $port = (int)($dbCfg['port'] ?? 3306);
+    $name = (string)($dbCfg['name'] ?? '');
+    $user = (string)($dbCfg['user'] ?? '');
+    $pass = (string)($dbCfg['pass'] ?? '');
+    if ($name === '' || $user === '') {
+      throw new \RuntimeException('DB config missing name/user.');
+    }
+    $dsn = 'mysql:host=' . $host . ';port=' . $port . ';dbname=' . $name . ';charset=utf8mb4';
+    return new self($dsn, $user, $pass);
+  }
+
   private PDO $pdo;
 
   public function __construct(PDO $pdo) {
