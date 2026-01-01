@@ -61,10 +61,21 @@ switch ($path) {
       'in_progress' => 0,
       'completed' => 0,
     ];
+    $contractStats = [
+      'total' => 0,
+      'outstanding' => 0,
+      'in_progress' => 0,
+      'completed' => 0,
+      'en_route_volume' => 0,
+      'pending_volume' => 0,
+      'last_fetched_at' => null,
+    ];
+    $contractStatsAvailable = false;
 
     if ($dbOk && $db !== null) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
       $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+      $hasContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
 
       if ($hasHaulingJob) {
         $queueStats['outstanding'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'outstanding'");
@@ -92,6 +103,36 @@ switch ($path) {
           $queueStats['outstanding'] = (int)($row['outstanding'] ?? 0);
           $queueStats['in_progress'] = (int)($row['in_progress'] ?? 0);
           $queueStats['completed'] = (int)($row['completed'] ?? 0);
+        }
+      }
+
+      $contractCorpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+      if ($hasContracts && $contractCorpId > 0) {
+        $contractRow = $db->one(
+          "SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'outstanding' THEN 1 ELSE 0 END) AS outstanding,
+              SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+              SUM(CASE WHEN status IN ('finished','completed') THEN 1 ELSE 0 END) AS completed,
+              SUM(CASE WHEN status = 'in_progress' THEN COALESCE(volume_m3, 0) ELSE 0 END) AS en_route_volume,
+              SUM(CASE WHEN status = 'outstanding' THEN COALESCE(volume_m3, 0) ELSE 0 END) AS pending_volume,
+              MAX(last_fetched_at) AS last_fetched_at
+            FROM esi_corp_contract
+           WHERE corp_id = :cid
+             AND type = 'courier'",
+          ['cid' => $contractCorpId]
+        );
+        if ($contractRow) {
+          $contractStats = [
+            'total' => (int)($contractRow['total'] ?? 0),
+            'outstanding' => (int)($contractRow['outstanding'] ?? 0),
+            'in_progress' => (int)($contractRow['in_progress'] ?? 0),
+            'completed' => (int)($contractRow['completed'] ?? 0),
+            'en_route_volume' => (float)($contractRow['en_route_volume'] ?? 0),
+            'pending_volume' => (float)($contractRow['pending_volume'] ?? 0),
+            'last_fetched_at' => $contractRow['last_fetched_at'] ?? null,
+          ];
+          $contractStatsAvailable = true;
         }
       }
     }

@@ -113,22 +113,22 @@ try {
 
     // Ensure baseline permissions exist (idempotent)
     $permList = [
-      ['haul.request.create','Create haul request'],
-      ['haul.request.read','View haul requests'],
-      ['haul.request.manage','Manage haul requests'],
-      ['haul.assign','Assign hauls'],
-      ['haul.execute','Execute hauls'],
-      ['pricing.manage','Manage pricing'],
-      ['webhook.manage','Manage webhooks'],
-      ['esi.manage','Manage ESI'],
-      ['user.manage','Manage users'],
-      ['corp.manage','Manage corporation settings'],
+      ['haul.request.create','Create haul request','Create new haul requests and submit for posting.'],
+      ['haul.request.read','View haul requests','View haul requests for the corporation.'],
+      ['haul.request.manage','Manage haul requests','Edit/quote/cancel/post requests.'],
+      ['haul.assign','Assign hauls','Assign requests to internal haulers.'],
+      ['haul.execute','Execute hauls','Update status (pickup/in-transit/delivered).'],
+      ['pricing.manage','Manage pricing','Create/update pricing rules and lanes.'],
+      ['webhook.manage','Manage webhooks','Create/update Discord webhooks and templates.'],
+      ['esi.manage','Manage ESI','Configure ESI tokens and scheduled pulls.'],
+      ['user.manage','Manage users','Manage user access and role assignments.'],
+      ['corp.manage','Manage corporation settings','Configure corp profile, defaults, and access rules.'],
     ];
     foreach ($permList as $p) {
       $db->execute(
-        "INSERT INTO permission (perm_key, perm_name) VALUES (:k, :n)
-         ON DUPLICATE KEY UPDATE perm_name=VALUES(perm_name)",
-        ['k' => $p[0], 'n' => $p[1]]
+        "INSERT INTO permission (perm_key, perm_name, description) VALUES (:k, :n, :d)
+         ON DUPLICATE KEY UPDATE perm_name=VALUES(perm_name), description=VALUES(description)",
+        ['k' => $p[0], 'n' => $p[1], 'd' => $p[2]]
       );
     }
 
