@@ -155,6 +155,7 @@ final class UniverseDataService
           'type_id' => $typeId,
         ]
       );
+      $this->db->upsertEntity($structureId, 'structure', $name, $structure, null, 'esi');
       $upserted++;
     }
 
@@ -162,6 +163,71 @@ final class UniverseDataService
       'corp_id' => $corpId,
       'fetched' => count($structures),
       'upserted' => $upserted,
+    ];
+  }
+
+  public function syncPublicStructures(int $corpId, int $characterOwnerId, int $ttlSeconds = 86400): array
+  {
+    $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
+    if (!$token) {
+      throw new \RuntimeException("No sso_token found for corp_id={$corpId}, character_id={$characterOwnerId}");
+    }
+    $token = $this->sso->ensureAccessToken($token);
+    $bearer = $token['access_token'];
+
+    $structureIds = $this->fetchPublicStructureIds($bearer, $corpId, $ttlSeconds);
+    $fetched = 0;
+    $upserted = 0;
+    foreach ($structureIds as $structureId) {
+      $structureId = (int)$structureId;
+      if ($structureId <= 0) continue;
+      $resp = $this->esiAuthedGet(
+        $bearer,
+        "/v2/universe/structures/{$structureId}/",
+        null,
+        $corpId,
+        $ttlSeconds
+      );
+      $fetched++;
+      if (!$resp['ok'] || !is_array($resp['json'])) {
+        continue;
+      }
+      $data = $resp['json'];
+      $name = trim((string)($data['name'] ?? ''));
+      $systemId = (int)($data['solar_system_id'] ?? 0);
+      $typeId = isset($data['type_id']) ? (int)$data['type_id'] : null;
+      if ($name === '' || $systemId <= 0) {
+        continue;
+      }
+
+      $this->db->execute(
+        "INSERT INTO eve_structure
+          (structure_id, system_id, structure_name, owner_corp_id, type_id, is_public, last_fetched_at)
+         VALUES
+          (:structure_id, :system_id, :structure_name, NULL, :type_id, 1, UTC_TIMESTAMP())
+         ON DUPLICATE KEY UPDATE
+          system_id=VALUES(system_id),
+          structure_name=VALUES(structure_name),
+          type_id=VALUES(type_id),
+          owner_corp_id=COALESCE(owner_corp_id, VALUES(owner_corp_id)),
+          is_public=IF(owner_corp_id IS NULL, VALUES(is_public), is_public),
+          last_fetched_at=UTC_TIMESTAMP()",
+        [
+          'structure_id' => $structureId,
+          'system_id' => $systemId,
+          'structure_name' => $name,
+          'type_id' => $typeId,
+        ]
+      );
+      $this->db->upsertEntity($structureId, 'structure', $name, $data, null, 'esi');
+      $upserted++;
+    }
+
+    return [
+      'corp_id' => $corpId,
+      'fetched' => $fetched,
+      'upserted' => $upserted,
+      'ids' => count($structureIds),
     ];
   }
 
@@ -287,20 +353,23 @@ final class UniverseDataService
       'regions_fetched' => 0,
       'constellations_fetched' => 0,
       'systems_fetched' => 0,
+      'stations_fetched' => 0,
       'source' => 'sde',
     ];
 
     $regionFile = $this->sdeFilePath('mapRegions');
     $constellationFile = $this->sdeFilePath('mapConstellations');
     $systemFile = $this->sdeFilePath('mapSolarSystems');
+    $stationFile = $this->sdeFilePath('npcStations');
 
-    if ($regionFile === null || $constellationFile === null || $systemFile === null) {
+    if ($regionFile === null || $constellationFile === null || $systemFile === null || $stationFile === null) {
       throw new \RuntimeException('Missing required SDE universe files.');
     }
 
     $results['regions_fetched'] = $this->importSdeRegions($regionFile);
     $results['constellations_fetched'] = $this->importSdeConstellations($constellationFile);
     $results['systems_fetched'] = $this->importSdeSystems($systemFile);
+    $results['stations_fetched'] = $this->importSdeStations($stationFile);
 
     return $results;
   }
@@ -351,7 +420,7 @@ final class UniverseDataService
     $count = 0;
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
-      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id', '_key']);
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id', '_key']);
       $regionName = trim((string)$this->pickSdeValue($row, ['regionName', 'region_name']));
       if ($regionId <= 0 || $regionName === '') {
         return;
@@ -391,9 +460,9 @@ final class UniverseDataService
     $count = 0;
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
-      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id', '_key']);
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id', '_key']);
       $constellationName = trim((string)$this->pickSdeValue($row, ['constellationName', 'constellation_name']));
-      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id']);
       if ($constellationId <= 0 || $regionId <= 0 || $constellationName === '') {
         return;
       }
@@ -440,9 +509,9 @@ final class UniverseDataService
     $count = 0;
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
-      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID', '_key']);
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID', '_key']);
       $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
-      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id']);
       $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
       if ($systemId <= 0 || $constellationId <= 0 || $systemName === '') {
         return;
@@ -493,10 +562,10 @@ final class UniverseDataService
   {
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, $constellationRegions) {
-      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID', '_key']);
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID', '_key']);
       $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
-      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
-      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
+      $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id']);
+      $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id']);
       $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
       if ($regionId <= 0 && $constellationId > 0) {
         $regionId = (int)($constellationRegions[$constellationId] ?? 0);
@@ -550,8 +619,8 @@ final class UniverseDataService
     $count = 0;
     $batch = [];
     $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
-      $fromId = (int)$this->pickSdeValue($row, ['fromSolarSystemID', 'from_system_id', 'fromSolarSystemId']);
-      $toId = (int)$this->pickSdeValue($row, ['toSolarSystemID', 'to_system_id', 'toSolarSystemId']);
+      $fromId = (int)$this->pickSdeValue($row, ['fromSolarSystemID', 'fromSolarSystemId', 'from_system_id']);
+      $toId = (int)$this->pickSdeValue($row, ['toSolarSystemID', 'toSolarSystemId', 'to_system_id']);
       if ($fromId <= 0 || $toId <= 0 || $fromId === $toId) {
         return;
       }
@@ -610,8 +679,8 @@ final class UniverseDataService
     $regions = [];
     if ($filePath !== null) {
       $this->readSdeRows($filePath, function (array $row) use (&$regions) {
-        $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id', '_key']);
-        $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+        $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellationId', 'constellation_id', '_key']);
+        $regionId = (int)$this->pickSdeValue($row, ['regionID', 'regionId', 'region_id']);
         if ($constellationId > 0 && $regionId > 0) {
           $regions[$constellationId] = $regionId;
         }
@@ -647,6 +716,90 @@ final class UniverseDataService
     );
   }
 
+  private function importSdeStations(string $filePath): int
+  {
+    $count = 0;
+    $batch = [];
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, &$count) {
+      $stationId = (int)$this->pickSdeValue($row, ['stationID', 'stationId', 'station_id', '_key']);
+      $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'solarSystemId', 'system_id', 'systemID']);
+      $stationName = trim((string)$this->pickSdeValue($row, ['stationName', 'station_name', 'name']));
+      $stationTypeId = $this->pickSdeValue($row, ['stationTypeID', 'stationTypeId', 'station_type_id']);
+      $stationTypeId = $stationTypeId !== null ? (int)$stationTypeId : null;
+      if ($stationId <= 0 || $systemId <= 0 || $stationName === '') {
+        return;
+      }
+      $batch[] = [
+        'station_id' => $stationId,
+        'system_id' => $systemId,
+        'station_name' => $stationName,
+        'station_type_id' => $stationTypeId,
+      ];
+      $count++;
+      if (count($batch) >= 500) {
+        $this->flushStationBatch($batch);
+        $batch = [];
+      }
+    });
+    if ($batch !== []) {
+      $this->flushStationBatch($batch);
+    }
+    return $count;
+  }
+
+  private function flushStationBatch(array $batch): void
+  {
+    $placeholders = [];
+    $params = [];
+    foreach ($batch as $idx => $row) {
+      $placeholders[] = "(:station_id_{$idx}, :system_id_{$idx}, :station_name_{$idx}, :station_type_id_{$idx})";
+      $params["station_id_{$idx}"] = $row['station_id'];
+      $params["system_id_{$idx}"] = $row['system_id'];
+      $params["station_name_{$idx}"] = $row['station_name'];
+      $params["station_type_id_{$idx}"] = $row['station_type_id'];
+    }
+    $this->db->execute(
+      "INSERT INTO eve_station (station_id, system_id, station_name, station_type_id)
+       VALUES " . implode(',', $placeholders) . "
+       ON DUPLICATE KEY UPDATE
+         system_id=VALUES(system_id),
+         station_name=VALUES(station_name),
+         station_type_id=VALUES(station_type_id),
+         updated_at=UTC_TIMESTAMP()",
+      $params
+    );
+
+    foreach ($batch as $row) {
+      $this->db->upsertEntity((int)$row['station_id'], 'station', (string)$row['station_name'], null, null, 'sde');
+    }
+  }
+
+  private function fetchPublicStructureIds(string $bearer, int $corpId, int $ttlSeconds): array
+  {
+    $page = 1;
+    $pages = 1;
+    $ids = [];
+    do {
+      $resp = $this->esiAuthedGet(
+        $bearer,
+        '/v1/universe/structures/',
+        ['page' => $page],
+        $corpId,
+        $ttlSeconds
+      );
+      if (!$resp['ok']) {
+        throw new \RuntimeException("ESI public structures list failed: HTTP {$resp['status']}");
+      }
+      $pageIds = is_array($resp['json']) ? array_map('intval', $resp['json']) : [];
+      $ids = array_merge($ids, array_filter($pageIds, static fn($id) => $id > 0));
+      $pagesHeader = $resp['headers']['x-pages'] ?? null;
+      $pages = max($pages, (int)($pagesHeader ?: 1));
+      $page++;
+    } while ($page <= $pages);
+
+    return array_values(array_unique($ids));
+  }
+
   private function isSdeEnabled(): bool
   {
     return (bool)($this->config['sde']['enabled'] ?? false);
@@ -673,6 +826,14 @@ final class UniverseDataService
       foreach (glob($basePath . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . $fileName) ?: [] as $nested) {
         if (is_file($nested) && is_readable($nested)) {
           return $nested;
+        }
+      }
+      $iterator = new \RecursiveIteratorIterator(
+        new \RecursiveDirectoryIterator($basePath, \FilesystemIterator::SKIP_DOTS)
+      );
+      foreach ($iterator as $fileInfo) {
+        if ($fileInfo->isFile() && $fileInfo->getFilename() === $fileName && $fileInfo->isReadable()) {
+          return $fileInfo->getPathname();
         }
       }
     }
@@ -716,7 +877,8 @@ final class UniverseDataService
   {
     return $this->sdeFilePath('mapRegions') !== null
       && $this->sdeFilePath('mapConstellations') !== null
-      && $this->sdeFilePath('mapSolarSystems') !== null;
+      && $this->sdeFilePath('mapSolarSystems') !== null
+      && $this->sdeFilePath('npcStations') !== null;
   }
 
   private function hasSdeGraphFiles(): bool
@@ -728,7 +890,7 @@ final class UniverseDataService
 
   private function ensureSdeUniverseFiles(): void
   {
-    $this->ensureSdeFiles(['mapRegions', 'mapConstellations', 'mapSolarSystems']);
+    $this->ensureSdeFiles(['mapRegions', 'mapConstellations', 'mapSolarSystems', 'npcStations']);
   }
 
   private function ensureSdeGraphFiles(): void
