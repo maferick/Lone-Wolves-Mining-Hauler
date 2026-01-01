@@ -72,7 +72,8 @@ try {
   $expiresIn = (int)($tokens['expires_in'] ?? 0);
   $expiresAt = gmdate('Y-m-d H:i:s', time() + max(60, $expiresIn));
 
-  $db->tx(function(Db $db) use ($corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes) {
+  $isAdmin = false;
+  $db->tx(function(Db $db) use (&$isAdmin, $corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes) {
 
     // Ensure corp row
     $db->execute(
@@ -138,6 +139,12 @@ try {
       "SELECT COUNT(*) FROM app_user WHERE corp_id = :cid AND character_id IS NOT NULL AND character_id > 0",
       ['cid' => $corpId]
     );
+    $corpAdmins = (int)$db->scalar(
+      "SELECT COUNT(*) FROM user_role ur
+        JOIN role r ON r.role_id = ur.role_id
+       WHERE r.corp_id = :cid AND r.role_key = 'admin'",
+      ['cid' => $corpId]
+    );
 
     // Upsert user
     $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$corpId,'chid'=>$characterId]);
@@ -185,7 +192,7 @@ try {
     // - if first user ever, admin
     // - else if first user in this corp, admin (corp bootstrap)
     // - else requester by default
-    $roleToAssign = ($totalUsers === 0 || $corpUsers === 0) ? 'admin' : 'requester';
+    $roleToAssign = ($totalUsers === 0 || $corpUsers === 0 || $corpAdmins === 0) ? 'admin' : 'requester';
 
     $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk LIMIT 1", ['cid'=>$corpId,'rk'=>$roleToAssign]);
     if ($roleId > 0) {
@@ -227,13 +234,23 @@ try {
       ]
     );
 
+    $isAdmin = (bool)$db->scalar(
+      "SELECT 1
+         FROM user_role ur
+         JOIN role r ON r.role_id = ur.role_id
+        WHERE ur.user_id = :uid AND r.role_key = 'admin'
+        LIMIT 1",
+      ['uid' => $userId]
+    );
+
     // Persist user_id to session (outside tx is fine, but safe here too)
     $_SESSION['user_id'] = $userId;
   });
 
-  // Redirect to admin if first admin; else dashboard
+  // Redirect to admin for admins; otherwise return to dashboard.
   $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-  header('Location: ' . ($base ?: '') . '/admin/');
+  $redirectPath = $isAdmin ? '/admin/' : '/';
+  header('Location: ' . ($base ?: '') . $redirectPath);
   exit;
 
 } catch (Throwable $e) {
