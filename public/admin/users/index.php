@@ -16,26 +16,65 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Users';
 
 $msg = null;
+$msgTone = 'info';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $userId = (int)($_POST['user_id'] ?? 0);
   $roleKey = (string)($_POST['role_key'] ?? '');
   $action = (string)($_POST['action'] ?? '');
 
-  if ($userId > 0 && $roleKey !== '' && in_array($action, ['add','remove'], true)) {
-    $db->tx(function(Db $db) use ($corpId, $userId, $roleKey, $action, $authCtx) {
-      $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk", ['cid'=>$corpId,'rk'=>$roleKey]);
-      if ($roleId <= 0) throw new RuntimeException("Role not found.");
+  try {
+    if ($userId > 0 && $roleKey !== '' && in_array($action, ['add','remove'], true)) {
+      $db->tx(function(Db $db) use ($corpId, $userId, $roleKey, $action, $authCtx) {
+        $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk", ['cid'=>$corpId,'rk'=>$roleKey]);
+        if ($roleId <= 0) throw new RuntimeException("Role not found.");
 
-      if ($action === 'add') {
-        $db->execute("INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:u, :r)", ['u'=>$userId,'r'=>$roleId]);
-      } else {
-        $db->execute("DELETE FROM user_role WHERE user_id=:u AND role_id=:r", ['u'=>$userId,'r'=>$roleId]);
-      }
+        if ($action === 'add') {
+          $db->execute("INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:u, :r)", ['u'=>$userId,'r'=>$roleId]);
+        } else {
+          $db->execute("DELETE FROM user_role WHERE user_id=:u AND role_id=:r", ['u'=>$userId,'r'=>$roleId]);
+        }
 
-      $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'user.role.' . $action, 'user_role', "{$userId}:{$roleId}", null, ['role_key'=>$roleKey], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
-    });
-    $msg = "Updated role assignments.";
+        $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'user.role.' . $action, 'user_role', "{$userId}:{$roleId}", null, ['role_key'=>$roleKey], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+      });
+      $msg = "Updated role assignments.";
+    } elseif ($userId > 0 && $action === 'delete') {
+      $db->tx(function(Db $db) use ($corpId, $userId, $authCtx) {
+        if ($userId === (int)($authCtx['user_id'] ?? 0)) {
+          throw new RuntimeException("You cannot delete your own account.");
+        }
+
+        $isAdmin = (int)$db->scalar(
+          "SELECT COUNT(*)
+             FROM user_role ur
+             JOIN role r ON r.role_id = ur.role_id
+            WHERE ur.user_id = :uid AND r.corp_id = :cid AND r.role_key = 'admin'",
+          ['uid' => $userId, 'cid' => $corpId]
+        );
+        if ($isAdmin > 0) {
+          $adminCount = (int)$db->scalar(
+            "SELECT COUNT(DISTINCT ur.user_id)
+               FROM user_role ur
+               JOIN role r ON r.role_id = ur.role_id
+              WHERE r.corp_id = :cid AND r.role_key = 'admin'",
+            ['cid' => $corpId]
+          );
+          if ($adminCount <= 1) {
+            throw new RuntimeException("Cannot delete the last admin user.");
+          }
+        }
+
+        $db->execute("UPDATE audit_log SET actor_user_id = NULL WHERE actor_user_id = :uid", ['uid' => $userId]);
+        $db->execute("UPDATE app_setting SET updated_by_user_id = NULL WHERE updated_by_user_id = :uid", ['uid' => $userId]);
+        $db->execute("DELETE FROM app_user WHERE user_id = :uid AND corp_id = :cid", ['uid' => $userId, 'cid' => $corpId]);
+
+        $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'user.delete', 'app_user', (string)$userId, null, ['user_id'=>$userId], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+      });
+      $msg = "Deleted user.";
+    }
+  } catch (RuntimeException $e) {
+    $msg = $e->getMessage();
+    $msgTone = 'error';
   }
 }
 
@@ -71,7 +110,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   </div>
 
   <div class="content">
-    <?php if ($msg): ?><div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
+    <?php if ($msg): ?><div class="pill <?= $msgTone === 'error' ? 'pill-danger' : '' ?>"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
     <table class="table">
       <thead>
@@ -98,6 +137,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 </select>
                 <button class="btn" name="action" value="add" type="submit">Add</button>
                 <button class="btn ghost" name="action" value="remove" type="submit">Remove</button>
+                <button class="btn danger" name="action" value="delete" type="submit" onclick="return confirm('Delete this user?')">Delete</button>
               </form>
             </td>
           </tr>
