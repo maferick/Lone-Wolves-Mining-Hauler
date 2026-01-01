@@ -1,0 +1,1 @@
+<?php require __DIR__ . '/src/bootstrap.php'; header('Content-Type: application/json'); echo json_encode($health);
