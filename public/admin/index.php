@@ -41,6 +41,10 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
           <a class="btn" href="<?= ($basePath ?: '') ?>/admin/esi/">Tokens & contract sync</a>
         </div>
         <div>
+          <div class="label">Cron</div>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/cron/">Scheduler command</a>
+        </div>
+        <div>
           <div class="label">Webhooks</div>
           <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Discord webhooks</a>
         </div>

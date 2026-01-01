@@ -12,6 +12,7 @@ $me = $authCtx['display_name'] ?? 'User';
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/defaults/">Defaults</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/users/">Users</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/esi/">ESI</a>
+    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/cron/">Cron</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Webhooks</a>
   </div>
   <div class="adminbar-right">

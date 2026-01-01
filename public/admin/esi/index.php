@@ -16,6 +16,7 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • ESI';
 
 $msg = null;
+$cronCharId = 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -28,7 +29,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = "Pull failed: " . $e->getMessage();
     }
   }
+
+  if ($action === 'set_cron' && !empty($_POST['character_id'])) {
+    $charId = (int)$_POST['character_id'];
+    $token = $db->one(
+      "SELECT owner_name FROM sso_token WHERE corp_id = :cid AND owner_type = 'character' AND owner_id = :oid LIMIT 1",
+      ['cid' => $corpId, 'oid' => $charId]
+    );
+    $charName = (string)($token['owner_name'] ?? '');
+    $db->execute(
+      "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
+       VALUES (:cid, 'esi.cron', JSON_OBJECT('character_id', :char_id, 'character_name', :char_name), :uid)
+       ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json), updated_by_user_id=VALUES(updated_by_user_id)",
+      [
+        'cid' => $corpId,
+        'char_id' => $charId,
+        'char_name' => $charName,
+        'uid' => (int)$authCtx['user_id'],
+      ]
+    );
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'esi.cron.set', 'app_setting', 'esi.cron', null, [
+      'character_id' => $charId,
+      'character_name' => $charName,
+    ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+    $msg = "Cron character set to " . ($charName !== '' ? $charName : (string)$charId) . ".";
+  }
+
+  if ($action === 'clear_cron') {
+    $db->execute(
+      "DELETE FROM app_setting WHERE corp_id = :cid AND setting_key = 'esi.cron' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'esi.cron.clear', 'app_setting', 'esi.cron', null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+    $msg = "Cron character cleared.";
+  }
 }
+
+$cronSetting = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'esi.cron' LIMIT 1",
+  ['cid' => $corpId]
+);
+$cronJson = $cronSetting ? Db::jsonDecode($cronSetting['setting_json'], []) : [];
+$cronCharId = (int)($cronJson['character_id'] ?? 0);
+$cronCharName = (string)($cronJson['character_name'] ?? '');
 
 $tokens = $db->select(
   "SELECT owner_id, owner_name, expires_at, scopes, token_status, last_error
@@ -49,6 +92,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
   <div class="content">
     <?php if ($msg): ?><div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
+
+    <div class="pill" style="margin-bottom:12px;">
+      <strong>Cron character:</strong>
+      <?= $cronCharId > 0
+        ? htmlspecialchars(($cronCharName !== '' ? $cronCharName : (string)$cronCharId), ENT_QUOTES, 'UTF-8')
+        : 'Not set' ?>
+      <?php if ($cronCharId > 0): ?>
+        <form method="post" style="display:inline; margin-left:8px;">
+          <button class="btn ghost" name="action" value="clear_cron" type="submit">Clear</button>
+        </form>
+      <?php endif; ?>
+    </div>
 
     <div style="margin-bottom:12px;">
       <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Add/Refresh Token (SSO)</a>
@@ -77,6 +132,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <form method="post">
               <input type="hidden" name="character_id" value="<?= (int)$t['owner_id'] ?>" />
               <button class="btn" name="action" value="pull" type="submit">Pull Contracts</button>
+              <?php if ((int)$t['owner_id'] === $cronCharId): ?>
+                <span class="badge">Cron</span>
+              <?php else: ?>
+                <button class="btn ghost" name="action" value="set_cron" type="submit">Use for Cron</button>
+              <?php endif; ?>
             </form>
           </td>
         </tr>
