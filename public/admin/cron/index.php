@@ -48,6 +48,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <code><?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
     </div>
 
+    <p class="muted" style="margin-top:12px;">Example crontab entry (runs every minute):</p>
+    <div class="pill" style="margin:12px 0;">
+      <code>* * * * * <?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
+    </div>
+
     <p class="muted">Tip: set the cron character on the <a href="<?= ($basePath ?: '') ?>/admin/esi/">ESI Tokens</a> page.</p>
 
     <div style="margin-top:14px;">
