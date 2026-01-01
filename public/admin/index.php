@@ -29,6 +29,10 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
           <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings/">Manage corp & alliance</a>
         </div>
         <div>
+          <div class="label">Defaults</div>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/defaults/">Pricing & routing</a>
+        </div>
+        <div>
           <div class="label">Users</div>
           <a class="btn" href="<?= ($basePath ?: '') ?>/admin/users/">Roles & sub-admins</a>
         </div>
