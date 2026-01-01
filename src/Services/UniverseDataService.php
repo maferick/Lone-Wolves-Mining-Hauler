@@ -327,11 +327,13 @@ final class UniverseDataService
     $systemFile = $this->sdeFilePath('mapSolarSystems');
     $jumpFile = $this->sdeFilePath('mapSolarSystemJumps');
     $stargateFile = $this->sdeFilePath('mapStargates');
+    $constellationFile = $this->sdeFilePath('mapConstellations');
     if ($systemFile === null || ($jumpFile === null && $stargateFile === null)) {
       throw new \RuntimeException('Missing required SDE graph files.');
     }
 
-    $this->importSdeMapSystems($systemFile);
+    $constellationRegions = $this->loadSdeConstellationRegions($constellationFile);
+    $this->importSdeMapSystems($systemFile, $constellationRegions);
     $results['map_system_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_system");
 
     if ($jumpFile !== null) {
@@ -487,16 +489,19 @@ final class UniverseDataService
     );
   }
 
-  private function importSdeMapSystems(string $filePath): void
+  private function importSdeMapSystems(string $filePath, array $constellationRegions = []): void
   {
     $batch = [];
-    $this->readSdeRows($filePath, function (array $row) use (&$batch) {
+    $this->readSdeRows($filePath, function (array $row) use (&$batch, $constellationRegions) {
       $systemId = (int)$this->pickSdeValue($row, ['solarSystemID', 'system_id', 'systemID', '_key']);
       $systemName = trim((string)$this->pickSdeValue($row, ['solarSystemName', 'system_name', 'systemName']));
       $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
       $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id']);
       $security = (float)$this->pickSdeValue($row, ['security', 'security_status'], 0.0);
-      if ($systemId <= 0 || $regionId <= 0 || $constellationId <= 0 || $systemName === '') {
+      if ($regionId <= 0 && $constellationId > 0) {
+        $regionId = (int)($constellationRegions[$constellationId] ?? 0);
+      }
+      if ($systemId <= 0 || $constellationId <= 0 || $systemName === '') {
         return;
       }
       $batch[] = [
@@ -598,6 +603,32 @@ final class UniverseDataService
       $this->flushMapEdgeBatch($batch);
     }
     return $count;
+  }
+
+  private function loadSdeConstellationRegions(?string $filePath): array
+  {
+    $regions = [];
+    if ($filePath !== null) {
+      $this->readSdeRows($filePath, function (array $row) use (&$regions) {
+        $constellationId = (int)$this->pickSdeValue($row, ['constellationID', 'constellation_id', '_key']);
+        $regionId = (int)$this->pickSdeValue($row, ['regionID', 'region_id']);
+        if ($constellationId > 0 && $regionId > 0) {
+          $regions[$constellationId] = $regionId;
+        }
+      });
+    }
+
+    if ($regions === []) {
+      foreach ($this->db->select("SELECT constellation_id, region_id FROM eve_constellation") as $row) {
+        $constellationId = (int)($row['constellation_id'] ?? 0);
+        $regionId = (int)($row['region_id'] ?? 0);
+        if ($constellationId > 0 && $regionId > 0) {
+          $regions[$constellationId] = $regionId;
+        }
+      }
+    }
+
+    return $regions;
   }
 
   private function flushMapEdgeBatch(array $batch): void
