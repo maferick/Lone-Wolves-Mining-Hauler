@@ -63,6 +63,18 @@ foreach ($settingRows as $row) {
   }
 }
 
+$systemOptions = [];
+$regionOptions = [];
+$structureOptions = [];
+try {
+  $systemOptions = $db->select("SELECT system_id, system_name FROM eve_system ORDER BY system_name");
+  $regionOptions = $db->select("SELECT region_id, region_name FROM eve_region ORDER BY region_name");
+  $structureOptions = $db->select("SELECT structure_id, structure_name FROM eve_structure ORDER BY structure_name");
+} catch (Throwable $e) {
+  $systemOptions = [];
+  $regionOptions = [];
+  $structureOptions = [];
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $minFeeRaw = trim((string)($_POST['pricing_min_fee'] ?? ''));
