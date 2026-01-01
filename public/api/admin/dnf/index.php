@@ -62,16 +62,69 @@ if ($method === 'GET') {
 }
 
 $payload = api_read_json();
+$allowedScopes = ['system', 'constellation', 'region', 'edge'];
+
+$lookupId = function (string $scope, string $name) use ($db): int {
+  $name = trim($name);
+  if ($name === '') {
+    api_send_json(['ok' => false, 'error' => 'Invalid name'], 400);
+  }
+
+  switch ($scope) {
+    case 'system':
+      $table = 'eve_system';
+      $idColumn = 'system_id';
+      $nameColumn = 'system_name';
+      break;
+    case 'constellation':
+      $table = 'eve_constellation';
+      $idColumn = 'constellation_id';
+      $nameColumn = 'constellation_name';
+      break;
+    case 'region':
+      $table = 'eve_region';
+      $idColumn = 'region_id';
+      $nameColumn = 'region_name';
+      break;
+    default:
+      api_send_json(['ok' => false, 'error' => 'Invalid scope_type'], 400);
+  }
+
+  $rows = $db->select(
+    "SELECT {$idColumn} AS id FROM {$table} WHERE LOWER({$nameColumn}) = LOWER(:name) LIMIT 2",
+    ['name' => $name]
+  );
+  if (!$rows) {
+    api_send_json(['ok' => false, 'error' => "Unknown name for scope {$scope}"], 400);
+  }
+  if (count($rows) > 1) {
+    api_send_json(['ok' => false, 'error' => "Ambiguous name for scope {$scope}"], 400);
+  }
+
+  return (int)$rows[0]['id'];
+};
 
 if ($method === 'POST') {
   $scope = strtolower(trim((string)($payload['scope_type'] ?? '')));
-  $allowedScopes = ['system', 'constellation', 'region', 'edge'];
   if (!in_array($scope, $allowedScopes, true)) {
     api_send_json(['ok' => false, 'error' => 'Invalid scope_type'], 400);
   }
 
   $idA = (int)($payload['id_a'] ?? 0);
+  $nameA = trim((string)($payload['name_a'] ?? ''));
+  if ($idA <= 0) {
+    $lookupScope = $scope === 'edge' ? 'system' : $scope;
+    $idA = $lookupId($lookupScope, $nameA);
+  }
+
   $idB = isset($payload['id_b']) ? (int)$payload['id_b'] : null;
+  $nameB = trim((string)($payload['name_b'] ?? ''));
+  if ($scope === 'edge') {
+    if ($idB === null || $idB <= 0) {
+      $idB = $lookupId('system', $nameB);
+    }
+  }
+
   if ($idA <= 0 || ($scope === 'edge' && ($idB === null || $idB <= 0))) {
     api_send_json(['ok' => false, 'error' => 'Invalid ids'], 400);
   }
