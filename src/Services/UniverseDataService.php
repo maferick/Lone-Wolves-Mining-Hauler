@@ -1292,11 +1292,49 @@ final class UniverseDataService
     }
     curl_setopt($ch, CURLOPT_HTTPHEADER, $reqHeaders);
 
-    $raw = (string)curl_exec($ch);
-    $errno = curl_errno($ch);
-    $err = $errno ? curl_error($ch) : null;
-    $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $raw = '';
+    $errno = 0;
+    $err = null;
+    $status = 0;
+    $attempt = 0;
+
+    while (true) {
+      $raw = (string)curl_exec($ch);
+      $errno = curl_errno($ch);
+      $err = $errno ? curl_error($ch) : null;
+      $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+      if (!$errno && EsiRateLimiter::shouldRetry($status, $this->config) && $attempt < 1) {
+        curl_close($ch);
+        EsiRateLimiter::sleepForRetry($respHeaders, $this->config);
+        $respHeaders = [];
+        $ch = curl_init($finalUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 25);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_USERAGENT, $this->config['esi']['user_agent'] ?? 'CorpHauling/1.0');
+        curl_setopt($ch, CURLOPT_HEADERFUNCTION, function($ch, $headerLine) use (&$respHeaders) {
+          $len = strlen($headerLine);
+          $headerLine = trim($headerLine);
+          if ($headerLine === '' || !str_contains($headerLine, ':')) return $len;
+          [$k, $v] = explode(':', $headerLine, 2);
+          $respHeaders[strtolower(trim($k))] = trim($v);
+          return $len;
+        });
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $reqHeaders);
+        $attempt++;
+        continue;
+      }
+
+      break;
+    }
+
     curl_close($ch);
+
+    if (!$errno) {
+      EsiRateLimiter::sleepIfLowRemaining($respHeaders, $this->config);
+    }
 
     if ($status === 304 && $cacheEnabled && $cached['hit'] && $cached['json'] !== null) {
       $raw = $cached['json'];
