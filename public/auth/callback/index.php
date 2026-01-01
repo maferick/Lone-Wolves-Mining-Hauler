@@ -131,9 +131,13 @@ try {
       );
     }
 
-    // Determine if this is the first user EVER (platform bootstrap) OR first user in this corp.
-    $totalUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user");
-    $corpUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user WHERE corp_id = :cid", ['cid' => $corpId]);
+    // Determine if this is the first real SSO user EVER (platform bootstrap) OR first in this corp.
+    // Ignore seeded/system placeholders that lack a real character_id.
+    $totalUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user WHERE character_id IS NOT NULL AND character_id > 0");
+    $corpUsers = (int)$db->scalar(
+      "SELECT COUNT(*) FROM app_user WHERE corp_id = :cid AND character_id IS NOT NULL AND character_id > 0",
+      ['cid' => $corpId]
+    );
 
     // Upsert user
     $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$corpId,'chid'=>$characterId]);
