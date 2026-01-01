@@ -364,9 +364,16 @@ ob_start();
         });
         const data = await resp.json();
         if (!data.ok) {
-          const friendlyError = data.error === 'no_viable_route'
-            ? 'No viable route found.'
-            : (data.error || 'Quote failed.');
+          let friendlyError = data.error || 'Quote failed.';
+          if (data.error === 'no_viable_route') {
+            friendlyError = 'No viable route found.';
+          } else if (typeof data.error === 'string' && data.error.startsWith('oversized_volume:')) {
+            const [, maxValue] = data.error.split(':');
+            const maxVolume = parseFloat(maxValue || '0');
+            friendlyError = Number.isFinite(maxVolume) && maxVolume > 0
+              ? `Volume exceeds max ship capacity (max ${maxVolume.toLocaleString()} m³).`
+              : 'Volume exceeds max ship capacity.';
+          }
           showError(friendlyError);
           return;
         }
