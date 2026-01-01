@@ -175,8 +175,13 @@ final class UniverseDataService
     }
 
     if ($truncate) {
-      $this->db->execute("TRUNCATE map_edge");
-      $this->db->execute("TRUNCATE map_system");
+      try {
+        $this->db->execute("TRUNCATE map_edge");
+        $this->db->execute("TRUNCATE map_system");
+      } catch (Throwable $e) {
+        $this->db->execute("DELETE FROM map_edge");
+        $this->db->execute("DELETE FROM map_system");
+      }
     }
 
     $this->db->execute(
