@@ -53,10 +53,7 @@ final class HaulRequestService
     }
 
     $shipClass = (string)($breakdown['ship_class']['service_class'] ?? '');
-    $routePolicy = (string)($route['profile'] ?? $route['route_profile'] ?? '');
-    if ($routePolicy === '') {
-      $routePolicy = $this->normalizeRoutePolicy((string)($quote['profile'] ?? 'balanced'));
-    }
+    $routePolicy = $this->normalizeRoutePolicy((string)($route['profile'] ?? $route['route_profile'] ?? $quote['profile'] ?? 'balanced'));
 
     $requestId = $this->db->insert('haul_request', [
       'corp_id' => $corpId,
