@@ -94,7 +94,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <table class="table" id="dnf-table" style="margin-top:10px;">
         <thead>
           <tr>
-            <th>ID</th>
             <th>Scope</th>
             <th>Target</th>
             <th>Severity</th>
@@ -112,8 +111,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <option value="region">Region</option>
           <option value="edge">Gate Edge</option>
         </select>
-        <input class="input" id="dnf-id-a" type="number" min="1" placeholder="ID A" />
-        <input class="input" id="dnf-id-b" type="number" min="1" placeholder="ID B (edge)" />
+        <input class="input" id="dnf-name-a" type="text" placeholder="Target name" />
+        <input class="input" id="dnf-name-b" type="text" placeholder="Edge system name" />
         <input class="input" id="dnf-severity" type="number" min="1" value="1" />
         <label class="form-field" style="margin:0;">
           <span class="form-label">Hard</span>
@@ -190,12 +189,27 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   };
 
   const formatDnfTarget = (rule) => {
-    const nameA = rule.name_a ? `${rule.name_a} (${rule.id_a})` : `${rule.id_a}`;
+    const nameA = rule.name_a || 'Unknown';
     if (rule.scope_type === 'edge') {
-      const nameB = rule.name_b ? `${rule.name_b} (${rule.id_b})` : `${rule.id_b}`;
-      return `${nameA} → ${nameB}`;
+      const nameB = rule.name_b || 'Unknown';
+      return `${nameA} \u2192 ${nameB}`;
     }
     return nameA;
+  };
+
+  const formatDnfScope = (scope) => {
+    switch (scope) {
+      case 'system':
+        return 'System';
+      case 'constellation':
+        return 'Constellation';
+      case 'region':
+        return 'Region';
+      case 'edge':
+        return 'Gate Edge';
+      default:
+        return scope || 'Unknown';
+    }
   };
 
   const loadDnfRules = async () => {
@@ -205,8 +219,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     (data.rules || []).forEach((rule) => {
       const row = document.createElement('tr');
       row.innerHTML = `
-        <td>${rule.dnf_rule_id}</td>
-        <td>${rule.scope_type}</td>
+        <td>${formatDnfScope(rule.scope_type)}</td>
         <td>${formatDnfTarget(rule)}</td>
         <td>${rule.severity}</td>
         <td>${rule.is_hard_block ? 'Yes' : 'No'}</td>
@@ -271,8 +284,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   document.getElementById('dnf-add')?.addEventListener('click', async () => {
     const payload = {
       scope_type: document.getElementById('dnf-scope').value,
-      id_a: parseInt(document.getElementById('dnf-id-a').value || '0', 10),
-      id_b: parseInt(document.getElementById('dnf-id-b').value || '0', 10),
+      name_a: document.getElementById('dnf-name-a').value,
+      name_b: document.getElementById('dnf-name-b').value,
       severity: parseInt(document.getElementById('dnf-severity').value || '1', 10),
       is_hard_block: document.getElementById('dnf-hard').checked,
       reason: document.getElementById('dnf-reason').value,
