@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS eve_entity (
   name               VARCHAR(255) NOT NULL,
   category           VARCHAR(64) NULL,
   extra_json         JSON NULL,
-  source             ENUM('esi','manual') NOT NULL DEFAULT 'esi',
+  source             ENUM('esi','manual','sde') NOT NULL DEFAULT 'esi',
   last_seen_at       DATETIME NOT NULL,
   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
