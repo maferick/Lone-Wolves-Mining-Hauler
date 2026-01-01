@@ -218,6 +218,11 @@ ob_start();
     };
 
     const fmtIsk = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+    const fmtSecurity = (value) => {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return '0.0';
+      return num.toFixed(1);
+    };
 
     const renderBreakdown = (data) => {
       const breakdown = data.breakdown || {};
@@ -230,7 +235,9 @@ ob_start();
       const path = route.path || [];
       const first = path[0]?.system_name || '—';
       const last = path[path.length - 1]?.system_name || '—';
-      const pathNames = path.map((p) => p.system_name).join(' → ');
+      const pathNames = path
+        .map((p) => `${p.system_name} (${fmtSecurity(p.security)})`)
+        .join(' → ');
 
       const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
       breakdownContent.innerHTML = `
