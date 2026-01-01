@@ -35,7 +35,9 @@ INSERT INTO permission (perm_key, perm_name, description) VALUES
   ('haul.execute', 'Execute hauls', 'Update status (pickup/in-transit/delivered).'),
   ('pricing.manage', 'Manage pricing', 'Create/update pricing rules and lanes.'),
   ('webhook.manage', 'Manage webhooks', 'Create/update Discord webhooks and templates.'),
-  ('esi.manage', 'Manage ESI', 'Configure ESI tokens and scheduled pulls.')
+  ('esi.manage', 'Manage ESI', 'Configure ESI tokens and scheduled pulls.'),
+  ('user.manage', 'Manage users', 'Manage user access and role assignments.'),
+  ('corp.manage', 'Manage corporation settings', 'Configure corp profile, defaults, and access rules.')
 ON DUPLICATE KEY UPDATE perm_name=VALUES(perm_name), description=VALUES(description);
 
 -- Role ↔ Permission mapping (starter)
@@ -89,4 +91,3 @@ VALUES
   (98746727, 'routing.defaults', JSON_OBJECT('route_policy', 'safest', 'avoid_low', true, 'avoid_null', true)),
   (98746727, 'discord.templates', JSON_OBJECT('request_post', JSON_OBJECT('enabled', true)))
 ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json);
-

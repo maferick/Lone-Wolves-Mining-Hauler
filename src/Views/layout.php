@@ -8,6 +8,7 @@ declare(strict_types=1);
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
+$canRights = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'user.manage');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpId = (int)($config['corp']['id'] ?? 0);
 $corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/logo?size=64" : null;
@@ -56,8 +57,11 @@ $body = $body ?? '';
       <div class="topbar-actions">
         <?php if ($isLoggedIn): ?>
           <span class="topbar-user">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
+          <?php if ($canRights): ?>
+            <a class="btn rights" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
+          <?php endif; ?>
           <?php if ($canAdmin): ?>
-            <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+            <a class="btn admin" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
           <?php endif; ?>
           <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
         <?php else: ?>

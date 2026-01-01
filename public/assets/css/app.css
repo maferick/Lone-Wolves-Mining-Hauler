@@ -131,6 +131,18 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   font-size:13px;
 }
 .btn:hover{background: rgba(124,92,255,.20)}
+.btn.admin{
+  border-color: rgba(255,157,77,.45);
+  background: rgba(255,157,77,.18);
+  color: var(--text);
+}
+.btn.admin:hover{background: rgba(255,157,77,.28)}
+.btn.rights{
+  border-color: rgba(46,229,157,.45);
+  background: rgba(46,229,157,.16);
+  color: var(--text);
+}
+.btn.rights:hover{background: rgba(46,229,157,.28)}
 .btn.ghost{
   border:1px solid var(--border);
   background: rgba(255,255,255,.03);

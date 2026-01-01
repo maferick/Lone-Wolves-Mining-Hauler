@@ -8,6 +8,16 @@ $canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
 $queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'completed' => 0];
+$contractStats = $contractStats ?? [
+  'total' => 0,
+  'outstanding' => 0,
+  'in_progress' => 0,
+  'completed' => 0,
+  'en_route_volume' => 0,
+  'pending_volume' => 0,
+  'last_fetched_at' => null,
+];
+$contractStatsAvailable = $contractStatsAvailable ?? false;
 $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => '', 'volume' => '', 'collateral' => ''];
 $quoteErrors = $quoteErrors ?? [];
 $quoteResult = $quoteResult ?? null;
@@ -39,6 +49,50 @@ ob_start();
         <div class="kpi-value"><?= number_format((int)$queueStats['completed']) ?></div>
       </div>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Courier contract status</h2>
+      <p class="muted">ESI-fed courier contracts currently in flow.</p>
+    </div>
+    <?php if (!$contractStatsAvailable || $contractStats['total'] <= 0): ?>
+      <div class="content">
+        <p class="muted">No courier contracts pulled yet. Sync via the ESI panel to populate en-route totals.</p>
+      </div>
+    <?php else: ?>
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="kpi-label">Outstanding</div>
+          <div class="kpi-value"><?= number_format((int)$contractStats['outstanding']) ?></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">En Route</div>
+          <div class="kpi-value"><?= number_format((int)$contractStats['in_progress']) ?></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Completed</div>
+          <div class="kpi-value"><?= number_format((int)$contractStats['completed']) ?></div>
+        </div>
+      </div>
+      <div class="content" style="padding-top:6px;">
+        <div class="row">
+          <div>
+            <div class="label">En route volume</div>
+            <div><?= number_format((float)$contractStats['en_route_volume'], 0) ?> m³</div>
+          </div>
+          <div>
+            <div class="label">Pending volume</div>
+            <div><?= number_format((float)$contractStats['pending_volume'], 0) ?> m³</div>
+          </div>
+        </div>
+        <?php if (!empty($contractStats['last_fetched_at'])): ?>
+          <div class="muted" style="margin-top:10px; font-size:12px;">
+            Last ESI sync: <?= htmlspecialchars((string)$contractStats['last_fetched_at'], ENT_QUOTES, 'UTF-8') ?> UTC
+          </div>
+        <?php endif; ?>
+      </div>
+    <?php endif; ?>
   </div>
 
   <div class="card">
