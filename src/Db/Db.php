@@ -18,6 +18,12 @@ final class Db {
     $user = (string)($dbCfg['user'] ?? '');
     $pass = (string)($dbCfg['pass'] ?? '');
     if ($name === '' || $user === '') {
+      // fallback to getenv for deployments where config array is minimal
+      $name = $name ?: (string)(getenv('DB_NAME') ?: '');
+      $user = $user ?: (string)(getenv('DB_USER') ?: '');
+      $pass = $pass ?: (string)(getenv('DB_PASS') ?: '');
+    }
+    if ($name === '' || $user === '') {
       throw new \RuntimeException('DB config missing name/user.');
     }
     $dsn = 'mysql:host=' . $host . ';port=' . $port . ';dbname=' . $name . ';charset=utf8mb4';
