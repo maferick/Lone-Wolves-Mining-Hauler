@@ -155,6 +155,22 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   color: var(--text);
 }
 .btn.danger:hover{background: rgba(255,77,109,.3)}
+.sso-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:6px 10px;
+  border-radius: 14px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  width: fit-content;
+}
+.sso-button:hover{background: rgba(255,255,255,.08)}
+.sso-button img{
+  display:block;
+  height:32px;
+  width:auto;
+}
 
 .list{list-style:none; padding:0 18px 18px; margin:0; display:grid; gap:10px}
 .list li{display:flex; align-items:center; gap:10px; color:var(--muted)}

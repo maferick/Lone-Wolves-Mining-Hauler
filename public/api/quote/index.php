@@ -15,6 +15,10 @@ if ($db === null || !isset($services['pricing'])) {
   ], 503);
 }
 
+if (empty($authCtx['user_id'])) {
+  api_send_json(['ok' => false, 'error' => 'login_required'], 403);
+}
+
 $payload = api_read_json();
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
