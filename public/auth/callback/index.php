@@ -143,12 +143,6 @@ try {
       "SELECT COUNT(*) FROM app_user WHERE corp_id = :cid AND character_id IS NOT NULL AND character_id > 0",
       ['cid' => $corpId]
     );
-    $corpAdmins = (int)$db->scalar(
-      "SELECT COUNT(*) FROM user_role ur
-        JOIN role r ON r.role_id = ur.role_id
-       WHERE r.corp_id = :cid AND r.role_key = 'admin'",
-      ['cid' => $corpId]
-    );
 
     // Upsert user
     $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$corpId,'chid'=>$characterId]);
@@ -198,7 +192,7 @@ try {
     // - if first user ever, admin
     // - else if first user in this corp, admin (corp bootstrap)
     // - else requester by default
-    $roleToAssign = ($totalUsers === 0 || $corpUsers === 0 || $corpAdmins === 0) ? 'admin' : 'requester';
+    $roleToAssign = ($totalUsers === 0 || $corpUsers === 0) ? 'admin' : 'requester';
 
     $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk LIMIT 1", ['cid'=>$corpId,'rk'=>$roleToAssign]);
     if ($roleId > 0) {
