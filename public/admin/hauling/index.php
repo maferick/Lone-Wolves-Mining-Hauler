@@ -226,14 +226,14 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   });
 
   const loadProfile = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/routing-profile?corp_id=${corpId}`);
+    const data = await fetchJson(`${basePath}/api/admin/routing-profile/?corp_id=${corpId}`);
     if (data.ok) {
       document.getElementById('routing-profile').value = data.profile;
     }
   };
 
   const loadTolerance = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/settings?corp_id=${corpId}`);
+    const data = await fetchJson(`${basePath}/api/admin/settings/?corp_id=${corpId}`);
     if (data.ok) {
       document.getElementById('tolerance-type').value = data.reward_tolerance.type;
       document.getElementById('tolerance-value').value = data.reward_tolerance.value;
@@ -242,7 +242,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   };
 
   const loadRatePlans = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/rate-plan?corp_id=${corpId}`);
+    const data = await fetchJson(`${basePath}/api/admin/rate-plan/?corp_id=${corpId}`);
     const tbody = document.querySelector('#rate-plan-table tbody');
     tbody.innerHTML = '';
     (data.rate_plans || []).forEach((plan) => {
@@ -283,7 +283,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   };
 
   const loadDnfRules = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/dnf?active=1`);
+    const data = await fetchJson(`${basePath}/api/admin/dnf/?active=1`);
     const tbody = document.querySelector('#dnf-table tbody');
     tbody.innerHTML = '';
     (data.rules || []).forEach((rule) => {
@@ -302,7 +302,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
   document.getElementById('save-profile')?.addEventListener('click', async () => {
     const profile = document.getElementById('routing-profile').value;
-    await fetchJson(`${basePath}/api/admin/routing-profile`, {
+    await fetchJson(`${basePath}/api/admin/routing-profile/`, {
       method: 'POST',
       body: JSON.stringify({ corp_id: corpId, profile }),
     });
@@ -312,7 +312,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
     const type = document.getElementById('tolerance-type').value;
     const value = parseFloat(document.getElementById('tolerance-value').value || '0');
-    await fetchJson(`${basePath}/api/admin/settings`, {
+    await fetchJson(`${basePath}/api/admin/settings/`, {
       method: 'POST',
       body: JSON.stringify({ corp_id: corpId, type, value }),
     });
@@ -329,7 +329,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     inputs.forEach((input) => {
       payload[input.dataset.field] = parseFloat(input.value || '0');
     });
-    await fetchJson(`${basePath}/api/admin/rate-plan`, {
+    await fetchJson(`${basePath}/api/admin/rate-plan/`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
@@ -344,7 +344,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       collateral_rate: parseFloat(document.getElementById('new-collateral-rate').value || '0'),
       min_price: parseFloat(document.getElementById('new-min-price').value || '0'),
     };
-    await fetchJson(`${basePath}/api/admin/rate-plan`, {
+    await fetchJson(`${basePath}/api/admin/rate-plan/`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -365,7 +365,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     if (!payload.name_a && !payload.id_a) {
       return;
     }
-    await fetchJson(`${basePath}/api/admin/dnf`, {
+    await fetchJson(`${basePath}/api/admin/dnf/`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
@@ -376,7 +376,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.dataset.action !== 'disable') return;
     const id = target.dataset.id;
-    await fetchJson(`${basePath}/api/admin/dnf`, {
+    await fetchJson(`${basePath}/api/admin/dnf/`, {
       method: 'DELETE',
       body: JSON.stringify({ dnf_rule_id: id }),
     });
