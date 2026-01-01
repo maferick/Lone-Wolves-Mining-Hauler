@@ -12,7 +12,10 @@ $payload = api_read_json();
 
 $pickup = trim((string)($payload['pickup'] ?? $payload['pickup_system'] ?? ''));
 $destination = trim((string)($payload['destination'] ?? $payload['destination_system'] ?? ''));
-$profile = (string)($payload['profile'] ?? 'shortest');
+$profile = strtolower(trim((string)($payload['profile'] ?? 'balanced')));
+if (in_array($profile, ['normal', 'high'], true)) {
+  $profile = 'balanced';
+}
 
 /** @var \App\Services\RouteService $routeService */
 $routeService = $services['route'];

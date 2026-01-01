@@ -18,7 +18,7 @@ if ($db === null || !isset($services['pricing'])) {
 $payload = api_read_json();
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
-$defaultProfile = 'shortest';
+$defaultPriority = 'normal';
 $settingRow = $db->one(
   "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.default_profile' LIMIT 1",
   ['cid' => $corpId]
@@ -30,14 +30,21 @@ if ($settingRow === null && $corpId !== 0) {
 }
 if ($settingRow && !empty($settingRow['setting_json'])) {
   $decoded = Db::jsonDecode((string)$settingRow['setting_json'], null);
-  if (is_array($decoded) && isset($decoded['profile'])) {
-    $defaultProfile = (string)$decoded['profile'];
+  if (is_array($decoded)) {
+    $defaultPriority = (string)($decoded['priority'] ?? $decoded['profile'] ?? $defaultPriority);
   } elseif (is_string($decoded)) {
-    $defaultProfile = $decoded;
+    $defaultPriority = $decoded;
   }
 }
-if (empty($payload['profile'])) {
-  $payload['profile'] = $defaultProfile;
+$normalizePriority = static function (string $value): string {
+  $value = strtolower(trim($value));
+  if ($value === 'high') {
+    return 'high';
+  }
+  return 'normal';
+};
+if (empty($payload['priority']) && empty($payload['profile'])) {
+  $payload['priority'] = $normalizePriority($defaultPriority);
 }
 
 try {
@@ -48,7 +55,7 @@ try {
     'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
     'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
     'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
-    'profile' => $payload['profile'] ?? $defaultProfile,
+    'priority' => $payload['priority'] ?? $payload['profile'] ?? $defaultPriority,
   ], $corpId, [
     'corp_id' => $authCtx['corp_id'] ?? null,
     'actor_user_id' => $authCtx['user_id'] ?? null,
@@ -70,7 +77,7 @@ try {
   $responseDetails = [
     'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
     'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
-    'profile' => $payload['profile'] ?? $defaultProfile,
+    'priority' => $payload['priority'] ?? $payload['profile'] ?? $defaultPriority,
     'resolved_ids' => $details['resolved_ids'] ?? null,
     'graph_loaded' => (bool)($details['graph']['graph_loaded'] ?? false),
     'reason' => $details['reason'] ?? 'no_viable_route',

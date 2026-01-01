@@ -13,9 +13,7 @@ final class RouteService
   private ?EsiRouteService $esiRouteService;
 
   private const PROFILE_PENALTIES = [
-    'shortest' => ['low' => 0.0, 'null' => 0.0],
     'balanced' => ['low' => 2.0, 'null' => 6.0],
-    'safest' => ['low' => 5.0, 'null' => 15.0],
   ];
 
   private const SECURITY_HIGHSEC_MIN = 0.5;
@@ -40,7 +38,7 @@ final class RouteService
   public function findRoute(
     string $fromSystemName,
     string $toSystemName,
-    string $profile = 'shortest',
+    string $profile = 'balanced',
     array $context = []
   ): array
   {
@@ -86,8 +84,8 @@ final class RouteService
     }
 
     if ($profile === 'safest') {
-      $fromSecurity = (float)($graph['systems'][$fromId]['security'] ?? 0.0);
-      $toSecurity = (float)($graph['systems'][$toId]['security'] ?? 0.0);
+      $fromSecurity = $this->normalizedSecurity((float)($graph['systems'][$fromId]['security'] ?? 0.0));
+      $toSecurity = $this->normalizedSecurity((float)($graph['systems'][$toId]['security'] ?? 0.0));
       if ($fromSecurity < self::SECURITY_HIGHSEC_MIN || $toSecurity < self::SECURITY_HIGHSEC_MIN) {
         throw new RouteException('Pickup or destination is not high-sec for safest routing.', [
           'reason' => 'pickup_destination_not_highsec',
@@ -336,8 +334,11 @@ final class RouteService
   private function normalizeProfile(string $profile): string
   {
     $profile = strtolower(trim($profile));
+    if (in_array($profile, ['normal', 'high'], true)) {
+      return 'balanced';
+    }
     if (!array_key_exists($profile, self::PROFILE_PENALTIES)) {
-      return 'shortest';
+      return 'balanced';
     }
     return $profile;
   }
@@ -526,7 +527,7 @@ final class RouteService
       return 0.0;
     }
 
-    $security = (float)$system['security'];
+    $security = $this->normalizedSecurity((float)$system['security']);
     $penalties = self::PROFILE_PENALTIES[$profile];
 
     if ($security < self::SECURITY_LOWSEC_MIN) {
@@ -574,7 +575,7 @@ final class RouteService
       if ($system === null) {
         continue;
       }
-      $security = (float)$system['security'];
+      $security = $this->normalizedSecurity((float)$system['security']);
       if ($security < self::SECURITY_LOWSEC_MIN) {
         $counts['null']++;
       } elseif ($security < self::SECURITY_HIGHSEC_MIN) {
@@ -776,7 +777,7 @@ final class RouteService
 
     if ($profile === 'safest') {
       foreach ($systemLookup as $system) {
-        if ((float)($system['security'] ?? 0.0) < self::SECURITY_HIGHSEC_MIN) {
+        if ($this->normalizedSecurity((float)($system['security'] ?? 0.0)) < self::SECURITY_HIGHSEC_MIN) {
           throw new RouteException('CCP route included low/null-sec systems.', [
             'reason' => 'ccp_route_not_highsec',
             'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
@@ -813,9 +814,8 @@ final class RouteService
   private function mapProfileToCcpFlag(string $profile): string
   {
     return match ($profile) {
-      'balanced', 'safest' => 'secure',
-      'unsafe' => 'insecure',
-      default => 'shortest',
+      'balanced' => 'secure',
+      default => 'secure',
     };
   }
 
@@ -936,7 +936,7 @@ final class RouteService
     if ($profile !== 'safest') {
       return false;
     }
-    $security = (float)($systems[$systemId]['security'] ?? 0.0);
+    $security = $this->normalizedSecurity((float)($systems[$systemId]['security'] ?? 0.0));
     return $security < self::SECURITY_HIGHSEC_MIN;
   }
 
@@ -947,7 +947,7 @@ final class RouteService
     }
 
     foreach ($systems as $systemId => $system) {
-      if ((float)($system['security'] ?? 0.0) < self::SECURITY_HIGHSEC_MIN) {
+      if ($this->normalizedSecurity((float)($system['security'] ?? 0.0)) < self::SECURITY_HIGHSEC_MIN) {
         $avoidSystemIds[] = (int)$systemId;
       }
     }
@@ -971,6 +971,11 @@ final class RouteService
     }
 
     return false;
+  }
+
+  private function normalizedSecurity(float $security): float
+  {
+    return round($security, 1);
   }
 
   private function isBackfillEnabled(?int $corpId): bool

@@ -22,7 +22,7 @@ $errors = [];
 
 $defaults = [
   'routing.defaults' => [
-    'route_policy' => 'safest',
+    'route_policy' => 'balanced',
     'avoid_low' => true,
     'avoid_null' => true,
   ],
@@ -73,10 +73,10 @@ try {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $routePolicy = (string)($_POST['routing_policy'] ?? 'safest');
-  $allowedPolicies = ['safest' => 'Safest', 'shortest' => 'Shortest'];
+  $routePolicy = (string)($_POST['routing_policy'] ?? 'balanced');
+  $allowedPolicies = ['balanced' => 'Balanced'];
   if (!array_key_exists($routePolicy, $allowedPolicies)) {
-    $routePolicy = 'safest';
+    $routePolicy = 'balanced';
   }
 
   $avoidLow = isset($_POST['routing_avoid_low']);
@@ -291,8 +291,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <div class="label">Route policy</div>
               <select class="input" name="routing_policy">
                 <?php
-                $selectedPolicy = (string)($settings['routing.defaults']['route_policy'] ?? 'safest');
-                $policyOptions = ['safest' => 'Safest', 'shortest' => 'Shortest'];
+                $selectedPolicy = (string)($settings['routing.defaults']['route_policy'] ?? 'balanced');
+                $policyOptions = ['balanced' => 'Balanced'];
                 foreach ($policyOptions as $value => $label):
                 ?>
                   <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selectedPolicy === $value ? 'selected' : '' ?>>

@@ -144,7 +144,7 @@ switch ($path) {
     ];
     $pickupLocationOptions = [];
     $destinationLocationOptions = [];
-    $defaultProfile = 'shortest';
+    $defaultPriority = 'normal';
     $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
     if ($dbOk && $db !== null && $corpIdForProfile > 0) {
       $settingRow = $db->one(
@@ -158,13 +158,14 @@ switch ($path) {
       }
       if ($settingRow && !empty($settingRow['setting_json'])) {
         $decoded = json_decode((string)$settingRow['setting_json'], true);
-        if (is_array($decoded) && isset($decoded['profile'])) {
-          $defaultProfile = (string)$decoded['profile'];
+        if (is_array($decoded)) {
+          $defaultPriority = (string)($decoded['priority'] ?? $decoded['profile'] ?? $defaultPriority);
         } elseif (is_string($decoded)) {
-          $defaultProfile = $decoded;
+          $defaultPriority = $decoded;
         }
       }
     }
+    $defaultPriority = strtolower(trim($defaultPriority)) === 'high' ? 'high' : 'normal';
 
     if ($dbOk && $db !== null) {
       $systemRows = $db->select("SELECT system_name FROM eve_system ORDER BY system_name");
@@ -399,9 +400,9 @@ switch ($path) {
           $dnfText = $dnfNotes ? implode('; ', $dnfNotes) : 'None';
 
           $contractDescription = sprintf(
-            "Quote #%s | Profile: %s | DNF: %s | Note: assembled containers/wraps are OK (mention in contract).",
+            "Quote #%s | Priority: %s | DNF: %s | Note: assembled containers/wraps are OK (mention in contract).",
             (string)($request['quote_id'] ?? 'N/A'),
-            (string)($request['route_policy'] ?? 'shortest'),
+            (string)($request['route_policy'] ?? 'normal'),
             $dnfText
           );
         }

@@ -72,7 +72,7 @@ final class HaulRequestService
       'quote_id' => (int)$quote['quote_id'],
       'ship_class' => $shipClass !== '' ? $shipClass : null,
       'expected_jumps' => (int)($route['jumps'] ?? 0),
-      'route_policy' => (string)($quote['profile'] ?? 'shortest'),
+      'route_policy' => (string)($quote['profile'] ?? 'normal'),
       'route_system_ids' => $routeIds ? Db::jsonEncode($routeIds) : null,
       'price_breakdown_json' => Db::jsonEncode($breakdown),
       'status' => 'awaiting_contract',
@@ -84,7 +84,7 @@ final class HaulRequestService
       'message' => 'Request created from quote.',
       'payload_json' => Db::jsonEncode([
         'quote_id' => (int)$quote['quote_id'],
-        'profile' => (string)($quote['profile'] ?? 'shortest'),
+        'profile' => (string)($quote['profile'] ?? 'normal'),
       ]),
       'created_by_user_id' => (int)($authCtx['user_id'] ?? 0) ?: null,
     ]);

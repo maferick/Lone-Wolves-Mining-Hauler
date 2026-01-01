@@ -34,7 +34,7 @@ final class PricingService
   {
     $from = trim((string)($payload['pickup'] ?? $payload['pickup_system'] ?? $payload['from_system'] ?? ''));
     $to = trim((string)($payload['destination'] ?? $payload['destination_system'] ?? $payload['to_system'] ?? ''));
-    $profile = (string)($payload['profile'] ?? '');
+    $priority = (string)($payload['priority'] ?? $payload['route_priority'] ?? $payload['profile'] ?? '');
     $volume = (float)($payload['volume_m3'] ?? $payload['volume'] ?? 0);
     $collateral = (float)($payload['collateral_isk'] ?? $payload['collateral'] ?? 0);
 
@@ -54,10 +54,14 @@ final class PricingService
       throw new \InvalidArgumentException('Unknown system name.');
     }
 
-    $route = $this->routeService->findRoute($fromSystem['system_name'], $toSystem['system_name'], $profile, $context);
+    $priority = $this->normalizePriority($priority);
+    $routeProfile = 'balanced';
+    $route = $this->routeService->findRoute($fromSystem['system_name'], $toSystem['system_name'], $routeProfile, $context);
 
     $ship = $this->chooseShipClass($volume);
     $ratePlan = $this->getRatePlan($corpId, $ship['service_class']);
+    $priorityFees = $this->loadPriorityFees($corpId);
+    $priorityFee = (float)($priorityFees[$priority] ?? 0.0);
 
     $jumps = (int)$route['jumps'];
     $hs = (int)$route['hs_count'];
@@ -74,7 +78,7 @@ final class PricingService
     $softPenalty = $this->softDnfPenalty($route['used_soft_dnf_rules'] ?? [], $ratePerJump);
     $jumpSubtotal = $baseJumpCost + $lowPenalty + $nullPenalty + $softPenalty['total'];
     $collateralFee = $collateral * $collateralRate;
-    $priceTotal = max($minPrice, $jumpSubtotal + $collateralFee);
+    $priceTotal = max($minPrice, $jumpSubtotal + $collateralFee + $priorityFee);
 
     $breakdown = [
       'inputs' => [
@@ -83,6 +87,7 @@ final class PricingService
         'volume_m3' => $volume,
         'collateral_isk' => $collateral,
       ],
+      'priority' => $priority,
       'ship_class' => $ship,
       'jumps' => $jumps,
       'security_counts' => [
@@ -95,6 +100,7 @@ final class PricingService
         'nullsec' => $nullPenalty,
         'soft_dnf_total' => $softPenalty['total'],
         'soft_dnf' => $softPenalty['rules'],
+        'priority_fee' => $priorityFee,
       ],
       'rate_plan' => [
         'service_class' => $ratePlan['service_class'] ?? $ship['service_class'],
@@ -107,6 +113,7 @@ final class PricingService
         'lowsec_penalty' => $lowPenalty,
         'nullsec_penalty' => $nullPenalty,
         'soft_dnf_penalty' => $softPenalty['total'],
+        'priority_fee' => $priorityFee,
         'jump_subtotal' => $jumpSubtotal,
         'collateral_fee' => $collateralFee,
         'min_price_applied' => $priceTotal === $minPrice && $priceTotal > 0,
@@ -118,7 +125,7 @@ final class PricingService
       'corp_id' => $corpId,
       'from_system_id' => $route['path'][0]['system_id'] ?? 0,
       'to_system_id' => $route['path'][count($route['path']) - 1]['system_id'] ?? 0,
-      'profile' => $route['profile'],
+      'profile' => $priority,
       'route_json' => Db::jsonEncode($route),
       'breakdown_json' => Db::jsonEncode($breakdown),
       'volume_m3' => $volume,
@@ -133,6 +140,15 @@ final class PricingService
       'breakdown' => $breakdown,
       'route' => $route,
     ];
+  }
+
+  private function normalizePriority(string $priority): string
+  {
+    $priority = strtolower(trim($priority));
+    if (in_array($priority, ['high', 'normal'], true)) {
+      return $priority;
+    }
+    return 'normal';
   }
 
   private function resolveSystemByName(string $systemName): ?array
@@ -187,6 +203,31 @@ final class PricingService
       'total' => $total,
       'rules' => $details,
     ];
+  }
+
+  private function loadPriorityFees(int $corpId): array
+  {
+    $defaults = ['normal' => 0.0, 'high' => 0.0];
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.priority_fee' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.priority_fee' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return $defaults;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return $defaults;
+    }
+    $fees = array_merge($defaults, $decoded);
+    $fees['normal'] = max(0.0, (float)($fees['normal'] ?? 0.0));
+    $fees['high'] = max(0.0, (float)($fees['high'] ?? 0.0));
+    return $fees;
   }
 
   private function chooseShipClass(float $volume): array
