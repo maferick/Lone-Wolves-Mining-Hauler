@@ -6,7 +6,7 @@ declare(strict_types=1);
  * bin/cron_sync.php
  *
  * Usage:
- *   php bin/cron_sync.php <corp_id> [character_id_with_token] [--force]
+ *   php bin/cron_sync.php <corp_id> [character_id_with_token] [--force] [--scope=all|universe]
  *
  * Syncs:
  * - Universe regions/constellations/systems
@@ -20,15 +20,31 @@ use App\Services\CronSyncService;
 use App\Services\EsiService;
 
 if ($argc < 2) {
-  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> [character_id] [--force]\n");
+  fwrite(STDERR, "Usage: php bin/cron_sync.php <corp_id> [character_id] [--force] [--scope=all|universe]\n");
   exit(2);
 }
 
 $corpId = (int)$argv[1];
 $charId = $argc >= 3 ? (int)$argv[2] : 0;
 $force = in_array('--force', $argv, true) || in_array('--full', $argv, true);
+$scope = 'all';
 
-if ($charId <= 0) {
+foreach ($argv as $arg) {
+  if ($arg === '--init-universe' || $arg === '--universe') {
+    $scope = 'universe';
+    continue;
+  }
+  if (str_starts_with($arg, '--scope=')) {
+    $scope = substr($arg, strlen('--scope='));
+  }
+}
+
+if (!in_array($scope, ['all', 'universe'], true)) {
+  fwrite(STDERR, "Invalid scope. Allowed values: all, universe.\n");
+  exit(2);
+}
+
+if ($charId <= 0 && $scope !== 'universe') {
   $setting = $db->one(
     "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'esi.cron' LIMIT 1",
     ['cid' => $corpId]
@@ -37,7 +53,7 @@ if ($charId <= 0) {
   $charId = (int)($settingJson['character_id'] ?? 0);
 }
 
-if ($charId <= 0) {
+if ($charId <= 0 && $scope !== 'universe') {
   fwrite(STDERR, "No cron character configured. Provide character_id or set in admin panel.\n");
   exit(2);
 }
@@ -46,7 +62,7 @@ try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
   $cron = new CronSyncService($db, $config, $esi);
-  $results = $cron->run($corpId, $charId, ['force' => $force]);
+  $results = $cron->run($corpId, $charId, ['force' => $force, 'scope' => $scope]);
 
   echo json_encode(['ok' => true, 'result' => $results], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
   exit(0);

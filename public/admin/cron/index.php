@@ -30,12 +30,16 @@ $runResult = null;
 $runError = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  if ($cronCharId <= 0) {
+  $scope = (string)($_POST['scope'] ?? 'all');
+  if (!in_array($scope, ['all', 'universe'], true)) {
+    $scope = 'all';
+  }
+  if ($cronCharId <= 0 && $scope !== 'universe') {
     $runError = 'Set a cron character before running the sync.';
   } else {
     $force = isset($_POST['force']) && $_POST['force'] === '1';
     try {
-      $runResult = $cronService->run($corpId, $cronCharId, ['force' => $force]);
+      $runResult = $cronService->run($corpId, $cronCharId, ['force' => $force, 'scope' => $scope]);
       $cronStats = $cronService->getStats($corpId);
     } catch (Throwable $e) {
       $runError = $e->getMessage();
@@ -46,6 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $cmd = $cronCharId > 0
   ? sprintf('php bin/cron_sync.php %d %d', $corpId, $cronCharId)
   : sprintf('php bin/cron_sync.php %d <character_id>', $corpId);
+$cmdUniverse = sprintf('php bin/cron_sync.php %d --scope=universe', $corpId);
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -53,7 +58,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card">
   <div class="card-header">
     <h2>Cron Manager</h2>
-    <p class="muted">Use this command in your scheduler to refresh tokens and sync ESI data.</p>
+    <p class="muted">Use these commands in your scheduler to refresh tokens or pre-initialize universe data.</p>
   </div>
 
   <div class="content">
@@ -68,6 +73,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <code><?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
     </div>
 
+    <p class="muted" style="margin-top:12px;">Universe/map bootstrap command (safe to run separately):</p>
+    <div class="pill" style="margin:12px 0;">
+      <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
+    </div>
+
     <p class="muted" style="margin-top:12px;">Example crontab entry (runs every minute):</p>
     <div class="pill" style="margin:12px 0;">
       <code>* * * * * <?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
@@ -77,8 +87,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <h3 style="margin-top:18px;">Run now</h3>
     <form method="post" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-      <button class="btn" type="submit" name="force" value="0">Run sync now</button>
+      <button class="btn" type="submit" name="scope" value="all">Run sync now</button>
       <button class="btn ghost" type="submit" name="force" value="1">Run full sync (ignore cooldowns)</button>
+      <button class="btn ghost" type="submit" name="scope" value="universe">Initialize universe & maps</button>
     </form>
 
     <?php if ($runError): ?>
