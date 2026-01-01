@@ -342,7 +342,7 @@ CREATE TABLE IF NOT EXISTS route_cache (
   route_system_ids   LONGTEXT NOT NULL COMMENT 'JSON array of system_ids',
   computed_at        DATETIME NOT NULL,
   expires_at         DATETIME NOT NULL,
-  source             ENUM('esi','manual','gatecheck') NOT NULL DEFAULT 'esi',
+  source             ENUM('esi','manual','gatecheck','sde') NOT NULL DEFAULT 'esi',
   PRIMARY KEY (route_id),
   UNIQUE KEY uq_route (corp_id, route_key),
   KEY idx_route_expires (expires_at),
