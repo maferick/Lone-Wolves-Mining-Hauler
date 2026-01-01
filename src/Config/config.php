@@ -32,6 +32,13 @@ return [
       'enabled' => true,
       'default_ttl_seconds' => (int)(getenv('ESI_CACHE_TTL') ?: 300),
     ],
+    'rate_limit' => [
+      'enabled' => (getenv('ESI_RATE_LIMIT_ENABLED') ?: '1') === '1',
+      'min_error_remain' => (int)(getenv('ESI_RATE_LIMIT_MIN_REMAIN') ?: 5),
+      'sleep_buffer_seconds' => (int)(getenv('ESI_RATE_LIMIT_BUFFER') ?: 1),
+      'max_sleep_seconds' => (int)(getenv('ESI_RATE_LIMIT_MAX_SLEEP') ?: 60),
+      'retry_statuses' => [420, 429],
+    ],
     'endpoints' => [
       'esi_base' => getenv('ESI_BASE_URL') ?: 'https://esi.evetech.net',
       'sso_token' => getenv('SSO_TOKEN_URL') ?: 'https://login.eveonline.com/v2/oauth/token',
