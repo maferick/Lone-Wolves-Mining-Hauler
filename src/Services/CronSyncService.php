@@ -31,6 +31,7 @@ final class CronSyncService
   {
     $options = array_merge([
       'force' => false,
+      'scope' => 'all',
       'ttl_universe' => 86400,
       'ttl_stargate' => 86400,
       'ttl_tokens' => 300,
@@ -39,14 +40,20 @@ final class CronSyncService
     ], $options);
 
     $force = (bool)$options['force'];
+    $scope = (string)$options['scope'];
+    $runUniverse = in_array($scope, ['all', 'universe'], true);
+    $runCorp = $scope === 'all';
     $stats = $this->loadStats($corpId);
     $results = [
       'force' => $force,
+      'scope' => $scope,
       'started_at' => gmdate('c'),
     ];
 
     $universeEmpty = $this->isUniverseEmpty();
-    if ($this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)) {
+    if (!$runUniverse) {
+      $results['universe'] = $this->skipPayload($stats, 'universe', $universeEmpty, 'scope');
+    } elseif ($this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)) {
       $results['universe'] = $this->universe->syncUniverse((int)$options['ttl_universe']);
       $stats['universe'] = gmdate('c');
     } else {
@@ -54,14 +61,18 @@ final class CronSyncService
     }
 
     $graphEmpty = $this->isStargateGraphEmpty();
-    if ($this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)) {
+    if (!$runUniverse) {
+      $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty, 'scope');
+    } elseif ($this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)) {
       $results['stargate_graph'] = $this->universe->syncStargateGraph((int)$options['ttl_stargate'], true);
       $stats['stargate_graph'] = gmdate('c');
     } else {
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty);
     }
 
-    if ($this->shouldRun($stats, 'token_refresh', (int)$options['ttl_tokens'], $force, false)) {
+    if (!$runCorp) {
+      $results['token_refresh'] = $this->skipPayload($stats, 'token_refresh', false, 'scope');
+    } elseif ($this->shouldRun($stats, 'token_refresh', (int)$options['ttl_tokens'], $force, false)) {
       $results['token_refresh'] = $this->sso->refreshCorpTokens($corpId);
       $stats['token_refresh'] = gmdate('c');
     } else {
@@ -70,7 +81,9 @@ final class CronSyncService
 
     $structuresEmpty = $this->isStructuresEmpty($corpId);
     try {
-      if ($this->shouldRun($stats, 'structures', (int)$options['ttl_structures'], $force, $structuresEmpty)) {
+      if (!$runCorp) {
+        $results['structures'] = $this->skipPayload($stats, 'structures', $structuresEmpty, 'scope');
+      } elseif ($this->shouldRun($stats, 'structures', (int)$options['ttl_structures'], $force, $structuresEmpty)) {
         $results['structures'] = $this->universe->syncCorpStructures($corpId, $characterId, (int)$options['ttl_structures']);
         $stats['structures'] = gmdate('c');
       } else {
@@ -81,7 +94,9 @@ final class CronSyncService
     }
 
     $contractsEmpty = $this->isContractsEmpty($corpId);
-    if ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
+    if (!$runCorp) {
+      $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
+    } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
       $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
       $stats['contracts'] = gmdate('c');
     } else {
@@ -134,12 +149,12 @@ final class CronSyncService
     return (time() - $last) >= $ttlSeconds;
   }
 
-  private function skipPayload(array $stats, string $key, bool $empty): array
+  private function skipPayload(array $stats, string $key, bool $empty, ?string $reasonOverride = null): array
   {
     $last = $this->lastSyncAt($stats, $key);
     return [
       'skipped' => true,
-      'reason' => $empty ? 'empty' : 'cooldown',
+      'reason' => $reasonOverride ?? ($empty ? 'empty' : 'cooldown'),
       'last_sync' => $last ? gmdate('c', $last) : null,
     ];
   }
