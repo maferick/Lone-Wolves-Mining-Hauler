@@ -13,6 +13,7 @@ $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/settings/">Corp</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/defaults/">Defaults</a>
+    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/hauling/">Hauling</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/users/">Users</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/esi/">ESI</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/cron/">Cron</a>

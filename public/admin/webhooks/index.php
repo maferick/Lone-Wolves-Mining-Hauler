@@ -29,15 +29,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
          VALUES (:cid, :n, :u, 1)",
         ['cid'=>$corpId,'n'=>$name,'u'=>$url]
       );
+      $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.create', 'discord_webhook', null, null, [
+        'webhook_name' => $name,
+        'webhook_url' => $url,
+      ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
       $msg = "Created.";
     }
   } elseif ($action === 'toggle') {
     $id = (int)($_POST['webhook_id'] ?? 0);
     $db->execute("UPDATE discord_webhook SET is_enabled = 1 - is_enabled WHERE webhook_id=:id AND corp_id=:cid", ['id'=>$id,'cid'=>$corpId]);
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.toggle', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Updated.";
   } elseif ($action === 'delete') {
     $id = (int)($_POST['webhook_id'] ?? 0);
     $db->execute("DELETE FROM discord_webhook WHERE webhook_id=:id AND corp_id=:cid", ['id'=>$id,'cid'=>$corpId]);
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.delete', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Deleted.";
   }
 }

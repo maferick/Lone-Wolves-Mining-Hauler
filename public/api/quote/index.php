@@ -36,11 +36,21 @@ if (empty($payload['profile'])) {
 try {
   /** @var \App\Services\PricingService $pricingService */
   $pricingService = $services['pricing'];
-  $quote = $pricingService->quote($payload, $corpId);
+  $quote = $pricingService->quote([
+    'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
+    'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
+    'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
+    'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
+    'profile' => $payload['profile'] ?? $defaultProfile,
+  ], $corpId);
 
   api_send_json([
     'ok' => true,
-    'quote' => $quote,
+    'quote_id' => $quote['quote_id'],
+    'total_price_isk' => $quote['price_total'],
+    'price_total_isk' => $quote['price_total'],
+    'breakdown' => $quote['breakdown'],
+    'route' => $quote['route'],
   ]);
 } catch (Throwable $e) {
   api_send_json([

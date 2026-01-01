@@ -89,5 +89,19 @@ INSERT INTO app_setting (corp_id, setting_key, setting_json)
 VALUES
   (98746727, 'pricing.defaults', JSON_OBJECT('min_fee', 1000000, 'per_jump', 1000000)),
   (98746727, 'routing.defaults', JSON_OBJECT('route_policy', 'safest', 'avoid_low', true, 'avoid_null', true)),
+  (98746727, 'routing.default_profile', JSON_OBJECT('profile', 'balanced')),
+  (98746727, 'contract.reward_tolerance', JSON_OBJECT('type', 'percent', 'value', 0.02)),
   (98746727, 'discord.templates', JSON_OBJECT('request_post', JSON_OBJECT('enabled', true)))
 ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json);
+
+-- Default rate plans (adjust for corp economics)
+INSERT INTO rate_plan (corp_id, service_class, rate_per_jump, collateral_rate, min_price)
+VALUES
+  (98746727, 'BR', 500000, 0.0025, 2000000),
+  (98746727, 'DST', 750000, 0.0025, 3000000),
+  (98746727, 'FREIGHTER', 1000000, 0.0020, 5000000),
+  (98746727, 'JF', 2000000, 0.0020, 10000000)
+ON DUPLICATE KEY UPDATE
+  rate_per_jump=VALUES(rate_per_jump),
+  collateral_rate=VALUES(collateral_rate),
+  min_price=VALUES(min_price);

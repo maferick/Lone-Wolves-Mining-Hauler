@@ -6,9 +6,13 @@ require_once __DIR__ . '/../../../src/bootstrap.php';
 
 api_require_key();
 
-// Stub: later this will pop job_queue and execute runners
+/** @var \App\Services\DiscordWebhookService $webhooks */
+$webhooks = $services['discord_webhook'];
+$result = $webhooks->dispatchQueued(25);
+
 api_send_json([
   'ok' => true,
-  'message' => 'job runner wired (stub)',
+  'message' => 'job runner dispatched webhooks',
+  'result' => $result,
   'time_utc' => gmdate('c'),
 ]);

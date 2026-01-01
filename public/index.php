@@ -71,6 +71,7 @@ switch ($path) {
       'last_fetched_at' => null,
     ];
     $contractStatsAvailable = false;
+    $apiKey = (string)($config['security']['api_key'] ?? '');
 
     if ($dbOk && $db !== null) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
@@ -90,9 +91,9 @@ switch ($path) {
             FROM (
               SELECT
                 CASE
-                  WHEN status IN ('draft','quoted','submitted','posted') THEN 'outstanding'
-                  WHEN status IN ('accepted','in_transit') THEN 'in_progress'
-                  WHEN status = 'delivered' THEN 'completed'
+                  WHEN status IN ('requested','awaiting_contract','in_queue','draft','quoted','submitted','posted') THEN 'outstanding'
+                  WHEN status IN ('in_progress','accepted','in_transit') THEN 'in_progress'
+                  WHEN status IN ('completed','delivered') THEN 'completed'
                   ELSE 'other'
                 END AS status,
                 delivered_at AS completed_at
@@ -140,64 +141,28 @@ switch ($path) {
     $quoteInput = [
       'pickup_system' => '',
       'destination_system' => '',
-      'volume' => '',
-      'collateral' => '',
     ];
-    $quoteResult = null;
-    $quoteErrors = [];
     $pickupLocationOptions = [];
     $destinationLocationOptions = [];
-
-    $parseCollateral = static function (string $value): ?float {
-      $clean = strtolower(trim($value));
-      if ($clean === '') {
-        return null;
+    $defaultProfile = 'shortest';
+    $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    if ($dbOk && $db !== null && $corpIdForProfile > 0) {
+      $settingRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.default_profile' LIMIT 1",
+        ['cid' => $corpIdForProfile]
+      );
+      if ($settingRow === null) {
+        $settingRow = $db->one(
+          "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.default_profile' LIMIT 1"
+        );
       }
-      $clean = str_replace([',', ' '], '', $clean);
-      if (!preg_match('/^([0-9]+(?:\.[0-9]+)?)([kmb])?$/', $clean, $matches)) {
-        return null;
-      }
-      $amount = (float)$matches[1];
-      $suffix = $matches[2] ?? '';
-      $multiplier = 1;
-      if ($suffix === 'k') {
-        $multiplier = 1000;
-      } elseif ($suffix === 'm') {
-        $multiplier = 1000000;
-      } elseif ($suffix === 'b') {
-        $multiplier = 1000000000;
-      }
-      return $amount * $multiplier;
-    };
-
-    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-      $quoteInput['pickup_system'] = trim((string)($_POST['pickup_system'] ?? ''));
-      $quoteInput['destination_system'] = trim((string)($_POST['destination_system'] ?? ''));
-      $quoteInput['volume'] = (string)($_POST['volume'] ?? '');
-      $quoteInput['collateral'] = trim((string)($_POST['collateral'] ?? ''));
-
-      $allowedVolumes = ['12500', '62500', '360000', '950000'];
-      if ($quoteInput['pickup_system'] === '') {
-        $quoteErrors[] = 'Pickup system is required.';
-      }
-      if ($quoteInput['destination_system'] === '') {
-        $quoteErrors[] = 'Destination system is required.';
-      }
-      if (!in_array($quoteInput['volume'], $allowedVolumes, true)) {
-        $quoteErrors[] = 'Please select a valid volume.';
-      }
-
-      $parsedCollateral = $parseCollateral($quoteInput['collateral']);
-      if ($parsedCollateral === null || $parsedCollateral <= 0) {
-        $quoteErrors[] = 'Collateral must be a valid ISK amount (e.g. 300m, 2.65b, 400,000,000).';
-      }
-
-      if (!$quoteErrors) {
-        $quoteResult = [
-          'volume' => (int)$quoteInput['volume'],
-          'collateral' => $parsedCollateral,
-          'quote' => 'TBD',
-        ];
+      if ($settingRow && !empty($settingRow['setting_json'])) {
+        $decoded = json_decode((string)$settingRow['setting_json'], true);
+        if (is_array($decoded) && isset($decoded['profile'])) {
+          $defaultProfile = (string)$decoded['profile'];
+        } elseif (is_string($decoded)) {
+          $defaultProfile = $decoded;
+        }
       }
     }
 
@@ -304,9 +269,9 @@ switch ($path) {
       if ($hasHaulRequest) {
         $statsRow = $db->one(
           "SELECT
-              SUM(CASE WHEN status IN ('draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
-              SUM(CASE WHEN status IN ('accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
-              SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered
+              SUM(CASE WHEN status IN ('requested','awaiting_contract','in_queue','draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
+              SUM(CASE WHEN status IN ('in_progress','accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
+              SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered
             FROM haul_request
            WHERE corp_id = :cid",
           ['cid' => $corpId]
@@ -352,6 +317,98 @@ switch ($path) {
     }
 
     require __DIR__ . '/../src/Views/operations.php';
+    break;
+
+  case '/request':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Contract Instructions';
+    $basePathForViews = $basePath;
+    $apiKey = (string)($config['security']['api_key'] ?? '');
+
+    \App\Auth\Auth::requireLogin($authCtx);
+    $requestId = (int)($_GET['request_id'] ?? 0);
+    $error = null;
+    $request = null;
+    $routeSummary = '';
+    $issuerName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
+    $shipClassLabel = '';
+    $shipClassMax = 0.0;
+    $contractDescription = '';
+
+    if ($requestId <= 0) {
+      $error = 'Request ID is required.';
+    } elseif ($db === null || !($health['db'] ?? false)) {
+      $error = 'Database unavailable.';
+    } else {
+      $request = $db->one(
+        "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
+                ship_class, route_policy, price_breakdown_json, quote_id, status
+           FROM haul_request
+          WHERE request_id = :rid
+          LIMIT 1",
+        ['rid' => $requestId]
+      );
+
+      if (!$request) {
+        $error = 'Request not found.';
+      } else {
+        $corpId = (int)$request['corp_id'];
+        $canRead = !empty($authCtx['user_id'])
+          && (\App\Auth\Auth::can($authCtx, 'haul.request.read') || (int)$request['requester_user_id'] === (int)$authCtx['user_id']);
+        if (!$canRead) {
+          http_response_code(403);
+          $error = 'You do not have access to this request.';
+        } else {
+          $quote = null;
+          if (!empty($request['quote_id'])) {
+            $quote = $db->one(
+              "SELECT route_json, breakdown_json FROM quote WHERE quote_id = :qid LIMIT 1",
+              ['qid' => (int)$request['quote_id']]
+            );
+          }
+          $route = $quote && !empty($quote['route_json']) ? json_decode((string)$quote['route_json'], true) : [];
+          $path = is_array($route['path'] ?? null) ? $route['path'] : [];
+          if ($path) {
+            $first = $path[0]['system_name'] ?? 'Start';
+            $last = $path[count($path) - 1]['system_name'] ?? 'Destination';
+            $routeSummary = trim((string)$first) . ' → ' . trim((string)$last);
+          } else {
+            $routeSummary = 'Route unavailable';
+          }
+
+          $breakdown = [];
+          if (!empty($request['price_breakdown_json'])) {
+            $breakdown = json_decode((string)$request['price_breakdown_json'], true);
+          } elseif ($quote && !empty($quote['breakdown_json'])) {
+            $breakdown = json_decode((string)$quote['breakdown_json'], true);
+          }
+
+          $shipClass = (string)($breakdown['ship_class']['service_class'] ?? ($request['ship_class'] ?? ''));
+          $shipClassMax = (float)($breakdown['ship_class']['max_volume'] ?? 0);
+          $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
+
+          $dnfNotes = [];
+          $softRules = $route['used_soft_dnf'] ?? [];
+          if (is_array($softRules)) {
+            foreach ($softRules as $rule) {
+              if (!empty($rule['reason'])) {
+                $dnfNotes[] = (string)$rule['reason'];
+              }
+            }
+          }
+          $dnfText = $dnfNotes ? implode('; ', $dnfNotes) : 'None';
+
+          $contractDescription = sprintf(
+            "Quote #%s | Profile: %s | DNF: %s | Note: assembled containers/wraps are OK (mention in contract).",
+            (string)($request['quote_id'] ?? 'N/A'),
+            (string)($request['route_policy'] ?? 'shortest'),
+            $dnfText
+          );
+        }
+      }
+    }
+
+    require __DIR__ . '/../src/Views/request.php';
     break;
 
   case '/rates':

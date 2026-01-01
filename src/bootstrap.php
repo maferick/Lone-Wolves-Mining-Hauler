@@ -179,17 +179,19 @@ $GLOBALS['authCtx'] = $authCtx;
 // Service container (lightweight)
 $services = [];
 
-if ($db !== null) {
-  $routeService = new \App\Services\RouteService($db, $config);
-  $services = [
-    'esi' => new \App\Services\EsiService($db, $config),
-    'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
-    'esi_client' => new \App\Services\EsiClient($db, $config),
-    'eve_public' => new \App\Services\EvePublicDataService($db, $config, new \App\Services\EsiClient($db, $config)),
-    'route' => $routeService,
-    'pricing' => new \App\Services\PricingService($db, $routeService, $config),
-  ];
-} else {
+  if ($db !== null) {
+    $routeService = new \App\Services\RouteService($db, $config);
+    $services = [
+      'esi' => new \App\Services\EsiService($db, $config),
+      'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
+      'esi_client' => new \App\Services\EsiClient($db, $config),
+      'eve_public' => new \App\Services\EvePublicDataService($db, $config, new \App\Services\EsiClient($db, $config)),
+      'route' => $routeService,
+      'pricing' => new \App\Services\PricingService($db, $routeService, $config),
+      'haul_request' => new \App\Services\HaulRequestService($db),
+      'discord_webhook' => new \App\Services\DiscordWebhookService($db, $config),
+    ];
+  } else {
   $services = [
     'esi' => new \App\Services\EsiServiceStub(),
   ];
