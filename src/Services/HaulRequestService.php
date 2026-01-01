@@ -76,7 +76,7 @@ final class HaulRequestService
       'route_policy' => $routePolicy,
       'route_system_ids' => $routeIds ? Db::jsonEncode($routeIds) : null,
       'price_breakdown_json' => Db::jsonEncode($breakdown),
-      'status' => 'awaiting_contract',
+      'status' => 'requested',
     ]);
 
     $this->db->insert('haul_event', [
