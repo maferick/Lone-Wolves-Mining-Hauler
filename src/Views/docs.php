@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+
 ob_start();
 ?>
 <section class="card">

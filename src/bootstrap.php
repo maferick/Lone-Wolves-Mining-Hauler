@@ -56,20 +56,39 @@ if (($config['app']['debug'] ?? false) === true) {
 date_default_timezone_set($config['app']['timezone'] ?? 'UTC');
 
 // Base path support (deploy under a subdirectory like /hauling)
+//
+// Priority order:
+//  1) APP_BASE_PATH (explicit)   e.g. /hauling
+//  2) APP_BASE_URL path         e.g. http://host/hauling/
+//  3) SCRIPT_NAME heuristic     e.g. /hauling/public/index.php → /hauling
+//  4) SCRIPT_NAME dirname       e.g. /hauling/index.php → /hauling
 $basePath = (string)($config['app']['base_path'] ?? '');
+$basePath = rtrim($basePath, '/');
+
 if ($basePath === '') {
-  // Derive from APP_BASE_URL if provided, else from SCRIPT_NAME.
   $baseUrl = (string)($config['app']['base_url'] ?? '');
   if ($baseUrl !== '') {
     $p = parse_url($baseUrl, PHP_URL_PATH);
     $basePath = is_string($p) ? rtrim($p, '/') : '';
-  } else {
-    $script = $_SERVER['SCRIPT_NAME'] ?? '';
-    // e.g. /hauling/public/index.php -> /hauling
-    $basePath = preg_replace('#/public/index\.php$#', '', $script);
-    $basePath = is_string($basePath) ? rtrim($basePath, '/') : '';
   }
 }
+
+if ($basePath === '') {
+  $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+  // common case when document root points to /hauling/public but URL is /hauling/*
+  // SCRIPT_NAME may be /hauling/public/index.php or /public/index.php
+  if ($script !== '') {
+    $guess = preg_replace('#/public/index\.php$#', '', $script);
+    $guess = preg_replace('#/index\.php$#', '', (string)$guess);
+    $guess = rtrim((string)$guess, '/');
+    $basePath = $guess;
+  }
+}
+
+if ($basePath === '' || $basePath === '.') {
+  $basePath = '';
+}
+
 $config['app']['base_path'] = $basePath;
 
 
@@ -108,9 +127,21 @@ try {
   $health['db_error'] = $e->getMessage();
 }
 
-$authCtx = Auth::context();
+$authCtx = Auth::context($db);
 
 // Service container (lightweight)
-$services = [
-  'esi' => new EsiService($db, $config),
-];
+$services = [];
+
+if ($db !== null) {
+  $services = [
+    'esi' => new \App\Services\EsiService($db, $config),
+    'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
+    'esi_client' => new \App\Services\EsiClient($db, $config),
+    'eve_public' => new \App\Services\EvePublicDataService($db, $config, new \App\Services\EsiClient($db, $config)),
+  ];
+} else {
+  $services = [
+    'esi' => new \App\Services\EsiServiceStub(),
+  ];
+}
+

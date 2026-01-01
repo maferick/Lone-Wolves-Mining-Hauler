@@ -1,0 +1,227 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../../../src/bootstrap.php';
+
+use App\Auth\Auth;
+use App\Db\Db;
+
+/**
+ * Handles SSO callback:
+ * - exchange code -> tokens
+ * - verify access_token -> character identity + scopes
+ * - fetch character + corp (+ alliance) via ESI public endpoints
+ * - upsert corp/app_user/sso_token
+ * - first user in system becomes admin; later users become requester by default
+ */
+
+$code = $_GET['code'] ?? '';
+$state = $_GET['state'] ?? '';
+
+if ($code === '' || $state === '') {
+  http_response_code(400);
+  echo "Missing code/state";
+  exit;
+}
+
+if (($_SESSION['sso_state'] ?? '') !== $state) {
+  http_response_code(400);
+  echo "Invalid state";
+  exit;
+}
+
+unset($_SESSION['sso_state']);
+
+try {
+  $tokens = $services['sso_login']->exchangeCode($code);
+  $verify = $services['sso_login']->verify($tokens['access_token']);
+
+  $characterId = (int)($verify['CharacterID'] ?? 0);
+  $characterName = (string)($verify['CharacterName'] ?? 'Unknown');
+  $scopes = (string)($verify['Scopes'] ?? ($tokens['scope'] ?? ''));
+
+  if ($characterId <= 0) {
+    throw new RuntimeException("SSO verify did not return CharacterID.");
+  }
+
+  // Pull public character to find corp_id
+  $char = $services['eve_public']->character($characterId);
+  $corpId = (int)($char['corporation_id'] ?? 0);
+  if ($corpId <= 0) throw new RuntimeException("Character did not return corporation_id.");
+
+  $corp = $services['eve_public']->corporation($corpId);
+  $corpName = (string)($corp['name'] ?? ('Corp ' . $corpId));
+  $allianceId = isset($corp['alliance_id']) ? (int)$corp['alliance_id'] : null;
+  $allianceName = null;
+
+  if ($allianceId) {
+    try {
+      $ally = $services['eve_public']->alliance($allianceId);
+      $allianceName = (string)($ally['name'] ?? null);
+    } catch (Throwable $e) {
+      // alliance fetch optional
+    }
+  }
+
+  $expiresIn = (int)($tokens['expires_in'] ?? 0);
+  $expiresAt = gmdate('Y-m-d H:i:s', time() + max(60, $expiresIn));
+
+  $db->tx(function(Db $db) use ($corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes) {
+
+    // Ensure corp row
+    $db->execute(
+      "INSERT INTO corp (corp_id, corp_name, alliance_id, alliance_name, is_active)
+       VALUES (:cid, :cname, :aid, :aname, 1)
+       ON DUPLICATE KEY UPDATE corp_name=VALUES(corp_name), alliance_id=VALUES(alliance_id), alliance_name=VALUES(alliance_name), is_active=1",
+      [
+        'cid' => $corpId,
+        'cname' => $corpName,
+        'aid' => $allianceId,
+        'aname' => $allianceName,
+      ]
+    );
+
+    // Create roles if missing (admin/subadmin/requester/hauler/dispatcher)
+    $roleKeys = [
+      ['admin', 'Admin', 'Full access to configuration and operations.', 1],
+      ['subadmin', 'Sub Admin', 'Delegated admin: can manage ops/config with scoped permissions.', 1],
+      ['dispatcher', 'Dispatcher', 'Can assign jobs and manage workflow.', 1],
+      ['hauler', 'Hauler', 'Can accept/execute hauling assignments.', 1],
+      ['requester', 'Requester', 'Can create and track hauling requests.', 1],
+    ];
+    foreach ($roleKeys as $rk) {
+      $db->execute(
+        "INSERT INTO role (corp_id, role_key, role_name, description, is_system)
+         VALUES (:corp_id, :role_key, :role_name, :desc, :is_system)
+         ON DUPLICATE KEY UPDATE role_name=VALUES(role_name), description=VALUES(description)",
+        [
+          'corp_id' => $corpId,
+          'role_key' => $rk[0],
+          'role_name' => $rk[1],
+          'desc' => $rk[2],
+          'is_system' => $rk[3],
+        ]
+      );
+    }
+
+    // Ensure baseline permissions exist (idempotent)
+    $permList = [
+      ['haul.request.create','Create haul request'],
+      ['haul.request.read','View haul requests'],
+      ['haul.request.manage','Manage haul requests'],
+      ['haul.assign','Assign hauls'],
+      ['haul.execute','Execute hauls'],
+      ['pricing.manage','Manage pricing'],
+      ['webhook.manage','Manage webhooks'],
+      ['esi.manage','Manage ESI'],
+      ['user.manage','Manage users'],
+      ['corp.manage','Manage corporation settings'],
+    ];
+    foreach ($permList as $p) {
+      $db->execute(
+        "INSERT INTO permission (perm_key, perm_name) VALUES (:k, :n)
+         ON DUPLICATE KEY UPDATE perm_name=VALUES(perm_name)",
+        ['k' => $p[0], 'n' => $p[1]]
+      );
+    }
+
+    // Determine if this is the first user EVER (platform bootstrap) OR first user in this corp.
+    $totalUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user");
+    $corpUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user WHERE corp_id = :cid", ['cid' => $corpId]);
+
+    // Upsert user
+    $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$corpId,'chid'=>$characterId]);
+    if ($existing) {
+      $userId = (int)$existing['user_id'];
+      $db->execute(
+        "UPDATE app_user
+            SET character_name=:cn, display_name=:dn, last_login_at=UTC_TIMESTAMP(), status='active'
+          WHERE user_id=:uid",
+        ['cn'=>$characterName,'dn'=>$characterName,'uid'=>$userId]
+      );
+    } else {
+      $userId = (int)$db->insert(
+        "INSERT INTO app_user (corp_id, character_id, character_name, display_name, status, last_login_at)
+         VALUES (:cid, :chid, :cn, :dn, 'active', UTC_TIMESTAMP())",
+        ['cid'=>$corpId,'chid'=>$characterId,'cn'=>$characterName,'dn'=>$characterName]
+      );
+    }
+
+    // Upsert SSO token (owner_type=character)
+    $db->execute(
+      "INSERT INTO sso_token (corp_id, owner_type, owner_id, owner_name, access_token, refresh_token, expires_at, scopes, token_status)
+       VALUES (:cid, 'character', :oid, :oname, :at, :rt, :exp, :scopes, 'ok')
+       ON DUPLICATE KEY UPDATE
+         owner_name=VALUES(owner_name),
+         access_token=VALUES(access_token),
+         refresh_token=VALUES(refresh_token),
+         expires_at=VALUES(expires_at),
+         scopes=VALUES(scopes),
+         token_status='ok',
+         last_error=NULL,
+         last_refreshed_at=UTC_TIMESTAMP()",
+      [
+        'cid'=>$corpId,
+        'oid'=>$characterId,
+        'oname'=>$characterName,
+        'at'=>$tokens['access_token'],
+        'rt'=>$tokens['refresh_token'],
+        'exp'=>$expiresAt,
+        'scopes'=>$scopes,
+      ]
+    );
+
+    // Assign roles:
+    // - if first user ever, admin
+    // - else if first user in this corp, admin (corp bootstrap)
+    // - else requester by default
+    $roleToAssign = ($totalUsers === 0 || $corpUsers === 0) ? 'admin' : 'requester';
+
+    $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk LIMIT 1", ['cid'=>$corpId,'rk'=>$roleToAssign]);
+    if ($roleId > 0) {
+      $db->execute("INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)", ['uid'=>$userId,'rid'=>$roleId]);
+    }
+
+    // Admin gets all perms; subadmin default set (ops + ESI + webhooks + pricing + users optional)
+    // Keep idempotent.
+    $adminRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='admin' LIMIT 1", ['cid'=>$corpId]);
+    if ($adminRoleId > 0) {
+      $db->execute(
+        "INSERT IGNORE INTO role_permission (role_id, perm_id, allow)
+         SELECT :rid, p.perm_id, 1 FROM permission p",
+        ['rid'=>$adminRoleId]
+      );
+    }
+
+    $subRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='subadmin' LIMIT 1", ['cid'=>$corpId]);
+    if ($subRoleId > 0) {
+      $db->execute(
+        "INSERT IGNORE INTO role_permission (role_id, perm_id, allow)
+         SELECT :rid, p.perm_id, 1 FROM permission p
+          WHERE p.perm_key IN ('haul.request.read','haul.request.manage','haul.assign','haul.execute','pricing.manage','webhook.manage','esi.manage','user.manage','corp.manage')",
+        ['rid'=>$subRoleId]
+      );
+    }
+
+    // Store initial settings (idempotent)
+    $db->execute(
+      "INSERT INTO app_setting (corp_id, setting_key, setting_json)
+       VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :cid, 'corp_name', :cname, 'alliance_id', :aid, 'alliance_name', :aname))
+       ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json)",
+      ['cid'=>$corpId,'cname'=>$corpName,'aid'=>$allianceId,'aname'=>$allianceName]
+    );
+
+    // Persist user_id to session (outside tx is fine, but safe here too)
+    $_SESSION['user_id'] = $userId;
+  });
+
+  // Redirect to admin if first admin; else dashboard
+  $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+  header('Location: ' . ($base ?: '') . '/admin');
+  exit;
+
+} catch (Throwable $e) {
+  http_response_code(500);
+  echo "Auth failed: " . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
+  exit;
+}

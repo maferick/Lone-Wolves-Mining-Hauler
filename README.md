@@ -51,3 +51,32 @@ php createdb.php --import=../db
 ```
 
 - `--import` can point to a directory containing `*.sql` or a single `.sql` file.
+
+
+## Subdirectory hosting (/hauling)
+Because this site is hosted under a subdirectory, set:
+- `APP_BASE_URL="http://killsineve.online/hauling"`
+- `APP_BASE_PATH="/hauling"`
+
+This ensures all links and assets resolve to `/hauling/*` (e.g., `/hauling/health`, `/hauling/docs`).
+
+
+## API entrypoints (physical)
+Automation endpoints live under `/public/api/` so they never depend on rewrite rules.
+
+Available endpoints:
+- `/hauling/api/health`
+- `/hauling/api/contracts/sync?corp_id=XXX&character_id=YYY`
+
+All future automation (Discord webhooks, cron jobs, ESI pulls) should be added here.
+
+
+## Import order gotcha (drop scripts)
+`db/900_drop_all.sql` is a utility script and **must not** be imported during normal setup.
+
+The bootstrap now skips any `*drop*` SQL files by default.
+If you explicitly want to run them (danger), pass:
+
+```bash
+php createdb.php --import=./db --include-drop=1
+```

@@ -107,8 +107,24 @@ try {
     if (is_dir($importPath)) {
       // Import all *.sql in lexical order
       $dir = rtrim($importPath, '/');
-      foreach (glob($dir . '/*.sql') as $f) $files[] = $f;
+      foreach (glob($dir . '/*.sql') as $f) {
+        $bn = basename($f);
+        // EXCLUDE drop scripts by default (safety). Import drop scripts only with --include-drop=1
+        if (preg_match('/drop/i', $bn)) continue;
+        $files[] = $f;
+      }
       sort($files, SORT_STRING);
+      // Optional include drop scripts
+      $includeDrop = arg('--include-drop');
+      if ($includeDrop === '1') {
+        foreach (glob($dir . '/*.sql') as $f) {
+          $bn = basename($f);
+          if (!preg_match('/drop/i', $bn)) continue;
+          $files[] = $f;
+        }
+        $files = array_values(array_unique($files));
+        sort($files, SORT_STRING);
+      }
     } elseif (is_file($importPath)) {
       $files[] = $importPath;
     } else {

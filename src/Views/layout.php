@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Dark, modern 2026 look & feel.
  */
 $appName = htmlspecialchars($appName ?? 'Corp Hauling', ENT_QUOTES, 'UTF-8');
-$basePath = rtrim((string)($basePath ?? ($config['app']['base_path'] ?? '')), '/');
+$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
 ?><!doctype html>
@@ -19,7 +19,7 @@ $body = $body ?? '';
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="<?= $basePath ?>/assets/css/app.css?v=2026" />
+  <link rel="stylesheet" href="<?= ($basePath ?: '') ?>/assets/css/app.css?v=2026" />
 </head>
 <body>
   <div class="app-shell">
@@ -33,9 +33,9 @@ $body = $body ?? '';
       </div>
 
       <nav class="nav">
-        <a class="nav-link" href="<?= $basePath ?>/">Dashboard</a>
-        <a class="nav-link" href="<?= $basePath ?>/health">Health</a>
-        <a class="nav-link" href="<?= $basePath ?>/docs">Docs</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/health">Health</a>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/docs">Docs</a>
       </nav>
 
       <div class="topbar-actions">

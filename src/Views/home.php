@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+
 ob_start();
 ?>
 <section class="grid">
@@ -24,8 +26,8 @@ ob_start();
       </div>
     </div>
     <div class="card-footer">
-      <a class="btn" href="/docs">Open Docs</a>
-      <a class="btn ghost" href="/health">Health Endpoint</a>
+      <a class="btn" href="<?= ($basePath ?: '') ?>/docs">Open Docs</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/health">Health Endpoint</a>
     </div>
   </div>
 
