@@ -182,6 +182,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     });
   };
 
+  const formatDnfTarget = (rule) => {
+    const nameA = rule.name_a ? `${rule.name_a} (${rule.id_a})` : `${rule.id_a}`;
+    if (rule.scope_type === 'edge') {
+      const nameB = rule.name_b ? `${rule.name_b} (${rule.id_b})` : `${rule.id_b}`;
+      return `${nameA} → ${nameB}`;
+    }
+    return nameA;
+  };
+
   const loadDnfRules = async () => {
     const data = await fetchJson(`${basePath}/api/admin/dnf?active=1`);
     const tbody = document.querySelector('#dnf-table tbody');
@@ -191,7 +200,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       row.innerHTML = `
         <td>${rule.dnf_rule_id}</td>
         <td>${rule.scope_type}</td>
-        <td>${rule.id_a}${rule.id_b ? ' → ' + rule.id_b : ''}</td>
+        <td>${formatDnfTarget(rule)}</td>
         <td>${rule.severity}</td>
         <td>${rule.is_hard_block ? 'Yes' : 'No'}</td>
         <td>${rule.reason || ''}</td>
