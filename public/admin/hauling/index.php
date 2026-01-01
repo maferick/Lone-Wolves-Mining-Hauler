@@ -18,6 +18,18 @@ $title = $appName . ' • Hauling Settings';
 $apiKey = (string)($config['security']['api_key'] ?? '');
 $graphStatus = $services['route']->getGraphStatus();
 $graphEmpty = empty($graphStatus['graph_loaded']);
+$systemOptions = [];
+$constellationOptions = [];
+$regionOptions = [];
+try {
+  $systemOptions = $db->select("SELECT system_id, system_name FROM eve_system ORDER BY system_name");
+  $constellationOptions = $db->select("SELECT constellation_id, constellation_name FROM eve_constellation ORDER BY constellation_name");
+  $regionOptions = $db->select("SELECT region_id, region_name FROM eve_region ORDER BY region_name");
+} catch (Throwable $e) {
+  $systemOptions = [];
+  $constellationOptions = [];
+  $regionOptions = [];
+}
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -109,10 +121,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <option value="system">System</option>
           <option value="constellation">Constellation</option>
           <option value="region">Region</option>
-          <option value="edge">Gate Edge</option>
         </select>
-        <input class="input" id="dnf-name-a" type="text" placeholder="Target name" />
-        <input class="input" id="dnf-name-b" type="text" placeholder="Edge system name" />
+        <input class="input" id="dnf-name-a" type="text" placeholder="Target name" list="dnf-system-list" autocomplete="off" />
         <input class="input" id="dnf-severity" type="number" min="1" value="1" />
         <label class="form-field" style="margin:0;">
           <span class="form-label">Hard</span>
@@ -121,6 +131,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <input class="input" id="dnf-reason" type="text" placeholder="Reason" />
         <button class="btn" type="button" id="dnf-add">Add</button>
       </div>
+      <datalist id="dnf-system-list"></datalist>
+      <datalist id="dnf-constellation-list"></datalist>
+      <datalist id="dnf-region-list"></datalist>
     </div>
 
     <div style="margin-top:24px;">
@@ -154,6 +167,63 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     });
     return resp.json();
   };
+
+  const dnfLookupData = {
+    system: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['system_id'], 'name' => (string)$row['system_name']], $systemOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+    constellation: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['constellation_id'], 'name' => (string)$row['constellation_name']], $constellationOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+    region: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['region_id'], 'name' => (string)$row['region_name']], $regionOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+  };
+  const dnfMinChars = 3;
+
+  const dnfListMap = {
+    system: document.getElementById('dnf-system-list'),
+    constellation: document.getElementById('dnf-constellation-list'),
+    region: document.getElementById('dnf-region-list'),
+  };
+
+  const parseDnfSelection = (value, type) => {
+    const raw = (value || '').trim();
+    if (!raw) return { id: 0, name: '' };
+    const match = raw.match(/\[(\d+)\]\s*$/);
+    if (match) {
+      return { id: parseInt(match[1], 10), name: raw.replace(/\s*\[\d+\]\s*$/, '').trim() };
+    }
+    const lower = raw.toLowerCase();
+    const matchItem = (dnfLookupData[type] || []).find((item) => item.name.toLowerCase() === lower);
+    return { id: matchItem?.id || 0, name: raw };
+  };
+
+  const buildDnfOptions = (listEl, items, value) => {
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!value || value.length < dnfMinChars) return;
+    const query = value.toLowerCase();
+    let count = 0;
+    for (const item of items || []) {
+      if (!item.name.toLowerCase().startsWith(query)) continue;
+      const option = document.createElement('option');
+      option.value = `${item.name} [${item.id}]`;
+      listEl.appendChild(option);
+      count += 1;
+      if (count >= 50) break;
+    }
+  };
+
+  const updateDnfListTarget = () => {
+    const type = document.getElementById('dnf-scope')?.value || 'system';
+    const listEl = dnfListMap[type] || dnfListMap.system;
+    const input = document.getElementById('dnf-name-a');
+    if (input && listEl) {
+      input.setAttribute('list', listEl.id);
+      buildDnfOptions(listEl, dnfLookupData[type], input.value);
+    }
+  };
+
+  document.getElementById('dnf-scope')?.addEventListener('change', updateDnfListTarget);
+  document.getElementById('dnf-name-a')?.addEventListener('input', (event) => {
+    const type = document.getElementById('dnf-scope')?.value || 'system';
+    buildDnfOptions(dnfListMap[type], dnfLookupData[type], event.target.value);
+  });
 
   const loadProfile = async () => {
     const data = await fetchJson(`${basePath}/api/admin/routing-profile?corp_id=${corpId}`);
@@ -282,14 +352,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   });
 
   document.getElementById('dnf-add')?.addEventListener('click', async () => {
+    const scopeType = document.getElementById('dnf-scope').value;
+    const selection = parseDnfSelection(document.getElementById('dnf-name-a').value, scopeType);
     const payload = {
-      scope_type: document.getElementById('dnf-scope').value,
-      name_a: document.getElementById('dnf-name-a').value,
-      name_b: document.getElementById('dnf-name-b').value,
+      scope_type: scopeType,
+      name_a: selection.name,
+      id_a: selection.id || undefined,
       severity: parseInt(document.getElementById('dnf-severity').value || '1', 10),
       is_hard_block: document.getElementById('dnf-hard').checked,
       reason: document.getElementById('dnf-reason').value,
     };
+    if (!payload.name_a && !payload.id_a) {
+      return;
+    }
     await fetchJson(`${basePath}/api/admin/dnf`, {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -312,6 +387,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   loadTolerance();
   loadRatePlans();
   loadDnfRules();
+  updateDnfListTarget();
 })();
 </script>
 <?php
