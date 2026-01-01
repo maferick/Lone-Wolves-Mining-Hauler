@@ -23,6 +23,31 @@ if ($basePath !== '' && $path === $basePath) {
   if ($path === '') $path = '/';
 }
 
+// Serve static assets when the front controller is used as the router.
+if (str_starts_with($path, '/assets/')) {
+  $publicRoot = realpath(__DIR__);
+  $candidate = $publicRoot ? realpath($publicRoot . $path) : false;
+  $assetsRoot = $publicRoot ? $publicRoot . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR : null;
+  if ($candidate && $assetsRoot && str_starts_with($candidate, $assetsRoot) && is_file($candidate)) {
+    $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+    $contentTypes = [
+      'css' => 'text/css; charset=utf-8',
+      'js' => 'application/javascript; charset=utf-8',
+      'png' => 'image/png',
+      'jpg' => 'image/jpeg',
+      'jpeg' => 'image/jpeg',
+      'svg' => 'image/svg+xml',
+      'webp' => 'image/webp',
+      'woff' => 'font/woff',
+      'woff2' => 'font/woff2',
+    ];
+    header('Content-Type: ' . ($contentTypes[$ext] ?? 'application/octet-stream'));
+    header('Content-Length: ' . (string)filesize($candidate));
+    readfile($candidate);
+    exit;
+  }
+}
+
 switch ($path) {
   case '/':
     $env = $config['app']['env'];
