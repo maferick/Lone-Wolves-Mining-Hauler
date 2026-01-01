@@ -38,6 +38,25 @@ if ($method === 'POST') {
     'min_price' => (float)($payload['min_price'] ?? 0),
   ]);
 
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'rate_plan.create',
+    'rate_plan',
+    (string)$ratePlanId,
+    null,
+    [
+      'corp_id' => $corpId,
+      'service_class' => $serviceClass,
+      'rate_per_jump' => (float)($payload['rate_per_jump'] ?? 0),
+      'collateral_rate' => (float)($payload['collateral_rate'] ?? 0),
+      'min_price' => (float)($payload['min_price'] ?? 0),
+    ],
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
+  );
+
   api_send_json(['ok' => true, 'rate_plan_id' => $ratePlanId], 201);
 }
 
@@ -79,6 +98,19 @@ if ($method === 'PUT') {
   $sql = "UPDATE rate_plan SET " . implode(', ', $fields) . " WHERE rate_plan_id = :id";
   $db->execute($sql, $params);
 
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'rate_plan.update',
+    'rate_plan',
+    (string)$ratePlanId,
+    null,
+    $params,
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
+  );
+
   api_send_json(['ok' => true]);
 }
 
@@ -90,6 +122,18 @@ if ($method === 'DELETE') {
   $db->execute(
     "DELETE FROM rate_plan WHERE rate_plan_id = :id",
     ['id' => $ratePlanId]
+  );
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'rate_plan.delete',
+    'rate_plan',
+    (string)$ratePlanId,
+    null,
+    null,
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
   );
   api_send_json(['ok' => true]);
 }

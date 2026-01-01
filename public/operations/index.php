@@ -25,9 +25,9 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
   if ($hasHaulRequest) {
     $statsRow = $db->one(
       "SELECT
-          SUM(CASE WHEN status IN ('draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
-          SUM(CASE WHEN status IN ('accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
-          SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered
+          SUM(CASE WHEN status IN ('requested','awaiting_contract','in_queue','draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
+          SUM(CASE WHEN status IN ('in_progress','accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
+          SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered
         FROM haul_request
        WHERE corp_id = :cid",
       ['cid' => $corpId]

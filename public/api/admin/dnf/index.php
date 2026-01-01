@@ -63,6 +63,27 @@ if ($method === 'POST') {
     'active' => $active,
   ]);
 
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'dnf.create',
+    'dnf_rule',
+    (string)$ruleId,
+    null,
+    [
+      'scope_type' => $scope,
+      'id_a' => $idA,
+      'id_b' => $idB,
+      'severity' => $severity,
+      'is_hard_block' => $isHard,
+      'reason' => $reason,
+      'active' => $active,
+    ],
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
+  );
+
   api_send_json(['ok' => true, 'dnf_rule_id' => $ruleId], 201);
 }
 
@@ -122,6 +143,19 @@ if ($method === 'PUT') {
   $sql = "UPDATE dnf_rule SET " . implode(', ', $fields) . " WHERE dnf_rule_id = :id";
   $db->execute($sql, $params);
 
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'dnf.update',
+    'dnf_rule',
+    (string)$ruleId,
+    null,
+    $params,
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
+  );
+
   api_send_json(['ok' => true]);
 }
 
@@ -133,6 +167,18 @@ if ($method === 'DELETE') {
   $db->execute(
     "UPDATE dnf_rule SET active = 0 WHERE dnf_rule_id = :id",
     ['id' => $ruleId]
+  );
+  $db->audit(
+    (int)($authCtx['corp_id'] ?? null),
+    (int)($authCtx['user_id'] ?? 0) ?: null,
+    (int)($authCtx['character_id'] ?? 0) ?: null,
+    'dnf.disable',
+    'dnf_rule',
+    (string)$ruleId,
+    null,
+    ['active' => 0],
+    $_SERVER['REMOTE_ADDR'] ?? null,
+    $_SERVER['HTTP_USER_AGENT'] ?? null
   );
   api_send_json(['ok' => true]);
 }

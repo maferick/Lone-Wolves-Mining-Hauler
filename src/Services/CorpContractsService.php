@@ -105,6 +105,48 @@ final class CorpContractsService
     ];
   }
 
+  public function findContractById(int $corpId, int $characterOwnerId, int $contractId, int $pageLimit = 50): ?array
+  {
+    $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
+    if (!$token) {
+      throw new \RuntimeException("No sso_token found for corp_id={$corpId}, character_id={$characterOwnerId}");
+    }
+    $token = $this->sso->ensureAccessToken($token);
+    $bearer = $token['access_token'];
+
+    $page = 1;
+    while ($page <= $pageLimit) {
+      $resp = $this->esiAuthedGet(
+        $bearer,
+        "/v1/corporations/{$corpId}/contracts/",
+        ['page' => $page],
+        $corpId,
+        60
+      );
+
+      if (!$resp['ok']) {
+        throw new \RuntimeException("ESI contracts lookup failed (page {$page}): HTTP {$resp['status']}");
+      }
+
+      $contracts = is_array($resp['json']) ? $resp['json'] : [];
+      if (count($contracts) === 0) {
+        break;
+      }
+
+      foreach ($contracts as $c) {
+        $currentId = (int)($c['contract_id'] ?? 0);
+        if ($currentId === $contractId) {
+          $this->upsertContract($corpId, $c, $resp['raw']);
+          return $c;
+        }
+      }
+
+      $page++;
+    }
+
+    return null;
+  }
+
   private function esiAuthedGet(
     string $bearer,
     string $path,

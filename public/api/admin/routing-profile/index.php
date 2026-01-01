@@ -48,4 +48,17 @@ $db->execute(
   ]
 );
 
+$db->audit(
+  $corpId,
+  (int)($authCtx['user_id'] ?? 0) ?: null,
+  (int)($authCtx['character_id'] ?? 0) ?: null,
+  'routing.profile.update',
+  'app_setting',
+  'routing.default_profile',
+  null,
+  ['profile' => $profile],
+  $_SERVER['REMOTE_ADDR'] ?? null,
+  $_SERVER['HTTP_USER_AGENT'] ?? null
+);
+
 api_send_json(['ok' => true, 'corp_id' => $corpId, 'profile' => $profile]);

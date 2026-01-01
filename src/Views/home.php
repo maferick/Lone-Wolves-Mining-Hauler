@@ -18,9 +18,10 @@ $contractStats = $contractStats ?? [
   'last_fetched_at' => null,
 ];
 $contractStatsAvailable = $contractStatsAvailable ?? false;
-$quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => '', 'volume' => '', 'collateral' => ''];
-$quoteErrors = $quoteErrors ?? [];
-$quoteResult = $quoteResult ?? null;
+$quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => ''];
+$defaultProfile = $defaultProfile ?? 'shortest';
+$apiKey = $apiKey ?? '';
+$canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
 $pickupLocationOptions = $pickupLocationOptions ?? [];
 $destinationLocationOptions = $destinationLocationOptions ?? [];
 
@@ -95,99 +96,74 @@ ob_start();
     <?php endif; ?>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <h2>Service Update - Dedicated Alliance Service</h2>
-      <p class="muted">Priority updates for alliance members.</p>
-    </div>
-    <ul class="list">
-      <li><span class="badge">1</span> Alliance JF Service</li>
-      <li><span class="badge">2</span> Mailbox Service</li>
-      <li><span class="badge">3</span> Double Wraps/Assembled Containers allowed (note in contract)</li>
-      <li><span class="badge">4</span> Discord Consultation</li>
-      <li><span class="badge">5</span> JF Round Trip / Bulk discounts</li>
-    </ul>
-  </div>
-
   <div class="card" id="quote">
     <div class="card-header">
       <h2>Get Quote</h2>
-      <p class="muted">Enter your lane details to receive a preliminary quote.</p>
+      <p class="muted">Enter pickup, destination, and volume to get an instant breakdown.</p>
     </div>
-    <form method="post" class="content" action="<?= htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') ?>">
+    <div class="content" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>" data-api-key="<?= htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') ?>">
       <div class="form-grid">
         <label class="form-field">
-          <span class="form-label">Pickup system or structure</span>
+          <span class="form-label">Pickup system</span>
           <input class="input" type="text" name="pickup_system" list="pickup-location-list" value="<?= htmlspecialchars($quoteInput['pickup_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Jita" autocomplete="off" />
         </label>
         <label class="form-field">
-          <span class="form-label">Destination system or structure</span>
+          <span class="form-label">Destination system</span>
           <input class="input" type="text" name="destination_system" list="destination-location-list" value="<?= htmlspecialchars($quoteInput['destination_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Amarr" autocomplete="off" />
         </label>
         <label class="form-field">
-          <span class="form-label">Volume</span>
-          <select class="input" name="volume">
-            <option value="">Select volume</option>
+          <span class="form-label">Volume (m³)</span>
+          <input class="input" type="number" name="volume_m3" min="1" step="0.01" placeholder="e.g. 12500" />
+        </label>
+        <label class="form-field">
+          <span class="form-label">Collateral (ISK)</span>
+          <input class="input" type="text" name="collateral" placeholder="e.g. 300m, 2.65b, 400,000,000" />
+        </label>
+        <label class="form-field">
+          <span class="form-label">Route profile</span>
+          <select class="input" name="profile">
             <?php
-            $volumes = [
-              '12500' => '12,500 m³',
-              '62500' => '62,500 m³',
-              '360000' => '360,000 m³',
-              '950000' => '950,000 m³',
-            ];
-            foreach ($volumes as $value => $label):
-              $value = (string)$value;
-              $selected = $quoteInput['volume'] === $value ? 'selected' : '';
+            $profiles = ['shortest' => 'Shortest', 'balanced' => 'Balanced', 'safest' => 'Safest'];
+            foreach ($profiles as $value => $label):
+              $selected = $defaultProfile === $value ? 'selected' : '';
             ?>
-              <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selected ?>><?= htmlspecialchars((string)$label, ENT_QUOTES, 'UTF-8') ?></option>
+              <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $selected ?>><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
             <?php endforeach; ?>
           </select>
         </label>
-        <label class="form-field">
-          <span class="form-label">Collateral</span>
-          <input class="input" type="text" name="collateral" value="<?= htmlspecialchars($quoteInput['collateral'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. 300m, 2.65b, 400,000,000" />
-        </label>
       </div>
       <div class="card-footer">
-        <button class="btn" type="submit">Quote</button>
+        <button class="btn" type="button" id="quote-submit">Get Quote</button>
+        <?php if (!$canCreateRequest): ?>
+          <span class="muted" style="margin-left:12px;">Sign in with requester access to create a haul request.</span>
+        <?php endif; ?>
       </div>
-      <?php if ($quoteErrors): ?>
-        <div class="alert alert-warning">
-          <ul>
-            <?php foreach ($quoteErrors as $error): ?>
-              <li><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></li>
-            <?php endforeach; ?>
-          </ul>
+      <div class="alert alert-warning" id="quote-error" style="display:none;"></div>
+      <div class="alert alert-success" id="quote-result" style="display:none;"></div>
+      <div class="card" id="quote-breakdown" style="margin-top:16px; display:none; background: rgba(255,255,255,.03);">
+        <div class="card-header">
+          <h3>Quote Breakdown</h3>
+          <p class="muted">Includes route, penalties, and rate plan components.</p>
         </div>
-      <?php endif; ?>
-      <?php if ($quoteResult): ?>
-        <div class="alert alert-success">
-          <strong>Quote:</strong> <?= htmlspecialchars($quoteResult['quote'], ENT_QUOTES, 'UTF-8') ?> (<?= number_format($quoteResult['volume']) ?> m³, collateral <?= number_format((float)$quoteResult['collateral'], 2) ?> ISK)
+        <div class="content" id="quote-breakdown-content"></div>
+        <div class="card-footer" style="display:flex; gap:10px; align-items:center;">
+          <button class="btn" type="button" id="quote-create-request" <?= $canCreateRequest ? '' : 'disabled' ?>>Create Request</button>
+          <a class="btn ghost" id="quote-request-link" href="#" style="display:none;">View Contract Instructions</a>
+          <span class="muted" id="quote-request-status" style="display:none;"></span>
         </div>
-      <?php endif; ?>
+      </div>
       <datalist id="pickup-location-list"></datalist>
       <datalist id="destination-location-list"></datalist>
-    </form>
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <h2>How to make a contract</h2>
-      <p class="muted">Short, corp-specific checklist.</p>
-    </div>
-    <ul class="list">
-      <li><span class="badge">1</span> Get quote</li>
-      <li><span class="badge">2</span> Use Janice SELL VALUE as collateral</li>
-      <li><span class="badge">3</span> Create private courier contract to <?= htmlspecialchars($corpName, ENT_QUOTES, 'UTF-8') ?></li>
-      <li><span class="badge">4</span> Mention assembled containers / wraps in description</li>
-      <li><span class="badge">5</span> Join corp Discord channel</li>
-    </ul>
-  </div>
 </section>
 <script>
   (() => {
     const pickupLocations = <?= json_encode($pickupLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const destinationLocations = <?= json_encode($destinationLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const apiKey = <?= json_encode($apiKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const minChars = 3;
 
     const buildOptions = (listEl, items, value) => {
@@ -208,14 +184,207 @@ ob_start();
 
     const pickupInput = document.querySelector('input[name="pickup_system"]');
     const destinationInput = document.querySelector('input[name="destination_system"]');
+    const volumeInput = document.querySelector('input[name="volume_m3"]');
+    const collateralInput = document.querySelector('input[name="collateral"]');
+    const profileInput = document.querySelector('select[name="profile"]');
     const pickupList = document.getElementById('pickup-location-list');
     const destinationList = document.getElementById('destination-location-list');
+    const submitBtn = document.getElementById('quote-submit');
+    const errorEl = document.getElementById('quote-error');
+    const resultEl = document.getElementById('quote-result');
+    const breakdownCard = document.getElementById('quote-breakdown');
+    const breakdownContent = document.getElementById('quote-breakdown-content');
+    const createRequestBtn = document.getElementById('quote-create-request');
+    const requestLink = document.getElementById('quote-request-link');
+    const requestStatus = document.getElementById('quote-request-status');
+    let currentQuoteId = null;
 
     pickupInput?.addEventListener('input', () => {
       buildOptions(pickupList, pickupLocations, pickupInput.value);
     });
     destinationInput?.addEventListener('input', () => {
       buildOptions(destinationList, destinationLocations, destinationInput.value);
+    });
+
+    const parseIsk = (value) => {
+      if (!value) return null;
+      const clean = value.toString().trim().toLowerCase().replace(/[, ]+/g, '');
+      const match = clean.match(/^([0-9]+(?:\\.[0-9]+)?)([kmb])?$/);
+      if (!match) return null;
+      const amount = parseFloat(match[1]);
+      const suffix = match[2];
+      const mult = suffix === 'b' ? 1e9 : suffix === 'm' ? 1e6 : suffix === 'k' ? 1e3 : 1;
+      return amount * mult;
+    };
+
+    const fmtIsk = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+
+    const renderBreakdown = (data) => {
+      const breakdown = data.breakdown || {};
+      const route = data.route || {};
+      const ship = breakdown.ship_class || {};
+      const security = breakdown.security_counts || {};
+      const penalties = breakdown.penalties || {};
+      const ratePlan = breakdown.rate_plan || {};
+      const costs = breakdown.costs || {};
+      const path = route.path || [];
+      const first = path[0]?.system_name || '—';
+      const last = path[path.length - 1]?.system_name || '—';
+      const pathNames = path.map((p) => p.system_name).join(' → ');
+
+      const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
+      breakdownContent.innerHTML = `
+        <div class="row">
+          <div>
+            <div class="label">Ship class</div>
+            <div>${ship.service_class || '—'} (max ${ship.max_volume || '—'} m³)</div>
+          </div>
+          <div>
+            <div class="label">Price total</div>
+            <div>${fmtIsk(totalPrice)} ISK</div>
+          </div>
+          <div>
+            <div class="label">Route</div>
+            <div>${first} → ${last}</div>
+            <button class="btn ghost" type="button" id="toggle-route">View route</button>
+            <div class="muted" id="route-path" style="display:none; margin-top:8px;">${pathNames}</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <div>
+            <div class="label">Jumps</div>
+            <div>${route.jumps ?? 0} (HS ${security.high ?? 0} / LS ${security.low ?? 0} / NS ${security.null ?? 0})</div>
+          </div>
+          <div>
+            <div class="label">Rate plan</div>
+            <div>${ratePlan.service_class || '—'} • ${fmtIsk(ratePlan.rate_per_jump || 0)} per jump • ${((ratePlan.collateral_rate || 0) * 100).toFixed(2)}% collateral</div>
+          </div>
+          <div>
+            <div class="label">Minimum price</div>
+            <div>${fmtIsk(ratePlan.min_price || 0)} ISK</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <div>
+            <div class="label">Penalties</div>
+            <div>Low-sec ${fmtIsk(penalties.lowsec || 0)} • Null-sec ${fmtIsk(penalties.nullsec || 0)} • Soft DNF ${fmtIsk(penalties.soft_dnf_total || 0)}</div>
+          </div>
+          <div>
+            <div class="label">Costs</div>
+            <div>Jump ${fmtIsk(costs.jump_subtotal || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)}</div>
+          </div>
+          <div>
+            <div class="label">DNF notes</div>
+            <div>${(penalties.soft_dnf || []).map(r => r.reason || 'Rule').join(', ') || 'None'}</div>
+          </div>
+        </div>
+      `;
+
+      const toggleBtn = document.getElementById('toggle-route');
+      const routePath = document.getElementById('route-path');
+      toggleBtn?.addEventListener('click', () => {
+        if (!routePath) return;
+        const visible = routePath.style.display !== 'none';
+        routePath.style.display = visible ? 'none' : 'block';
+        toggleBtn.textContent = visible ? 'View route' : 'Hide route';
+      });
+    };
+
+    const showError = (message) => {
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+      resultEl.style.display = 'none';
+      breakdownCard.style.display = 'none';
+    };
+
+    submitBtn?.addEventListener('click', async () => {
+      errorEl.style.display = 'none';
+      resultEl.style.display = 'none';
+      requestStatus.style.display = 'none';
+      requestLink.style.display = 'none';
+
+      const pickup = pickupInput?.value.trim();
+      const destination = destinationInput?.value.trim();
+      const volume = parseFloat(volumeInput?.value || '0');
+      const collateral = parseIsk(collateralInput?.value || '');
+      const profile = profileInput?.value || 'shortest';
+
+      if (!pickup || !destination) {
+        showError('Pickup and destination systems are required.');
+        return;
+      }
+      if (!volume || volume <= 0) {
+        showError('Volume must be greater than zero.');
+        return;
+      }
+      if (collateral === null || collateral <= 0) {
+        showError('Collateral must be a valid ISK amount.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Quoting...';
+      try {
+        const resp = await fetch(`${basePath}/api/quote`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
+          body: JSON.stringify({
+            pickup,
+            destination,
+            volume_m3: volume,
+            collateral_isk: collateral,
+            profile,
+          }),
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+          showError(data.error || 'Quote failed.');
+          return;
+        }
+        currentQuoteId = data.quote_id;
+        const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
+        resultEl.textContent = `Total price: ${fmtIsk(totalPrice)} ISK`;
+        resultEl.style.display = 'block';
+        breakdownCard.style.display = 'block';
+        renderBreakdown(data);
+      } catch (err) {
+        showError('Quote request failed.');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Get Quote';
+      }
+    });
+
+    createRequestBtn?.addEventListener('click', async () => {
+      if (!currentQuoteId) return;
+      createRequestBtn.disabled = true;
+      requestStatus.textContent = 'Creating request...';
+      requestStatus.style.display = 'inline';
+      try {
+        const resp = await fetch(`${basePath}/api/requests/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
+          body: JSON.stringify({ quote_id: currentQuoteId }),
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+          requestStatus.textContent = data.error || 'Request creation failed.';
+          return;
+        }
+        requestStatus.textContent = `Request #${data.request_id} created.`;
+        requestLink.href = data.request_url || '#';
+        requestLink.style.display = 'inline-flex';
+      } catch (err) {
+        requestStatus.textContent = 'Request creation failed.';
+      } finally {
+        createRequestBtn.disabled = false;
+      }
     });
   })();
 </script>

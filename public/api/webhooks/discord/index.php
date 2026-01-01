@@ -6,11 +6,14 @@ require_once __DIR__ . '/../../../src/bootstrap.php';
 
 api_require_key();
 
-// Stub endpoint: later this will accept an internal event payload and enqueue webhook_delivery
-$payload = api_read_json();
+/** @var \App\Services\DiscordWebhookService $webhooks */
+$webhooks = $services['discord_webhook'];
+
+$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
+$limit = $limit > 0 ? min($limit, 50) : 10;
+$result = $webhooks->dispatchQueued($limit);
 
 api_send_json([
   'ok' => true,
-  'message' => 'webhook endpoint wired (stub)',
-  'received_keys' => array_keys($payload),
+  'result' => $result,
 ]);
