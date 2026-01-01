@@ -18,6 +18,12 @@ use App\Db\Db;
 $code = $_GET['code'] ?? '';
 $state = $_GET['state'] ?? '';
 
+if ($db === null || !isset($services['sso_login'], $services['eve_public'])) {
+  http_response_code(503);
+  echo "SSO unavailable (database offline).";
+  exit;
+}
+
 if ($code === '' || $state === '') {
   http_response_code(400);
   echo "Missing code/state";
@@ -217,7 +223,7 @@ try {
 
   // Redirect to admin if first admin; else dashboard
   $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-  header('Location: ' . ($base ?: '') . '/admin');
+  header('Location: ' . ($base ?: '') . '/admin/');
   exit;
 
 } catch (Throwable $e) {

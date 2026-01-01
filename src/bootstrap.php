@@ -46,6 +46,7 @@ if (file_exists($envPath)) {
 }
 
 $config = require __DIR__ . '/Config/config.php';
+$GLOBALS['config'] = $config;
 
 // Debug switch
 if (($config['app']['debug'] ?? false) === true) {
@@ -120,7 +121,7 @@ $health = [
 ];
 
 try {
-  $db = Db::fromConfig($config['db']);
+  $db = Db::fromConfig($config);
   $health['db'] = true;
 } catch (Throwable $e) {
   $health['ok'] = false;
@@ -144,4 +145,3 @@ if ($db !== null) {
     'esi' => new \App\Services\EsiServiceStub(),
   ];
 }
-

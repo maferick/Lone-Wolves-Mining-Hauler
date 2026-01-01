@@ -10,13 +10,14 @@ use App\Auth\Auth;
  * First user to authenticate becomes admin (platform bootstrap).
  */
 
-// Scopes needed for corp contracts (can evolve). Keep in config later.
-$scopes = [
-  'esi-contracts.read_corporation_contracts.v1',
-  'esi-contracts.read_character_contracts.v1',
-  // optional for future expansions:
-  'esi-characters.read_corporation_roles.v1',
-];
+if ($db === null || !isset($services['sso_login'])) {
+  http_response_code(503);
+  echo "SSO unavailable (database offline).";
+  exit;
+}
+
+// Scopes needed for corp contracts (centralized in config).
+$scopes = $config['sso']['scopes'] ?? ['esi-contracts.read_corporation_contracts.v1'];
 
 $state = bin2hex(random_bytes(16));
 $_SESSION['sso_state'] = $state;

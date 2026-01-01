@@ -51,7 +51,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php if ($msg): ?><div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
     <div style="margin-bottom:12px;">
-      <a class="btn" href="<?= ($basePath ?: '') ?>/login">Add/Refresh Token (SSO)</a>
+      <a class="btn" href="<?= ($basePath ?: '') ?>/login/">Add/Refresh Token (SSO)</a>
     </div>
 
     <table class="table">
@@ -85,7 +85,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </table>
 
     <div style="margin-top:14px;">
-      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin">Back</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
     </div>
   </div>
 </section>

@@ -26,19 +26,19 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
       <div class="row">
         <div>
           <div class="label">Corp</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings">Manage corp & alliance</a>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings/">Manage corp & alliance</a>
         </div>
         <div>
           <div class="label">Users</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/users">Roles & sub-admins</a>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/users/">Roles & sub-admins</a>
         </div>
         <div>
           <div class="label">ESI</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/esi">Tokens & contract sync</a>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/esi/">Tokens & contract sync</a>
         </div>
         <div>
           <div class="label">Webhooks</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks">Discord webhooks</a>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Discord webhooks</a>
         </div>
       </div>
     </div>

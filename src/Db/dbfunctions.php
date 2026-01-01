@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
 
-// Backward-compat shim. Use src/Db/Db.php going forward.
+// Compatibility shim: "dbfunctions.php" is the canonical include name for DB operations.
+// Internally we use App\Db\Db (src/Db/Db.php).
 require_once __DIR__ . '/Db.php';

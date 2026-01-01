@@ -92,7 +92,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
       <div style="margin-top:14px; display:flex; gap:10px;">
         <button class="btn" type="submit">Save</button>
-        <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin">Back</a>
+        <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
       </div>
     </form>
   </div>

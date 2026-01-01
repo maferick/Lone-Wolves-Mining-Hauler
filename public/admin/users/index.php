@@ -106,7 +106,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </table>
 
     <div style="margin-top:14px;">
-      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin">Back</a>
+      <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
     </div>
   </div>
 </section>
