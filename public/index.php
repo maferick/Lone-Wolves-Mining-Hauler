@@ -18,9 +18,14 @@ $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 if ($basePath !== '' && $path === $basePath) {
   $path = '/';
-} elseif ($basePath !== '' && str_starts_with($path, $basePath . '/')) {
-  $path = substr($path, strlen($basePath));
-  if ($path === '') $path = '/';
+} elseif ($basePath !== '') {
+  while (str_starts_with($path, $basePath . '/')) {
+    $path = substr($path, strlen($basePath));
+    if ($path === '') {
+      $path = '/';
+      break;
+    }
+  }
 }
 
 // Serve static assets when the front controller is used as the router.
