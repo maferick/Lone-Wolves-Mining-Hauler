@@ -209,6 +209,21 @@ switch ($path) {
     }
     $defaultPriority = strtolower(trim($defaultPriority)) === 'high' ? 'high' : 'normal';
 
+    $buybackHaulagePrice = 0.0;
+    $corpIdForBuyback = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    if ($dbOk && $db !== null && $corpIdForBuyback > 0) {
+      $settingRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'buyback.haulage' LIMIT 1",
+        ['cid' => $corpIdForBuyback]
+      );
+      if ($settingRow && !empty($settingRow['setting_json'])) {
+        $decoded = json_decode((string)$settingRow['setting_json'], true);
+        if (is_array($decoded)) {
+          $buybackHaulagePrice = max(0.0, (float)($decoded['price_isk'] ?? 0.0));
+        }
+      }
+    }
+
     if ($dbOk && $db !== null) {
       $accessRules = [
         'systems' => [],

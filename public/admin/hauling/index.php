@@ -94,6 +94,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
 
     <div style="margin-top:20px;">
+      <h3>Buyback Haulage</h3>
+      <div class="muted">Set the fixed price for the buyback haulage button on the quote page.</div>
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <input class="input" id="buyback-price" type="number" step="0.01" min="0" placeholder="Fixed price (ISK)" />
+        <button class="btn" type="button" id="save-buyback">Save</button>
+      </div>
+      <div class="muted" id="buyback-note" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:20px;">
       <h3>Rate Plans</h3>
       <div class="muted">Set per-jump, collateral rate, and minimums per ship class.</div>
       <table class="table" id="rate-plan-table" style="margin-top:10px;">
@@ -283,6 +293,20 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     }
   };
 
+  const loadBuyback = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/buyback-haulage/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const priceInput = document.getElementById('buyback-price');
+    const note = document.getElementById('buyback-note');
+    if (priceInput) priceInput.value = data.price_isk ?? 0;
+    if (note) {
+      const price = Number(data.price_isk ?? 0);
+      note.textContent = price > 0
+        ? `Buyback haulage button shows ${price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ISK.`
+        : 'Set a fixed price to enable the buyback haulage button.';
+    }
+  };
+
   const loadRatePlans = async () => {
     const data = await fetchJson(`${basePath}/api/admin/rate-plan/?corp_id=${corpId}`);
     const tbody = document.querySelector('#rate-plan-table tbody');
@@ -387,6 +411,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     loadTolerance();
   });
 
+  document.getElementById('save-buyback')?.addEventListener('click', async () => {
+    const price = parseFloat(document.getElementById('buyback-price')?.value || '0');
+    await fetchJson(`${basePath}/api/admin/buyback-haulage/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        price_isk: Number.isFinite(price) ? price : 0,
+      }),
+    });
+    loadBuyback();
+  });
+
   document.getElementById('rate-plan-table')?.addEventListener('click', async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.dataset.action !== 'save') return;
@@ -455,6 +491,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   loadPriorityFees();
   loadContractAttach();
   loadTolerance();
+  loadBuyback();
   loadRatePlans();
   loadDnfRules();
   updateDnfListTarget();
