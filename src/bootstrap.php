@@ -90,6 +90,7 @@ if ($basePath === '') {
       '/request/index.php',
       '/my-contracts/index.php',
       '/login/index.php',
+      '/auth/callback/index.php',
       '/logout/index.php',
       '/rights/index.php',
       '/health/index.php',
