@@ -40,9 +40,27 @@ if ($corpId <= 0) {
 }
 
 $request = $db->one(
-  "SELECT request_id, status
-     FROM haul_request
-    WHERE request_id = :rid AND corp_id = :cid
+  "SELECT r.request_id,
+          r.status,
+          r.from_location_id,
+          r.to_location_id,
+          r.from_location_type,
+          r.to_location_type,
+          r.volume_m3,
+          r.reward_isk,
+          r.title,
+          u.display_name AS requester_name,
+          a.hauler_user_id,
+          h.display_name AS hauler_name,
+          fs.system_name AS from_system_name,
+          ts.system_name AS to_system_name
+     FROM haul_request r
+     LEFT JOIN app_user u ON u.user_id = r.requester_user_id
+     LEFT JOIN haul_assignment a ON a.request_id = r.request_id
+     LEFT JOIN app_user h ON h.user_id = a.hauler_user_id
+     LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
+     LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
+    WHERE r.request_id = :rid AND r.corp_id = :cid
     LIMIT 1",
   ['rid' => $requestId, 'cid' => $corpId]
 );
@@ -115,6 +133,30 @@ $db->tx(function ($db) use ($requestId, $corpId, $status, $eventType, $authCtx, 
     $_SERVER['HTTP_USER_AGENT'] ?? null
   );
 });
+
+if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
+  /** @var \App\Services\DiscordWebhookService $webhooks */
+  $webhooks = $services['discord_webhook'];
+  try {
+    $actorName = (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown');
+    $payload = $webhooks->buildHaulAssignmentPayload([
+      'title' => 'Haul Picked Up #' . (string)$requestId,
+      'request_id' => $requestId,
+      'from_system' => (string)($request['from_system_name'] ?? ''),
+      'to_system' => (string)($request['to_system_name'] ?? ''),
+      'volume_m3' => (float)($request['volume_m3'] ?? 0),
+      'reward_isk' => (float)($request['reward_isk'] ?? 0),
+      'requester' => (string)($request['requester_name'] ?? ''),
+      'hauler' => (string)($request['hauler_name'] ?? ''),
+      'actor' => $actorName,
+      'actor_label' => 'Picked Up By',
+      'status' => 'in_progress',
+    ]);
+    $webhooks->enqueue($corpId, 'haul.assignment.picked_up', $payload);
+  } catch (\Throwable $e) {
+    // Ignore webhook enqueue failures to avoid blocking the status flow.
+  }
+}
 
 api_send_json([
   'ok' => true,
