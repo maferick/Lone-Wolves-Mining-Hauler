@@ -87,7 +87,9 @@ if ($requestKey === '') {
       $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
 
       $hintText = trim((string)($request['contract_hint_text'] ?? ''));
-      if ($hintText === '' && !empty($request['quote_id'])) {
+      if ($hintText === '' && !empty($request['request_key'])) {
+        $hintText = 'Quote ' . (string)$request['request_key'];
+      } elseif ($hintText === '' && !empty($request['quote_id'])) {
         $hintText = 'Quote #' . (string)$request['quote_id'];
       }
       if ($hintText === '') {

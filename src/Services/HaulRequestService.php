@@ -59,8 +59,8 @@ final class HaulRequestService
     $shipClass = (string)($breakdown['ship_class']['service_class'] ?? '');
     $routeProfile = (string)($route['profile'] ?? $route['route_profile'] ?? $quote['profile'] ?? 'balanced');
     $routePolicy = $this->normalizeRoutePolicy($routeProfile);
-    $contractHintText = 'Quote #' . (string)$quoteId;
     $requestKey = $this->generateRequestKey();
+    $contractHintText = 'Quote ' . $requestKey;
 
     $requestId = $this->db->insert('haul_request', [
       'request_key' => $requestKey,
