@@ -27,8 +27,8 @@ spl_autoload_register(function (string $class): void {
   if (file_exists($file)) require_once $file;
 });
 
-// Ensure DB operations pass through the canonical dbfunctions.php shim.
-require_once __DIR__ . '/Db/dbfunctions.php';
+// Ensure DB operations load the canonical Db implementation.
+require_once __DIR__ . '/Db/Db.php';
 
 // Load .env if present (simple parser)
 $envPath = __DIR__ . '/../.env';
