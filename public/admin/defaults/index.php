@@ -295,10 +295,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="checkbox" name="access_systems[<?= (int)$idx ?>][allowed]" aria-label="Allow system" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <label class="checkbox-inline">
-                          <input type="checkbox" class="js-remove-row" name="access_systems[<?= (int)$idx ?>][remove]" />
-                          <span>Remove</span>
-                        </label>
+                        <button class="btn ghost js-remove-row" type="button" aria-label="Remove system rule">
+                          Remove
+                        </button>
                       </td>
                     </tr>
                   <?php endforeach; ?>
@@ -351,10 +350,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="checkbox" name="access_regions[<?= (int)$idx ?>][allowed]" aria-label="Allow region" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <label class="checkbox-inline">
-                          <input type="checkbox" class="js-remove-row" name="access_regions[<?= (int)$idx ?>][remove]" />
-                          <span>Remove</span>
-                        </label>
+                        <button class="btn ghost js-remove-row" type="button" aria-label="Remove region rule">
+                          Remove
+                        </button>
                       </td>
                     </tr>
                   <?php endforeach; ?>
@@ -415,10 +413,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="checkbox" name="access_structures[<?= (int)$idx ?>][delivery_allowed]" aria-label="Delivery allowed" <?= !empty($rule['delivery_allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <label class="checkbox-inline">
-                          <input type="checkbox" class="js-remove-row" name="access_structures[<?= (int)$idx ?>][remove]" />
-                          <span>Remove</span>
-                        </label>
+                        <button class="btn ghost js-remove-row" type="button" aria-label="Remove structure rule">
+                          Remove
+                        </button>
                       </td>
                     </tr>
                   <?php endforeach; ?>
@@ -566,22 +563,23 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           buildOptions(listMap[type], accessData[type], valueInput.value);
         });
 
-        const removeToggles = document.querySelectorAll('.js-remove-row');
-        const updateRemoveRow = (input) => {
-          const row = input.closest('tr');
-          if (!row) return;
-          row.classList.toggle('table-row-removed', input.checked);
-        };
-        removeToggles.forEach((input) => {
-          updateRemoveRow(input);
-          input.addEventListener('change', () => updateRemoveRow(input));
+        const pagerRenders = new WeakMap();
+        const removeButtons = document.querySelectorAll('.js-remove-row');
+        removeButtons.forEach((button) => {
+          button.addEventListener('click', () => {
+            const row = button.closest('tr');
+            if (!row) return;
+            const container = button.closest('[data-paginated-table]');
+            row.remove();
+            const render = container ? pagerRenders.get(container) : null;
+            if (render) render();
+          });
         });
 
         const setupPager = (container) => {
           const table = container.querySelector('[data-pager-table]');
           const footer = container.querySelector('[data-pager-footer]');
           if (!table || !footer) return;
-          const rows = Array.from(table.tBodies[0]?.rows ?? []);
           const summary = container.querySelector('[data-pager-summary]');
           const pageLabel = container.querySelector('[data-pager-page]');
           const prevBtn = container.querySelector('[data-pager-prev]');
@@ -590,8 +588,10 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           let pageSize = parseInt(container.dataset.pageSize || '10', 10);
           if (sizeSelect) sizeSelect.value = String(pageSize);
           let currentPage = 1;
+          const getRows = () => Array.from(table.tBodies[0]?.rows ?? []);
 
           const render = () => {
+            const rows = getRows();
             const total = rows.length;
             const totalPages = Math.max(1, Math.ceil(total / pageSize));
             currentPage = Math.min(currentPage, totalPages);
@@ -620,6 +620,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             }
           });
           nextBtn?.addEventListener('click', () => {
+            const rows = getRows();
             if (currentPage < Math.ceil(rows.length / pageSize)) {
               currentPage += 1;
               render();
@@ -635,6 +636,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           });
 
           render();
+          pagerRenders.set(container, render);
         };
 
         document.querySelectorAll('[data-paginated-table]').forEach(setupPager);
