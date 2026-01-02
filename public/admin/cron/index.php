@@ -31,30 +31,36 @@ $runResult = null;
 $runError = null;
 $notice = null;
 
-$syncInterval = (int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300);
-if ($syncInterval <= 0) {
-  $syncInterval = 300;
+$normalizeInterval = static function (int $value, int $fallback): int {
+  $interval = $value > 0 ? $value : $fallback;
+  return max(60, $interval);
+};
+$syncInterval = $normalizeInterval((int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300), 300);
+$tokenRefreshInterval = $normalizeInterval((int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300), 300);
+$structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900), 900);
+$publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
+$contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
+$matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
+$webhookInterval = 60;
+$intervalSettings = [];
+$intervalSettingRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'cron.intervals' LIMIT 1",
+  ['cid' => $corpId]
+);
+if ($intervalSettingRow && !empty($intervalSettingRow['setting_json'])) {
+  $intervalSettings = Db::jsonDecode((string)$intervalSettingRow['setting_json'], []);
+  if (!is_array($intervalSettings)) {
+    $intervalSettings = [];
+  }
 }
-$tokenRefreshInterval = (int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300);
-if ($tokenRefreshInterval <= 0) {
-  $tokenRefreshInterval = 300;
-}
-$structuresInterval = (int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900);
-if ($structuresInterval <= 0) {
-  $structuresInterval = 900;
-}
-$publicStructuresInterval = (int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400);
-if ($publicStructuresInterval <= 0) {
-  $publicStructuresInterval = 86400;
-}
-$contractsInterval = (int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300);
-if ($contractsInterval <= 0) {
-  $contractsInterval = 300;
-}
-$matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
-if ($matchInterval <= 0) {
-  $matchInterval = 300;
-}
+
+$formatInterval = static function (int $seconds): string {
+  if ($seconds % 60 === 0) {
+    $minutes = (int)($seconds / 60);
+    return sprintf('%ds (%dm)', $seconds, $minutes);
+  }
+  return sprintf('%ds', $seconds);
+};
 
 $loadTaskSettings = static function (Db $db, ?int $corpId): array {
   if ($corpId === null) {
@@ -200,7 +206,7 @@ $taskDefinitions = [
   JobQueueService::CRON_SYNC_JOB => [
     'key' => JobQueueService::CRON_SYNC_JOB,
     'name' => 'ESI Sync',
-    'schedule' => $syncInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_SYNC_JOB] ?? 0), $syncInterval),
     'scope' => 'corp',
     'description' => 'Refreshes universe data and the stargate graph.',
     'sync_scope' => 'universe',
@@ -209,7 +215,7 @@ $taskDefinitions = [
   JobQueueService::CRON_TOKEN_REFRESH_JOB => [
     'key' => JobQueueService::CRON_TOKEN_REFRESH_JOB,
     'name' => 'Token Refresh',
-    'schedule' => $tokenRefreshInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_TOKEN_REFRESH_JOB] ?? 0), $tokenRefreshInterval),
     'scope' => 'corp',
     'description' => 'Refreshes corp ESI tokens.',
     'runner' => 'task',
@@ -217,7 +223,7 @@ $taskDefinitions = [
   JobQueueService::CRON_STRUCTURES_JOB => [
     'key' => JobQueueService::CRON_STRUCTURES_JOB,
     'name' => 'Structures',
-    'schedule' => $structuresInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_STRUCTURES_JOB] ?? 0), $structuresInterval),
     'scope' => 'corp',
     'description' => 'Pulls corp structure data.',
     'runner' => 'task',
@@ -225,7 +231,7 @@ $taskDefinitions = [
   JobQueueService::CRON_PUBLIC_STRUCTURES_JOB => [
     'key' => JobQueueService::CRON_PUBLIC_STRUCTURES_JOB,
     'name' => 'Public Structures',
-    'schedule' => $publicStructuresInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_PUBLIC_STRUCTURES_JOB] ?? 0), $publicStructuresInterval),
     'scope' => 'corp',
     'description' => 'Pulls public structure data.',
     'runner' => 'task',
@@ -233,7 +239,7 @@ $taskDefinitions = [
   JobQueueService::CRON_CONTRACTS_JOB => [
     'key' => JobQueueService::CRON_CONTRACTS_JOB,
     'name' => 'Contracts',
-    'schedule' => $contractsInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_CONTRACTS_JOB] ?? 0), $contractsInterval),
     'scope' => 'corp',
     'description' => 'Pulls corp contracts.',
     'runner' => 'task',
@@ -241,7 +247,7 @@ $taskDefinitions = [
   JobQueueService::CONTRACT_MATCH_JOB => [
     'key' => JobQueueService::CONTRACT_MATCH_JOB,
     'name' => 'Contract Match',
-    'schedule' => $matchInterval . 's',
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CONTRACT_MATCH_JOB] ?? 0), $matchInterval),
     'scope' => 'corp',
     'description' => 'Matches open hauling requests against contracts.',
     'runner' => 'task',
@@ -249,7 +255,7 @@ $taskDefinitions = [
   JobQueueService::WEBHOOK_DELIVERY_JOB => [
     'key' => JobQueueService::WEBHOOK_DELIVERY_JOB,
     'name' => 'Webhook Delivery',
-    'schedule' => '60s',
+    'interval' => $webhookInterval,
     'scope' => 'global',
     'description' => 'Flushes queued Discord webhook deliveries.',
     'runner' => 'task',
@@ -275,6 +281,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         : "Disabled {$task['name']}.";
       $taskSettingsCorp = $loadTaskSettings($db, $corpId);
       $taskSettingsGlobal = $loadTaskSettings($db, null);
+    }
+  } elseif ($action === 'update_interval') {
+    $taskKey = (string)($_POST['task_key'] ?? '');
+    if (isset($taskDefinitions[$taskKey]) && $taskDefinitions[$taskKey]['scope'] === 'corp') {
+      $interval = (int)($_POST['interval_seconds'] ?? 0);
+      $interval = max(60, $interval);
+      $intervalSettings[$taskKey] = $interval;
+      $db->execute(
+        "INSERT INTO app_setting (corp_id, setting_key, setting_json)
+         VALUES (:cid, 'cron.intervals', :json)
+         ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_at = UTC_TIMESTAMP()",
+        [
+          'cid' => $corpId,
+          'json' => Db::jsonEncode($intervalSettings),
+        ]
+      );
+      $notice = "Updated {$taskDefinitions[$taskKey]['name']} interval to {$interval}s.";
+      $taskDefinitions[$taskKey]['interval'] = $interval;
     }
   } else {
     $scope = (string)($_POST['scope'] ?? 'all');
@@ -308,16 +332,37 @@ $cmd = 'php bin/cron.php';
 $cmdUniverse = sprintf('php bin/cron_sync.php %d --scope=universe', $corpId);
 $cmdUniverseSde = sprintf('php bin/cron_sync.php %d --scope=universe --sde', $corpId);
 
+$recentJobPage = max(1, (int)($_GET['page'] ?? 1));
+$recentJobPerPage = 10;
+$recentJobTotalRow = $db->one(
+  "SELECT COUNT(*) AS total
+     FROM job_queue
+    WHERE corp_id = :cid
+       OR (corp_id IS NULL AND job_type = :webhook)",
+  [
+    'cid' => $corpId,
+    'webhook' => JobQueueService::WEBHOOK_DELIVERY_JOB,
+  ]
+);
+$recentJobTotal = (int)($recentJobTotalRow['total'] ?? 0);
+$recentJobTotalPages = max(1, (int)ceil($recentJobTotal / $recentJobPerPage));
+if ($recentJobPage > $recentJobTotalPages) {
+  $recentJobPage = $recentJobTotalPages;
+}
+$recentJobOffset = ($recentJobPage - 1) * $recentJobPerPage;
+
 $recentJobs = $db->select(
   "SELECT job_id, corp_id, job_type, status, run_at, started_at, finished_at, created_at, payload_json, last_error
      FROM job_queue
     WHERE corp_id = :cid
        OR (corp_id IS NULL AND job_type = :webhook)
     ORDER BY created_at DESC
-    LIMIT 20",
+    LIMIT :limit OFFSET :offset",
   [
     'cid' => $corpId,
     'webhook' => JobQueueService::WEBHOOK_DELIVERY_JOB,
+    'limit' => $recentJobPerPage,
+    'offset' => $recentJobOffset,
   ]
 );
 
@@ -328,6 +373,43 @@ $statusClassMap = [
   'running' => 'status-running',
   'queued' => 'status-queued',
 ];
+$taskStates = [];
+$taskAlerts = [];
+$now = time();
+
+foreach ($taskDefinitions as $taskKey => $task) {
+  $scopeCorpId = $task['scope'] === 'global' ? null : $corpId;
+  $settings = $scopeCorpId === null ? $taskSettingsGlobal : $taskSettingsCorp;
+  $enabled = $isTaskEnabled($settings, $taskKey);
+  $lastJob = $fetchLastJob($db, $taskKey, $scopeCorpId);
+  $lastStatus = $enabled ? ($lastJob['status'] ?? 'never') : 'disabled';
+  $lastRun = $lastJob['finished_at'] ?? $lastJob['started_at'] ?? $lastJob['run_at'] ?? $lastJob['created_at'] ?? null;
+  $statusClass = $statusClassMap[$lastStatus] ?? ($lastStatus === 'disabled' ? 'status-disabled' : 'status-never');
+  $interval = (int)$task['interval'];
+  $stale = false;
+  if ($enabled && $interval > 0) {
+    if ($lastRun) {
+      $lastRunTs = strtotime((string)$lastRun);
+      if ($lastRunTs !== false && ($now - $lastRunTs) > ($interval * 5)) {
+        $stale = true;
+      }
+    } else {
+      $stale = true;
+    }
+  }
+  if ($stale) {
+    $taskAlerts[] = sprintf('%s has not run within the last %d cycles.', $task['name'], 5);
+  }
+
+  $taskStates[$taskKey] = [
+    'task' => $task,
+    'enabled' => $enabled,
+    'last_job' => $lastJob,
+    'last_status' => $lastStatus,
+    'last_run' => $lastRun,
+    'status_class' => $statusClass,
+  ];
+}
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -345,13 +427,21 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php if ($runError): ?>
       <div class="alert alert-warning" style="margin-top:12px;"><?= htmlspecialchars($runError, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
+    <?php if ($taskAlerts !== []): ?>
+      <div class="alert alert-warning" style="margin-top:12px;">
+        <strong>Attention needed:</strong>
+        <ul style="margin:8px 0 0; padding-left:18px;">
+          <?php foreach ($taskAlerts as $alert): ?>
+            <li><?= htmlspecialchars($alert, ENT_QUOTES, 'UTF-8') ?></li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+    <?php endif; ?>
 
     <div class="cron-section">
-      <ul class="muted" style="margin:0 0 12px; padding-left:18px;">
-        <li>Use absolute paths and ensure log permissions.</li>
-        <li>Use log rotation for /var/log/modularalliance/cron.log.</li>
-        <li>Inspect failures in this dashboard and module logs.</li>
-      </ul>
+      <p class="muted" style="margin:0 0 12px;">
+        Run the scheduler every minute. Task intervals can be adjusted below (minimum 60 seconds). Universe + SDE bootstraps run via the sync command.
+      </p>
 
       <p class="muted"><strong>Corp ID:</strong> <?= (int)$corpId ?> · <strong>Configured character:</strong>
         <?= $cronCharId > 0
@@ -363,20 +453,22 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <code><?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
       </div>
 
-      <p class="muted" style="margin-top:12px;">Example crontab entry (runs every minute):</p>
+      <p class="muted" style="margin-top:12px;">Example crontab entry:</p>
       <div class="pill" style="margin:12px 0;">
         <code>* * * * * <?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
       </div>
 
       <p class="muted">Tip: set the cron character on the <a href="<?= ($basePath ?: '') ?>/admin/esi/">ESI Tokens</a> page.</p>
 
-      <p class="muted" style="margin-top:12px;">Manual universe/map bootstrap (optional):</p>
-      <div class="pill" style="margin:12px 0;">
-        <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
-      </div>
-      <div class="pill" style="margin:12px 0;">
-        <code><?= htmlspecialchars($cmdUniverseSde, ENT_QUOTES, 'UTF-8') ?></code>
-      </div>
+      <details style="margin-top:12px;">
+        <summary class="muted">Manual universe/map bootstrap (optional)</summary>
+        <div class="pill" style="margin:12px 0;">
+          <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
+        </div>
+        <div class="pill" style="margin:12px 0;">
+          <code><?= htmlspecialchars($cmdUniverseSde, ENT_QUOTES, 'UTF-8') ?></code>
+        </div>
+      </details>
     </div>
 
     <div class="cron-section">
@@ -386,7 +478,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <tr>
             <th>Job Key</th>
             <th>Name</th>
-            <th>Schedule</th>
+            <th>Interval</th>
             <th>Last Status</th>
             <th>Last Run</th>
             <th>Message</th>
@@ -394,15 +486,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($taskDefinitions as $taskKey => $task): ?>
+          <?php foreach ($taskStates as $taskKey => $state): ?>
             <?php
-              $scopeCorpId = $task['scope'] === 'global' ? null : $corpId;
-              $settings = $scopeCorpId === null ? $taskSettingsGlobal : $taskSettingsCorp;
-              $enabled = $isTaskEnabled($settings, $taskKey);
-              $lastJob = $fetchLastJob($db, $taskKey, $scopeCorpId);
-              $lastStatus = $enabled ? ($lastJob['status'] ?? 'never') : 'disabled';
-              $lastRun = $lastJob['finished_at'] ?? $lastJob['started_at'] ?? $lastJob['run_at'] ?? $lastJob['created_at'] ?? null;
-              $statusClass = $statusClassMap[$lastStatus] ?? ($lastStatus === 'disabled' ? 'status-disabled' : 'status-never');
+              $task = $state['task'];
+              $enabled = $state['enabled'];
+              $lastJob = $state['last_job'];
+              $lastStatus = $state['last_status'];
+              $lastRun = $state['last_run'];
+              $statusClass = $state['status_class'];
+              $interval = (int)$task['interval'];
             ?>
             <tr>
               <td><code><?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?></code></td>
@@ -410,7 +502,28 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 <?= htmlspecialchars($task['name'], ENT_QUOTES, 'UTF-8') ?>
                 <div class="cron-note"><?= htmlspecialchars($task['description'], ENT_QUOTES, 'UTF-8') ?></div>
               </td>
-              <td><?= htmlspecialchars($task['schedule'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td>
+                <?php if ($task['scope'] === 'global'): ?>
+                  <?= htmlspecialchars($formatInterval($interval), ENT_QUOTES, 'UTF-8') ?>
+                  <div class="cron-note">Global interval set in environment.</div>
+                <?php else: ?>
+                  <form method="post" class="cron-interval-form">
+                    <input type="hidden" name="action" value="update_interval" />
+                    <input type="hidden" name="task_key" value="<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>" />
+                    <label class="visually-hidden" for="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>">Interval seconds</label>
+                    <input
+                      id="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>"
+                      type="number"
+                      name="interval_seconds"
+                      min="60"
+                      step="60"
+                      value="<?= (int)$interval ?>"
+                    />
+                    <button class="btn ghost" type="submit">Update</button>
+                  </form>
+                  <div class="cron-note">Minimum 60s.</div>
+                <?php endif; ?>
+              </td>
               <td><span class="status-pill <?= htmlspecialchars($statusClass, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lastStatus, ENT_QUOTES, 'UTF-8') ?></span></td>
               <td><?= htmlspecialchars($lastRun ? $formatTimestamp((string)$lastRun) : '—', ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($extractJobMessage($lastJob), ENT_QUOTES, 'UTF-8') ?></td>
@@ -445,6 +558,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <span class="pill subtle" id="cron-progress-count">0/0</span>
       </div>
       <pre class="cron-log" id="cron-log">No queued syncs yet.</pre>
+      <div class="cron-pagination" id="cron-log-pagination" style="display:none;">
+        <button class="btn ghost" type="button" id="cron-log-prev">Previous</button>
+        <span class="muted" id="cron-log-page">Page 1 of 1</span>
+        <button class="btn ghost" type="button" id="cron-log-next">Next</button>
+      </div>
       <pre class="cron-log" id="cron-result" style="display:none;"></pre>
     </div>
 
@@ -486,6 +604,20 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <?php endif; ?>
         </tbody>
       </table>
+      <?php if ($recentJobTotalPages > 1): ?>
+        <div class="cron-pagination">
+          <?php
+            $pageParams = $_GET;
+            $pageParams['page'] = max(1, $recentJobPage - 1);
+          ?>
+          <a class="btn ghost <?= $recentJobPage <= 1 ? 'disabled' : '' ?>" href="<?= ($basePath ?: '') ?>/admin/cron/?<?= htmlspecialchars(http_build_query($pageParams), ENT_QUOTES, 'UTF-8') ?>">Previous</a>
+          <span class="muted">Page <?= $recentJobPage ?> of <?= $recentJobTotalPages ?></span>
+          <?php
+            $pageParams['page'] = min($recentJobTotalPages, $recentJobPage + 1);
+          ?>
+          <a class="btn ghost <?= $recentJobPage >= $recentJobTotalPages ? 'disabled' : '' ?>" href="<?= ($basePath ?: '') ?>/admin/cron/?<?= htmlspecialchars(http_build_query($pageParams), ENT_QUOTES, 'UTF-8') ?>">Next</a>
+        </div>
+      <?php endif; ?>
     </div>
 
     <?php if ($runResult): ?>
@@ -519,8 +651,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   const logEl = document.getElementById('cron-log');
   const resultEl = document.getElementById('cron-result');
   const taskMessage = document.getElementById('cron-task-message');
+  const logPagination = document.getElementById('cron-log-pagination');
+  const logPrev = document.getElementById('cron-log-prev');
+  const logNext = document.getElementById('cron-log-next');
+  const logPageLabel = document.getElementById('cron-log-page');
   let pollTimer = null;
   let currentJobId = null;
+  let logEntries = [];
+  let logPage = 1;
+  const logPageSize = 10;
 
   const setProgress = (progress = {}) => {
     if (!progressBar || !progressLabel || !progressCount) return;
@@ -532,13 +671,32 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     progressCount.textContent = `${current}/${total}`;
   };
 
-  const renderLog = (log = []) => {
+  const renderLogPage = () => {
     if (!logEl) return;
-    if (!Array.isArray(log) || log.length === 0) {
+    if (!Array.isArray(logEntries) || logEntries.length === 0) {
       logEl.textContent = 'No queued syncs yet.';
+      if (logPagination) {
+        logPagination.style.display = 'none';
+      }
       return;
     }
-    logEl.textContent = log.map(entry => `[${entry.time}] ${entry.message}`).join('\n');
+    const totalPages = Math.max(1, Math.ceil(logEntries.length / logPageSize));
+    logPage = Math.min(Math.max(logPage, 1), totalPages);
+    const start = (logPage - 1) * logPageSize;
+    const currentSlice = logEntries.slice(start, start + logPageSize);
+    logEl.textContent = currentSlice.map(entry => `[${entry.time}] ${entry.message}`).join('\n');
+    if (logPagination && logPrev && logNext && logPageLabel) {
+      logPagination.style.display = totalPages > 1 ? 'flex' : 'none';
+      logPrev.classList.toggle('disabled', logPage <= 1);
+      logNext.classList.toggle('disabled', logPage >= totalPages);
+      logPageLabel.textContent = `Page ${logPage} of ${totalPages}`;
+    }
+  };
+
+  const renderLog = (log = []) => {
+    logEntries = Array.isArray(log) ? log : [];
+    logPage = 1;
+    renderLogPage();
   };
 
   const renderResult = (result) => {
@@ -647,6 +805,25 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       }
     });
   });
+
+  if (logPrev) {
+    logPrev.addEventListener('click', () => {
+      if (logPage > 1) {
+        logPage -= 1;
+        renderLogPage();
+      }
+    });
+  }
+
+  if (logNext) {
+    logNext.addEventListener('click', () => {
+      const totalPages = Math.max(1, Math.ceil(logEntries.length / logPageSize));
+      if (logPage < totalPages) {
+        logPage += 1;
+        renderLogPage();
+      }
+    });
+  }
 })();
 </script>
 <?php
