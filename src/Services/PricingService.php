@@ -64,7 +64,7 @@ final class PricingService
       array_merge($context, $accessRules)
     );
 
-    $ship = $this->chooseShipClass($volume);
+    $ship = $this->chooseShipClass($volume, $route);
     $ratePlan = $this->getRatePlan($corpId, $ship['service_class']);
     $priorityFees = $this->loadPriorityFees($corpId);
     $priorityFee = (float)($priorityFees[$priority] ?? 0.0);
@@ -236,14 +236,25 @@ final class PricingService
     return $fees;
   }
 
-  private function chooseShipClass(float $volume): array
+  private function chooseShipClass(float $volume, array $route): array
   {
-    $maxVolume = max(self::SHIP_CLASSES);
+    $lowSec = (int)($route['ls_count'] ?? 0);
+    $nullSec = (int)($route['ns_count'] ?? 0);
+    $highSecOnly = $lowSec <= 0 && $nullSec <= 0;
+    $shipClasses = self::SHIP_CLASSES;
+
+    if ($highSecOnly) {
+      unset($shipClasses['JF']);
+    } else {
+      unset($shipClasses['FREIGHTER']);
+    }
+
+    $maxVolume = $shipClasses ? max($shipClasses) : 0;
     if ($volume > $maxVolume) {
       throw new \InvalidArgumentException('oversized_volume:' . $maxVolume);
     }
 
-    foreach (self::SHIP_CLASSES as $class => $maxVolume) {
+    foreach ($shipClasses as $class => $maxVolume) {
       if ($volume <= $maxVolume) {
         return [
           'service_class' => $class,
