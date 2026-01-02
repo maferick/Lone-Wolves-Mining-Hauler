@@ -274,7 +274,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div style="margin-bottom:16px;">
             <h4>Systems</h4>
             <?php if ($systemRules): ?>
-              <table class="table">
+              <div class="table-pager" data-paginated-table data-page-size="10">
+                <table class="table" data-pager-table>
                 <thead>
                   <tr>
                     <th>System</th>
@@ -291,15 +292,36 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="hidden" name="access_systems[<?= (int)$idx ?>][name]" value="<?= htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_systems[<?= (int)$idx ?>][allowed]" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
+                        <input type="checkbox" name="access_systems[<?= (int)$idx ?>][allowed]" aria-label="Allow system" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_systems[<?= (int)$idx ?>][remove]" />
+                        <label class="checkbox-inline">
+                          <input type="checkbox" class="js-remove-row" name="access_systems[<?= (int)$idx ?>][remove]" />
+                          <span>Remove</span>
+                        </label>
                       </td>
                     </tr>
                   <?php endforeach; ?>
                 </tbody>
-              </table>
+                </table>
+                <div class="table-pager__footer" data-pager-footer>
+                  <div class="table-pager__summary" data-pager-summary></div>
+                  <div class="table-pager__controls">
+                    <label class="table-pager__size">
+                      Rows
+                      <select class="input input--sm" data-pager-size>
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
+                    <button class="btn ghost" type="button" data-pager-prev>Previous</button>
+                    <span class="table-pager__page" data-pager-page></span>
+                    <button class="btn ghost" type="button" data-pager-next>Next</button>
+                  </div>
+                </div>
+              </div>
             <?php else: ?>
               <p class="muted">No system rules added yet.</p>
             <?php endif; ?>
@@ -308,7 +330,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div style="margin-bottom:16px;">
             <h4>Regions</h4>
             <?php if ($regionRules): ?>
-              <table class="table">
+              <div class="table-pager" data-paginated-table data-page-size="10">
+                <table class="table" data-pager-table>
                 <thead>
                   <tr>
                     <th>Region</th>
@@ -325,15 +348,36 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="hidden" name="access_regions[<?= (int)$idx ?>][name]" value="<?= htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_regions[<?= (int)$idx ?>][allowed]" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
+                        <input type="checkbox" name="access_regions[<?= (int)$idx ?>][allowed]" aria-label="Allow region" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_regions[<?= (int)$idx ?>][remove]" />
+                        <label class="checkbox-inline">
+                          <input type="checkbox" class="js-remove-row" name="access_regions[<?= (int)$idx ?>][remove]" />
+                          <span>Remove</span>
+                        </label>
                       </td>
                     </tr>
                   <?php endforeach; ?>
                 </tbody>
-              </table>
+                </table>
+                <div class="table-pager__footer" data-pager-footer>
+                  <div class="table-pager__summary" data-pager-summary></div>
+                  <div class="table-pager__controls">
+                    <label class="table-pager__size">
+                      Rows
+                      <select class="input input--sm" data-pager-size>
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
+                    <button class="btn ghost" type="button" data-pager-prev>Previous</button>
+                    <span class="table-pager__page" data-pager-page></span>
+                    <button class="btn ghost" type="button" data-pager-next>Next</button>
+                  </div>
+                </div>
+              </div>
             <?php else: ?>
               <p class="muted">No region rules added yet.</p>
             <?php endif; ?>
@@ -342,7 +386,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div style="margin-bottom:16px;">
             <h4>Structures</h4>
             <?php if ($structureRules): ?>
-              <table class="table">
+              <div class="table-pager" data-paginated-table data-page-size="10">
+                <table class="table" data-pager-table>
                 <thead>
                   <tr>
                     <th>Structure</th>
@@ -361,21 +406,42 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                         <input type="hidden" name="access_structures[<?= (int)$idx ?>][name]" value="<?= htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][allowed]" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
+                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][allowed]" aria-label="Allow structure" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][pickup_allowed]" <?= !empty($rule['pickup_allowed']) ? 'checked' : '' ?> />
+                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][pickup_allowed]" aria-label="Pickup allowed" <?= !empty($rule['pickup_allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][delivery_allowed]" <?= !empty($rule['delivery_allowed']) ? 'checked' : '' ?> />
+                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][delivery_allowed]" aria-label="Delivery allowed" <?= !empty($rule['delivery_allowed']) ? 'checked' : '' ?> />
                       </td>
                       <td>
-                        <input type="checkbox" name="access_structures[<?= (int)$idx ?>][remove]" />
+                        <label class="checkbox-inline">
+                          <input type="checkbox" class="js-remove-row" name="access_structures[<?= (int)$idx ?>][remove]" />
+                          <span>Remove</span>
+                        </label>
                       </td>
                     </tr>
                   <?php endforeach; ?>
                 </tbody>
-              </table>
+                </table>
+                <div class="table-pager__footer" data-pager-footer>
+                  <div class="table-pager__summary" data-pager-summary></div>
+                  <div class="table-pager__controls">
+                    <label class="table-pager__size">
+                      Rows
+                      <select class="input input--sm" data-pager-size>
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
+                    <button class="btn ghost" type="button" data-pager-prev>Previous</button>
+                    <span class="table-pager__page" data-pager-page></span>
+                    <button class="btn ghost" type="button" data-pager-next>Next</button>
+                  </div>
+                </div>
+              </div>
             <?php else: ?>
               <p class="muted">No structure rules added yet.</p>
             <?php endif; ?>
@@ -499,6 +565,79 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           const type = typeSelect?.value || 'system';
           buildOptions(listMap[type], accessData[type], valueInput.value);
         });
+
+        const removeToggles = document.querySelectorAll('.js-remove-row');
+        const updateRemoveRow = (input) => {
+          const row = input.closest('tr');
+          if (!row) return;
+          row.classList.toggle('table-row-removed', input.checked);
+        };
+        removeToggles.forEach((input) => {
+          updateRemoveRow(input);
+          input.addEventListener('change', () => updateRemoveRow(input));
+        });
+
+        const setupPager = (container) => {
+          const table = container.querySelector('[data-pager-table]');
+          const footer = container.querySelector('[data-pager-footer]');
+          if (!table || !footer) return;
+          const rows = Array.from(table.tBodies[0]?.rows ?? []);
+          const summary = container.querySelector('[data-pager-summary]');
+          const pageLabel = container.querySelector('[data-pager-page]');
+          const prevBtn = container.querySelector('[data-pager-prev]');
+          const nextBtn = container.querySelector('[data-pager-next]');
+          const sizeSelect = container.querySelector('[data-pager-size]');
+          let pageSize = parseInt(container.dataset.pageSize || '10', 10);
+          if (sizeSelect) sizeSelect.value = String(pageSize);
+          let currentPage = 1;
+
+          const render = () => {
+            const total = rows.length;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            currentPage = Math.min(currentPage, totalPages);
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = startIdx + pageSize;
+            rows.forEach((row, idx) => {
+              row.style.display = idx >= startIdx && idx < endIdx ? '' : 'none';
+            });
+            if (summary) {
+              const start = total === 0 ? 0 : startIdx + 1;
+              const end = Math.min(endIdx, total);
+              summary.textContent = `Showing ${start}-${end} of ${total}`;
+            }
+            if (pageLabel) {
+              pageLabel.textContent = `Page ${currentPage} of ${totalPages}`;
+            }
+            if (prevBtn) prevBtn.disabled = currentPage <= 1;
+            if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+            footer.style.display = total > 0 ? 'flex' : 'none';
+          };
+
+          prevBtn?.addEventListener('click', () => {
+            if (currentPage > 1) {
+              currentPage -= 1;
+              render();
+            }
+          });
+          nextBtn?.addEventListener('click', () => {
+            if (currentPage < Math.ceil(rows.length / pageSize)) {
+              currentPage += 1;
+              render();
+            }
+          });
+          sizeSelect?.addEventListener('change', () => {
+            const nextSize = parseInt(sizeSelect.value, 10);
+            if (Number.isFinite(nextSize) && nextSize > 0) {
+              pageSize = nextSize;
+              currentPage = 1;
+              render();
+            }
+          });
+
+          render();
+        };
+
+        document.querySelectorAll('[data-paginated-table]').forEach(setupPager);
 
         updateListTarget();
       })();
