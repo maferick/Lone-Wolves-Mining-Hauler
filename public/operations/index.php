@@ -41,9 +41,14 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
 
   if ($hasRequestView) {
     $requests = $db->select(
-      "SELECT r.request_id, r.status, r.from_name, r.to_name, r.volume_m3, r.reward_isk,
-              r.created_at, r.requester_display_name, a.hauler_user_id, u.display_name AS hauler_name
+      "SELECT r.request_id, r.status,
+              COALESCE(fs.system_name, r.from_name) AS from_name,
+              COALESCE(ts.system_name, r.to_name) AS to_name,
+              r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
+              a.hauler_user_id, u.display_name AS hauler_name
          FROM v_haul_request_display r
+         LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
+         LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
          LEFT JOIN haul_assignment a ON a.request_id = r.request_id
          LEFT JOIN app_user u ON u.user_id = a.hauler_user_id
         WHERE r.corp_id = :cid
