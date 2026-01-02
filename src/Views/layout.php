@@ -50,6 +50,7 @@ $body = $body ?? '';
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Home</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/operations">Operations</a>
         <?php if ($isLoggedIn): ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/my-contracts">My Contracts</a>
           <a class="nav-link" href="<?= ($basePath ?: '') ?>/#quote">Quote</a>
         <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
