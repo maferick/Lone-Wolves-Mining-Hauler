@@ -86,16 +86,34 @@ final class Db {
 
   public function tx(callable $fn)
   {
-    $this->pdo->beginTransaction();
-    try {
-      $result = $fn($this);
-      $this->pdo->commit();
-      return $result;
-    } catch (\Throwable $e) {
-      if ($this->pdo->inTransaction()) {
-        $this->pdo->rollBack();
+    $attempt = 0;
+    $maxRetries = 2;
+
+    while (true) {
+      $this->pdo->beginTransaction();
+      try {
+        $result = $fn($this);
+        $this->pdo->commit();
+        return $result;
+      } catch (\Throwable $e) {
+        if ($this->pdo->inTransaction()) {
+          $this->pdo->rollBack();
+        }
+
+        $attempt++;
+        $errorCode = null;
+        if ($e instanceof \PDOException && isset($e->errorInfo[1])) {
+          $errorCode = (int)$e->errorInfo[1];
+        }
+
+        $shouldRetry = $attempt <= $maxRetries && in_array($errorCode, [1205, 1213], true);
+        if ($shouldRetry) {
+          usleep(100000 * $attempt);
+          continue;
+        }
+
+        throw $e;
       }
-      throw $e;
     }
   }
 
