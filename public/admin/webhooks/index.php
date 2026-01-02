@@ -16,6 +16,14 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Webhooks';
 
 $msg = null;
+$eventOptions = [
+  'haul.request.created' => 'Haul request created',
+  'haul.quote.created' => 'Quote created',
+  'haul.contract.attached' => 'Contract attached',
+  'esi.contracts.pulled' => 'Contracts pulled (ESI)',
+  'webhook.test' => 'Manual test',
+];
+$eventDefaults = array_fill_keys(array_keys($eventOptions), true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -45,6 +53,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db->execute("DELETE FROM discord_webhook WHERE webhook_id=:id AND corp_id=:cid", ['id'=>$id,'cid'=>$corpId]);
     $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.delete', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Deleted.";
+  } elseif ($action === 'events') {
+    $updates = [];
+    foreach ($eventOptions as $eventKey => $label) {
+      $updates[$eventKey] = isset($_POST['events'][$eventKey]);
+    }
+    $db->execute(
+      "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
+       VALUES (:cid, :key, :json, :uid)
+       ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_by_user_id = VALUES(updated_by_user_id)",
+      [
+        'cid' => $corpId,
+        'key' => 'discord.webhook_events',
+        'json' => Db::jsonEncode($updates),
+        'uid' => $authCtx['user_id'],
+      ]
+    );
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.events.update', 'app_setting', 'discord.webhook_events', null, [
+      'events' => $updates,
+    ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+    $eventDefaults = array_replace($eventDefaults, $updates);
+    $msg = "Event settings updated.";
+  }
+}
+
+$eventSettingRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = :key LIMIT 1",
+  ['cid' => $corpId, 'key' => 'discord.webhook_events']
+);
+$eventSettings = $eventDefaults;
+if ($eventSettingRow && !empty($eventSettingRow['setting_json'])) {
+  $decoded = Db::jsonDecode((string)$eventSettingRow['setting_json'], []);
+  if (is_array($decoded)) {
+    $eventSettings = array_replace($eventSettings, $decoded);
   }
 }
 
@@ -101,6 +142,23 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
       <div style="margin-top:12px;">
         <button class="btn" type="submit">Create</button>
+      </div>
+    </form>
+
+    <form method="post" style="margin-bottom:18px;">
+      <input type="hidden" name="action" value="events" />
+      <div class="label">Event Triggers</div>
+      <div class="muted" style="margin-bottom:10px;">Toggle which events enqueue Discord webhook deliveries.</div>
+      <div class="row" style="gap:16px; flex-wrap:wrap;">
+        <?php foreach ($eventOptions as $eventKey => $label): ?>
+          <label style="display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" name="events[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>]" <?= !empty($eventSettings[$eventKey]) ? 'checked' : '' ?> />
+            <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+          </label>
+        <?php endforeach; ?>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="btn" type="submit">Save Event Settings</button>
       </div>
     </form>
 

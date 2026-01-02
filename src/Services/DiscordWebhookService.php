@@ -7,12 +7,19 @@ use App\Db\Db;
 
 final class DiscordWebhookService
 {
+  private const EVENT_SETTING_KEY = 'discord.webhook_events';
+  private array $eventSettingsCache = [];
+
   public function __construct(private Db $db, private array $config = [])
   {
   }
 
   public function enqueue(int $corpId, string $eventKey, array $payload, ?int $webhookId = null): int
   {
+    if (!$this->isEventEnabled($corpId, $eventKey)) {
+      return 0;
+    }
+
     $params = ['cid' => $corpId];
     $webhookClause = '';
     if ($webhookId !== null) {
@@ -244,6 +251,54 @@ final class DiscordWebhookService
           'timestamp' => gmdate('c'),
         ],
       ],
+    ];
+  }
+
+  private function isEventEnabled(int $corpId, string $eventKey): bool
+  {
+    $settings = $this->getEventSettings($corpId);
+    if (!array_key_exists($eventKey, $settings)) {
+      return true;
+    }
+
+    return !empty($settings[$eventKey]);
+  }
+
+  private function getEventSettings(int $corpId): array
+  {
+    if (isset($this->eventSettingsCache[$corpId])) {
+      return $this->eventSettingsCache[$corpId];
+    }
+
+    $defaults = $this->defaultEventSettings();
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = :key LIMIT 1",
+      ['cid' => $corpId, 'key' => self::EVENT_SETTING_KEY]
+    );
+
+    if (!$row || empty($row['setting_json'])) {
+      $this->eventSettingsCache[$corpId] = $defaults;
+      return $defaults;
+    }
+
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      $this->eventSettingsCache[$corpId] = $defaults;
+      return $defaults;
+    }
+
+    $this->eventSettingsCache[$corpId] = array_replace($defaults, $decoded);
+    return $this->eventSettingsCache[$corpId];
+  }
+
+  private function defaultEventSettings(): array
+  {
+    return [
+      'haul.request.created' => true,
+      'haul.quote.created' => true,
+      'haul.contract.attached' => true,
+      'esi.contracts.pulled' => true,
+      'webhook.test' => true,
     ];
   }
 
