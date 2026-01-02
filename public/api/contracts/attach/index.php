@@ -172,22 +172,8 @@ $requestPath = ($pathPrefix ?: '') . '/request?request_id=' . (string)$request['
 $requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
 
 $webhookPayload = [
-  'quote_id' => (int)$request['quote_id'],
-  'request_id' => (int)$request['request_id'],
-  'from_system_id' => (int)$request['from_location_id'],
-  'to_system_id' => (int)$request['to_location_id'],
-  'from_system_name' => (string)($fromName ?: ''),
-  'to_system_name' => (string)($toName ?: ''),
-  'jumps' => (int)($breakdown['jumps'] ?? 0),
-  'security_counts' => $securityCounts,
-  'price_isk' => $expectedReward,
-  'collateral_isk' => (float)$request['collateral_isk'],
-  'volume_m3' => (float)$request['volume_m3'],
-  'ship_class' => (string)($request['ship_class'] ?? ''),
-  'request_url' => $requestUrl,
-];
-
-$webhookPayload['content'] = sprintf(
+  'username' => (string)($config['app']['name'] ?? 'Lone Wolves Hauling'),
+  'content' => sprintf(
   "New haul request #%s (Quote #%s)\\n%s → %s • %d jumps (HS %d / LS %d / NS %d)\\nShip: %s • Volume: %s m³ • Price: %s ISK • Collateral: %s ISK\\n%s",
   (string)$request['request_id'],
   (string)$request['quote_id'],
@@ -202,7 +188,8 @@ $webhookPayload['content'] = sprintf(
   number_format($expectedReward, 2),
   number_format((float)$request['collateral_isk'], 2),
   $requestUrl
-);
+  ),
+];
 
 $db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, $webhookPayload, $services, $authCtx, $corpId): void {
   $db->execute(
