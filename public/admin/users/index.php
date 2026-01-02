@@ -99,6 +99,10 @@ $userRoles = [];
 foreach ($userRolesRows as $r) {
   $userRoles[(int)$r['user_id']][] = (string)$r['role_key'];
 }
+$roleNameByKey = [];
+foreach ($roles as $role) {
+  $roleNameByKey[(string)$role['role_key']] = (string)$role['role_name'];
+}
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -112,31 +116,51 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   <div class="content">
     <?php if ($msg): ?><div class="pill <?= $msgTone === 'error' ? 'pill-danger' : '' ?>"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-field">
+        <label class="form-label" for="user-search">Search users</label>
+        <input class="input" id="user-search" type="search" placeholder="Search by user, character, or role…" />
+      </div>
+    </div>
+
     <table class="table">
       <thead>
         <tr>
           <th>User</th>
           <th>Character</th>
-          <th>Roles</th>
+          <th>Rights</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         <?php foreach ($users as $u): $uid=(int)$u['user_id']; ?>
+          <?php $roleKeys = $userRoles[$uid] ?? []; ?>
+          <?php $roleNames = array_map(fn($key) => $roleNameByKey[$key] ?? $key, $roleKeys); ?>
           <tr>
             <td><?= htmlspecialchars((string)$u['display_name'], ENT_QUOTES, 'UTF-8') ?></td>
             <td><?= htmlspecialchars((string)($u['character_name'] ?: $u['character_id']), ENT_QUOTES, 'UTF-8') ?></td>
-            <td><?= htmlspecialchars(implode(', ', $userRoles[$uid] ?? []), ENT_QUOTES, 'UTF-8') ?></td>
+            <td data-roles="<?= htmlspecialchars(implode(' ', $roleNames), ENT_QUOTES, 'UTF-8') ?>">
+              <div class="actions">
+                <?php foreach ($roles as $r): ?>
+                  <?php
+                    $roleKey = (string)$r['role_key'];
+                    $hasRole = in_array($roleKey, $roleKeys, true);
+                  ?>
+                  <form method="post" class="role-toggle" style="display:flex; align-items:center; gap:6px;">
+                    <input type="hidden" name="user_id" value="<?= $uid ?>" />
+                    <input type="hidden" name="role_key" value="<?= htmlspecialchars($roleKey, ENT_QUOTES, 'UTF-8') ?>" />
+                    <input type="hidden" name="action" value="<?= $hasRole ? 'remove' : 'add' ?>" />
+                    <label style="display:flex; align-items:center; gap:6px;">
+                      <input class="role-checkbox" type="checkbox" <?= $hasRole ? 'checked' : '' ?> />
+                      <span><?= htmlspecialchars((string)$r['role_name'], ENT_QUOTES, 'UTF-8') ?></span>
+                    </label>
+                  </form>
+                <?php endforeach; ?>
+              </div>
+            </td>
             <td>
-              <form method="post" style="display:flex; gap:8px; align-items:center;">
+              <form method="post">
                 <input type="hidden" name="user_id" value="<?= $uid ?>" />
-                <select name="role_key">
-                  <?php foreach ($roles as $r): ?>
-                    <option value="<?= htmlspecialchars((string)$r['role_key'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars((string)$r['role_name'], ENT_QUOTES, 'UTF-8') ?></option>
-                  <?php endforeach; ?>
-                </select>
-                <button class="btn" name="action" value="add" type="submit">Add</button>
-                <button class="btn ghost" name="action" value="remove" type="submit">Remove</button>
                 <button class="btn danger" name="action" value="delete" type="submit" onclick="return confirm('Delete this user?')">Delete</button>
               </form>
             </td>
@@ -150,6 +174,34 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
   </div>
 </section>
+<script>
+  const searchInput = document.getElementById('user-search');
+  const rows = Array.from(document.querySelectorAll('table tbody tr'));
+
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase().trim();
+      rows.forEach((row) => {
+        const cells = row.querySelectorAll('td');
+        const userText = cells[0]?.textContent?.toLowerCase() ?? '';
+        const characterText = cells[1]?.textContent?.toLowerCase() ?? '';
+        const rolesText = row.querySelector('[data-roles]')?.getAttribute('data-roles')?.toLowerCase() ?? '';
+        const matches = [userText, characterText, rolesText].some((text) => text.includes(query));
+        row.style.display = matches ? '' : 'none';
+      });
+    });
+  }
+
+  document.querySelectorAll('.role-toggle').forEach((form) => {
+    const checkbox = form.querySelector('.role-checkbox');
+    const actionInput = form.querySelector('input[name="action"]');
+    if (!checkbox || !actionInput) return;
+    checkbox.addEventListener('change', () => {
+      actionInput.value = checkbox.checked ? 'add' : 'remove';
+      form.submit();
+    });
+  });
+</script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
