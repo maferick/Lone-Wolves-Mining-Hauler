@@ -14,6 +14,7 @@ use App\Db\Db;
 final class UniverseDataService
 {
   private const SDE_LATEST_JSONL_URL = 'https://developers.eveonline.com/static-data/eve-online-static-data-latest-jsonl.zip';
+  private const SDE_LATEST_META_URL = 'https://developers.eveonline.com/static-data/tranquility/latest.jsonl';
   private const SDE_META_FILENAME = 'sde_meta.json';
   private const SDE_UPDATE_CHECK_SECONDS = 21600;
 
@@ -374,6 +375,7 @@ final class UniverseDataService
     $results['constellations_fetched'] = $this->importSdeConstellations($constellationFile);
     $results['systems_fetched'] = $this->importSdeSystems($systemFile);
     $results['stations_fetched'] = $this->importSdeStations($stationFile);
+    $this->markSdeImported();
 
     return $results;
   }
@@ -415,6 +417,7 @@ final class UniverseDataService
       $results['edges_discovered'] = $this->importSdeMapEdgesFromStargates($stargateFile);
     }
     $results['map_edge_count'] = (int)$this->db->fetchValue("SELECT COUNT(*) FROM map_edge");
+    $this->markSdeImported();
 
     return $results;
   }
@@ -923,7 +926,8 @@ final class UniverseDataService
     if ($basePath === '') {
       throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
     }
-    $this->downloadLatestSde($basePath);
+    $latestMeta = $this->fetchSdeLatestMeta();
+    $this->downloadLatestSde($basePath, $latestMeta);
 
     $hasSystems = $this->sdeFilePath('mapSolarSystems') !== null;
     $hasJumps = $this->sdeFilePath('mapSolarSystemJumps') !== null;
@@ -961,7 +965,8 @@ final class UniverseDataService
     if ($basePath === '') {
       throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
     }
-    $this->downloadLatestSde($basePath);
+    $latestMeta = $this->fetchSdeLatestMeta();
+    $this->downloadLatestSde($basePath, $latestMeta);
 
     $stillMissing = [];
     foreach ($requiredBaseNames as $baseName) {
@@ -974,46 +979,52 @@ final class UniverseDataService
     }
   }
 
-  private function maybeRefreshSde(string $basePath, bool $force = false): void
+  public function sdeUpdateAvailable(): bool
+  {
+    $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+    if ($basePath === '') {
+      throw new \RuntimeException('SDE_PATH must be set to download the latest SDE.');
+    }
+
+    return $this->maybeRefreshSde($basePath);
+  }
+
+  private function maybeRefreshSde(string $basePath, bool $force = false): bool
   {
     $meta = $this->readSdeMeta($basePath);
     $now = time();
     $lastChecked = (int)($meta['last_checked'] ?? 0);
     if (!$force && $lastChecked > 0 && ($now - $lastChecked) < self::SDE_UPDATE_CHECK_SECONDS) {
-      return;
+      return false;
     }
 
-    $head = $this->fetchSdeHead();
-    $previousEtag = $meta['etag'] ?? null;
-    $previousLastModified = $meta['last_modified'] ?? null;
+    $latestMeta = $this->fetchSdeLatestMeta();
     $meta['last_checked'] = $now;
 
-    if (!$head) {
+    if (!$latestMeta) {
       $this->writeSdeMeta($basePath, $meta);
-      return;
+      return false;
     }
 
-    $etag = $head['etag'] ?? null;
-    $lastModified = $head['last_modified'] ?? null;
-    $meta['etag'] = $etag ?? $previousEtag;
-    $meta['last_modified'] = $lastModified ?? $previousLastModified;
-
-    $changed = false;
-    if ($etag && $etag !== $previousEtag) {
-      $changed = true;
+    $latestBuild = (int)($latestMeta['buildNumber'] ?? 0);
+    if ($latestBuild > 0) {
+      $meta['latest_build_number'] = $latestBuild;
     }
-    if (!$changed && $lastModified && $lastModified !== $previousLastModified) {
-      $changed = true;
+    $releaseDate = $latestMeta['releaseDate'] ?? null;
+    if (is_string($releaseDate) && $releaseDate !== '') {
+      $meta['release_date'] = $releaseDate;
     }
 
-    if ($changed || $force) {
-      $this->downloadLatestSde($basePath, $head);
-      $meta['downloaded_at'] = gmdate('c');
-      $meta['etag'] = $etag ?? $previousEtag;
-      $meta['last_modified'] = $lastModified ?? $previousLastModified;
+    $currentBuild = (int)($meta['build_number'] ?? 0);
+    $downloadedBuild = (int)($meta['downloaded_build_number'] ?? 0);
+    $needsImport = $latestBuild > 0 && $latestBuild !== $currentBuild;
+    $needsDownload = $force || ($latestBuild > 0 && $latestBuild !== $downloadedBuild);
+    if ($needsDownload) {
+      $meta = $this->downloadLatestSde($basePath, $latestMeta);
     }
 
     $this->writeSdeMeta($basePath, $meta);
+    return $force || $needsImport;
   }
 
   private function readSdeMeta(string $basePath): array
@@ -1036,40 +1047,27 @@ final class UniverseDataService
     @file_put_contents($path, Db::jsonEncode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
   }
 
-  private function fetchSdeHead(): ?array
+  private function fetchSdeLatestMeta(): ?array
   {
-    $headers = [];
-    $ch = curl_init(self::SDE_LATEST_JSONL_URL);
-    curl_setopt($ch, CURLOPT_NOBODY, true);
+    $ch = curl_init(self::SDE_LATEST_META_URL);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
     curl_setopt($ch, CURLOPT_USERAGENT, $this->config['esi']['user_agent'] ?? 'CorpHauling/1.0');
-    curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function ($curl, $headerLine) use (&$headers) {
-      $len = strlen($headerLine);
-      $headerLine = trim($headerLine);
-      if ($headerLine === '' || !str_contains($headerLine, ':')) {
-        return $len;
-      }
-      [$name, $value] = explode(':', $headerLine, 2);
-      $headers[strtolower(trim($name))] = trim($value);
-      return $len;
-    });
-    $ok = curl_exec($ch);
+    $raw = curl_exec($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     curl_close($ch);
 
-    if ($ok === false || $status < 200 || $status >= 300) {
+    if ($raw === false || $status < 200 || $status >= 300) {
       return null;
     }
 
-    return [
-      'etag' => $headers['etag'] ?? null,
-      'last_modified' => $headers['last-modified'] ?? null,
-    ];
+    $decoded = Db::jsonDecode((string)$raw, null);
+    return is_array($decoded) ? $decoded : null;
   }
 
-  private function downloadLatestSde(string $targetDir, ?array $head = null): void
+  private function downloadLatestSde(string $targetDir, ?array $latestMeta = null): array
   {
     if (!is_dir($targetDir)) {
       if (!mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
@@ -1133,9 +1131,36 @@ final class UniverseDataService
     $meta = $this->readSdeMeta($targetDir);
     $meta['downloaded_at'] = gmdate('c');
     $meta['last_checked'] = time();
-    $meta['etag'] = $headers['etag'] ?? ($head['etag'] ?? ($meta['etag'] ?? null));
-    $meta['last_modified'] = $headers['last-modified'] ?? ($head['last_modified'] ?? ($meta['last_modified'] ?? null));
+    $meta['etag'] = $headers['etag'] ?? ($meta['etag'] ?? null);
+    $meta['last_modified'] = $headers['last-modified'] ?? ($meta['last_modified'] ?? null);
+    if ($latestMeta) {
+      $latestBuild = (int)($latestMeta['buildNumber'] ?? 0);
+      if ($latestBuild > 0) {
+        $meta['latest_build_number'] = $latestBuild;
+        $meta['downloaded_build_number'] = $latestBuild;
+      }
+      $releaseDate = $latestMeta['releaseDate'] ?? null;
+      if (is_string($releaseDate) && $releaseDate !== '') {
+        $meta['release_date'] = $releaseDate;
+      }
+    }
     $this->writeSdeMeta($targetDir, $meta);
+    return $meta;
+  }
+
+  private function markSdeImported(): void
+  {
+    $basePath = rtrim((string)($this->config['sde']['path'] ?? ''), DIRECTORY_SEPARATOR);
+    if ($basePath === '') {
+      return;
+    }
+    $meta = $this->readSdeMeta($basePath);
+    $importedBuild = (int)($meta['latest_build_number'] ?? $meta['downloaded_build_number'] ?? 0);
+    if ($importedBuild > 0) {
+      $meta['build_number'] = $importedBuild;
+    }
+    $meta['imported_at'] = gmdate('c');
+    $this->writeSdeMeta($basePath, $meta);
   }
 
   private function readSdeRows(string $filePath, callable $handler): void
