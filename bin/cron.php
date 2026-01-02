@@ -88,6 +88,10 @@ $matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
 if ($matchInterval <= 0) {
   $matchInterval = 300;
 }
+$workerLimit = (int)($_ENV['CRON_WORKER_LIMIT'] ?? 3);
+if ($workerLimit <= 0) {
+  $workerLimit = 3;
+}
 
 $now = time();
 $jobQueue = new JobQueueService($db);
@@ -200,8 +204,9 @@ foreach ($cronRows as $row) {
   $taskSettings = $loadTaskSettings($db, $corpId);
   $updated = false;
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_SYNC_JOB)
-    && $shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_SYNC_JOB)) {
+    $log("Cron sync disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_SYNC_JOB)) {
         $log("Cron sync job already queued for corp {$corpId}.");
@@ -218,8 +223,9 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_TOKEN_REFRESH_JOB)
-    && $shouldRun($state['token_refresh'] ?? null, $tokenRefreshInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
+    $log("Token refresh disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['token_refresh'] ?? null, $tokenRefreshInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
         $log("Token refresh job already queued for corp {$corpId}.");
@@ -236,8 +242,9 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_STRUCTURES_JOB)
-    && $shouldRun($state['structures'] ?? null, $structuresInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_STRUCTURES_JOB)) {
+    $log("Structures sync disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['structures'] ?? null, $structuresInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_STRUCTURES_JOB)) {
         $log("Structures sync job already queued for corp {$corpId}.");
@@ -254,8 +261,9 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)
-    && $shouldRun($state['public_structures'] ?? null, $publicStructuresInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
+    $log("Public structures sync disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['public_structures'] ?? null, $publicStructuresInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
         $log("Public structures sync job already queued for corp {$corpId}.");
@@ -272,8 +280,9 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_CONTRACTS_JOB)
-    && $shouldRun($state['contracts'] ?? null, $contractsInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_CONTRACTS_JOB)) {
+    $log("Contracts sync disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['contracts'] ?? null, $contractsInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_CONTRACTS_JOB)) {
         $log("Contracts sync job already queued for corp {$corpId}.");
@@ -290,8 +299,9 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($isTaskEnabled($taskSettings, JobQueueService::CONTRACT_MATCH_JOB)
-    && $shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
+  if (!$isTaskEnabled($taskSettings, JobQueueService::CONTRACT_MATCH_JOB)) {
+    $log("Contract match disabled for corp {$corpId}; skipping.");
+  } elseif ($shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CONTRACT_MATCH_JOB)) {
         $log("Contract match job already queued for corp {$corpId}.");
@@ -312,3 +322,20 @@ foreach ($cronRows as $row) {
     $saveState($db, $corpId, $state);
   }
 }
+
+require_once __DIR__ . '/cron_job_worker.php';
+
+$processed = 0;
+for ($i = 0; $i < $workerLimit; $i++) {
+  $result = runCronJobWorker($db, $config, $services, $log);
+  if ($result === 0) {
+    break;
+  }
+  $processed++;
+  if ($result === 2) {
+    $log('Cron worker encountered an error; stopping.');
+    break;
+  }
+}
+
+$log("Cron worker processed {$processed} job(s).");
