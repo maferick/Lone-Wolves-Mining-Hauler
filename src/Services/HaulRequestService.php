@@ -57,7 +57,9 @@ final class HaulRequestService
     }
 
     $shipClass = (string)($breakdown['ship_class']['service_class'] ?? '');
-    $routePolicy = $this->normalizeRoutePolicy((string)($route['profile'] ?? $route['route_profile'] ?? $quote['profile'] ?? 'balanced'));
+    $routeProfile = (string)($route['profile'] ?? $route['route_profile'] ?? $quote['profile'] ?? 'balanced');
+    $routePolicy = $this->normalizeRoutePolicy($routeProfile);
+    $contractHintText = 'Quote #' . (string)$quoteId;
 
     $requestId = $this->db->insert('haul_request', [
       'corp_id' => $corpId,
@@ -78,8 +80,10 @@ final class HaulRequestService
       'ship_class' => $shipClass !== '' ? $shipClass : null,
       'expected_jumps' => (int)($route['jumps'] ?? 0),
       'route_policy' => $routePolicy,
+      'route_profile' => $routeProfile !== '' ? $routeProfile : null,
       'route_system_ids' => $routeIds ? Db::jsonEncode($routeIds) : null,
       'price_breakdown_json' => Db::jsonEncode($breakdown),
+      'contract_hint_text' => $contractHintText,
       'status' => 'requested',
     ]);
 

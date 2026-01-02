@@ -26,6 +26,29 @@ $buildRouteLabel = static function (array $req): string {
   return trim((string)$fromName) . ' → ' . trim((string)$toName);
 };
 
+$buildContractLabel = static function (array $req): string {
+  $status = (string)($req['status'] ?? '');
+  $contractId = (int)($req['contract_id'] ?? 0);
+  $contractStatus = trim((string)($req['contract_status'] ?? ''));
+  $label = $contractId > 0 ? '#' . (string)$contractId : '—';
+  if ($status === 'contract_mismatch') {
+    $mismatch = [];
+    if (!empty($req['mismatch_reason_json'])) {
+      $decoded = json_decode((string)$req['mismatch_reason_json'], true);
+      if (is_array($decoded)) {
+        $mismatch = $decoded['mismatches'] ?? $decoded;
+      }
+    }
+    $keys = is_array($mismatch) ? array_keys($mismatch) : [];
+    $reason = $keys ? implode(', ', $keys) : 'mismatch';
+    return 'Mismatch ' . $label . ' (' . $reason . ')';
+  }
+  if ($contractId > 0) {
+    return 'Linked ' . $label . ($contractStatus !== '' ? ' (' . $contractStatus . ')' : '');
+  }
+  return '—';
+};
+
 ob_start();
 ?>
 <section class="card">
@@ -130,6 +153,7 @@ ob_start();
             <th>Request</th>
             <th>Route</th>
             <th>Status</th>
+            <th>Contract</th>
             <th>Volume</th>
             <th>Reward</th>
             <th>Requester</th>
@@ -142,6 +166,7 @@ ob_start();
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
@@ -176,6 +201,7 @@ ob_start();
             <th>Request</th>
             <th>Route</th>
             <th>Status</th>
+            <th>Contract</th>
             <th>Reward</th>
             <th>Requester</th>
             <th>Actions</th>
@@ -190,6 +216,7 @@ ob_start();
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
               <td class="actions">

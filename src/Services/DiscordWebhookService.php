@@ -49,6 +49,30 @@ final class DiscordWebhookService
     return $count;
   }
 
+  public function enqueueContractLinked(int $corpId, array $payload): int
+  {
+    $hooks = $this->db->select(
+      "SELECT webhook_id
+         FROM discord_webhook
+        WHERE corp_id = :cid AND is_enabled = 1 AND notify_on_contract_link = 1",
+      ['cid' => $corpId]
+    );
+
+    $count = 0;
+    foreach ($hooks as $hook) {
+      $this->db->insert('webhook_delivery', [
+        'corp_id' => $corpId,
+        'webhook_id' => (int)$hook['webhook_id'],
+        'event_key' => 'haul.contract.linked',
+        'status' => 'pending',
+        'payload_json' => Db::jsonEncode($payload),
+      ]);
+      $count++;
+    }
+
+    return $count;
+  }
+
   public function sendPending(int $limit = 25): array
   {
     $rows = $this->db->select(
@@ -343,6 +367,43 @@ final class DiscordWebhookService
           'timestamp' => gmdate('c'),
         ],
       ],
+    ];
+  }
+
+  public function buildContractLinkedPayload(array $details): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $requestId = (int)($details['request_id'] ?? 0);
+    $route = trim((string)($details['route'] ?? ''));
+    $shipClass = trim((string)($details['ship_class'] ?? ''));
+    $volume = (float)($details['volume_m3'] ?? 0.0);
+    $collateral = (float)($details['collateral_isk'] ?? 0.0);
+    $price = (float)($details['price_isk'] ?? 0.0);
+    $contractId = (int)($details['contract_id'] ?? 0);
+    $requestUrl = $this->buildRequestUrl($requestId ?: null);
+
+    $lines = [
+      sprintf('Contract linked for request #%s', $requestId > 0 ? (string)$requestId : 'N/A'),
+    ];
+    if ($route !== '') {
+      $lines[] = 'Route: ' . $route;
+    }
+    if ($shipClass !== '') {
+      $lines[] = 'Ship class: ' . $shipClass;
+    }
+    $lines[] = 'Volume: ' . number_format($volume, 0) . ' m³';
+    $lines[] = 'Collateral: ' . number_format($collateral, 2) . ' ISK';
+    $lines[] = 'Price: ' . number_format($price, 2) . ' ISK';
+    if ($contractId > 0) {
+      $lines[] = 'Contract ID: ' . (string)$contractId;
+    }
+    if ($requestUrl !== '') {
+      $lines[] = $requestUrl;
+    }
+
+    return [
+      'username' => $appName,
+      'content' => implode("\n", $lines),
     ];
   }
 
