@@ -1,5 +1,5 @@
 ALTER TABLE haul_request
-  ADD COLUMN route_profile VARCHAR(32) NULL AFTER route_policy,
+  ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy,
   ADD COLUMN contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
   ADD COLUMN contract_matched_at DATETIME NULL AFTER contract_status,
   ADD COLUMN contract_validation_json JSON NULL AFTER contract_matched_at,
