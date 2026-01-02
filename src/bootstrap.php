@@ -82,11 +82,29 @@ if ($basePath === '') {
   // common case when document root points to /hauling/public but URL is /hauling/*
   // SCRIPT_NAME may be /hauling/public/index.php or /public/index.php
   if ($script !== '') {
+    $standaloneScripts = [
+      '/operations/index.php',
+      '/faq/index.php',
+      '/docs/index.php',
+      '/rates/index.php',
+      '/request/index.php',
+      '/my-contracts/index.php',
+      '/login/index.php',
+      '/logout/index.php',
+      '/rights/index.php',
+      '/health/index.php',
+    ];
+    $normalizedScript = str_replace('\\', '/', $script);
+    if (in_array($normalizedScript, $standaloneScripts, true)) {
+      $config['app']['base_path'] = '';
+      $basePath = '';
+    } else {
     $guess = preg_replace('#/public/index\.php$#', '', $script);
     $guess = preg_replace('#/index\.php$#', '', (string)$guess);
     $guess = preg_replace('#/(admin|api)(/.*)?$#', '', (string)$guess);
     $guess = rtrim((string)$guess, '/');
     $basePath = $guess;
+    }
   }
 }
 
