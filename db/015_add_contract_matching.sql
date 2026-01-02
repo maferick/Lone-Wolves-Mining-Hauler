@@ -24,7 +24,7 @@ UPDATE haul_request
  WHERE contract_hint_text = '' OR contract_hint_text IS NULL;
 
 ALTER TABLE discord_webhook
-  ADD COLUMN notify_on_contract_link TINYINT(1) NOT NULL DEFAULT 0 AFTER is_enabled;
+  ADD COLUMN IF NOT EXISTS notify_on_contract_link TINYINT(1) NOT NULL DEFAULT 0 AFTER is_enabled;
 
 CREATE OR REPLACE VIEW v_haul_request_display AS
 SELECT
