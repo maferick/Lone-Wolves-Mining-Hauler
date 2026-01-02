@@ -17,7 +17,7 @@ ob_start();
 
     <h3>DB Layer Contract</h3>
     <ul class="list">
-      <li><span class="badge">A</span> All SQL goes through <code>src/Db/dbfunctions.php</code></li>
+      <li><span class="badge">A</span> All SQL goes through <code>src/Db/Db.php</code></li>
       <li><span class="badge">B</span> Prefer views: <code>v_haul_request_display</code>, <code>v_contract_display</code></li>
       <li><span class="badge">C</span> Use <code>eve_entity</code> to show names (never raw IDs by default)</li>
     </ul>
