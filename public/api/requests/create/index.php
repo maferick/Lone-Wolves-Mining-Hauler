@@ -34,7 +34,9 @@ try {
 
   $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
   $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-  $path = ($basePath ?: '') . '/request?request_id=' . (string)$result['request_id'];
+  $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
+  $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
+  $path = ($pathPrefix ?: '') . '/request?request_id=' . (string)$result['request_id'];
   $requestUrl = $baseUrl !== '' ? $baseUrl . $path : $path;
 
   api_send_json([
