@@ -42,6 +42,7 @@ final class CronSyncService
       'ttl_structures' => 900,
       'ttl_public_structures' => 86400,
       'sync_public_structures' => true,
+      'steps' => null,
       'on_progress' => null,
     ], $options);
 
@@ -49,22 +50,67 @@ final class CronSyncService
     $scope = (string)$options['scope'];
     $useSde = (bool)$options['sde'];
     $syncPublicStructures = (bool)$options['sync_public_structures'];
+    $allowedSteps = null;
+    if ($options['steps'] !== null) {
+      $rawSteps = $options['steps'];
+      if (!is_array($rawSteps)) {
+        $rawSteps = [$rawSteps];
+      }
+      $validSteps = [
+        'universe',
+        'stargate_graph',
+        'token_refresh',
+        'structures',
+        'public_structures',
+        'contracts',
+      ];
+      $filtered = [];
+      foreach ($rawSteps as $step) {
+        if (!is_string($step)) {
+          continue;
+        }
+        if (in_array($step, $validSteps, true)) {
+          $filtered[] = $step;
+        }
+      }
+      $allowedSteps = array_values(array_unique($filtered));
+    }
     $usingSde = $useSde || (bool)($this->config['sde']['enabled'] ?? false);
     $this->universe->setForceSde($useSde);
-    $runUniverse = in_array($scope, ['all', 'universe'], true);
-    $runCorp = $scope === 'all';
+    $stepAllowed = static function (?array $allowed, string $key): bool {
+      if ($allowed === null) {
+        return true;
+      }
+      return in_array($key, $allowed, true);
+    };
+    $runUniverse = $allowedSteps !== null
+      ? ($stepAllowed($allowedSteps, 'universe') || $stepAllowed($allowedSteps, 'stargate_graph'))
+      : in_array($scope, ['all', 'universe'], true);
+    $runCorp = $allowedSteps !== null
+      ? ($stepAllowed($allowedSteps, 'token_refresh')
+        || $stepAllowed($allowedSteps, 'structures')
+        || $stepAllowed($allowedSteps, 'public_structures')
+        || $stepAllowed($allowedSteps, 'contracts'))
+      : $scope === 'all';
     $progressCb = is_callable($options['on_progress'] ?? null) ? $options['on_progress'] : null;
     $steps = [];
-    if ($runUniverse) {
+    if ($runUniverse && $stepAllowed($allowedSteps, 'universe')) {
       $steps[] = ['key' => 'universe', 'label' => 'Universe data'];
+    }
+    if ($runUniverse && $stepAllowed($allowedSteps, 'stargate_graph')) {
       $steps[] = ['key' => 'stargate_graph', 'label' => 'Stargate graph'];
     }
-    if ($runCorp) {
+    if ($runCorp && $stepAllowed($allowedSteps, 'token_refresh')) {
       $steps[] = ['key' => 'token_refresh', 'label' => 'Token refresh'];
+    }
+    if ($runCorp && $stepAllowed($allowedSteps, 'structures')) {
       $steps[] = ['key' => 'structures', 'label' => 'Structures'];
-      if ($syncPublicStructures) {
-        $steps[] = ['key' => 'public_structures', 'label' => 'Public structures'];
-      }
+    }
+    $allowPublicStructures = $syncPublicStructures && $stepAllowed($allowedSteps, 'public_structures');
+    if ($runCorp && $allowPublicStructures) {
+      $steps[] = ['key' => 'public_structures', 'label' => 'Public structures'];
+    }
+    if ($runCorp && $stepAllowed($allowedSteps, 'contracts')) {
       $steps[] = ['key' => 'contracts', 'label' => 'Contracts'];
     }
     $totalSteps = count($steps);
@@ -85,7 +131,8 @@ final class CronSyncService
     ];
 
     $universeEmpty = $this->isUniverseEmpty($usingSde);
-    if ($runUniverse) {
+    $runUniverseStep = $runUniverse && $stepAllowed($allowedSteps, 'universe');
+    if ($runUniverseStep) {
       $currentStep++;
       $this->reportProgress($progressCb, [
         'current' => $currentStep,
@@ -94,7 +141,7 @@ final class CronSyncService
         'stage' => 'universe',
       ]);
     }
-    if (!$runUniverse) {
+    if (!$runUniverseStep) {
       $results['universe'] = $this->skipPayload($stats, 'universe', $universeEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)) {
       $results['universe'] = $this->universe->syncUniverse((int)$options['ttl_universe']);
@@ -104,7 +151,8 @@ final class CronSyncService
     }
 
     $graphEmpty = $this->isStargateGraphEmpty();
-    if ($runUniverse) {
+    $runGraphStep = $runUniverse && $stepAllowed($allowedSteps, 'stargate_graph');
+    if ($runGraphStep) {
       $currentStep++;
       $this->reportProgress($progressCb, [
         'current' => $currentStep,
@@ -113,7 +161,7 @@ final class CronSyncService
         'stage' => 'stargate_graph',
       ]);
     }
-    if (!$runUniverse) {
+    if (!$runGraphStep) {
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)) {
       $results['stargate_graph'] = $this->universe->syncStargateGraph((int)$options['ttl_stargate'], true);
@@ -122,7 +170,8 @@ final class CronSyncService
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty);
     }
 
-    if ($runCorp) {
+    $runTokenStep = $runCorp && $stepAllowed($allowedSteps, 'token_refresh');
+    if ($runTokenStep) {
       $currentStep++;
       $this->reportProgress($progressCb, [
         'current' => $currentStep,
@@ -131,7 +180,7 @@ final class CronSyncService
         'stage' => 'token_refresh',
       ]);
     }
-    if (!$runCorp) {
+    if (!$runTokenStep) {
       $results['token_refresh'] = $this->skipPayload($stats, 'token_refresh', false, 'scope');
     } elseif ($this->shouldRun($stats, 'token_refresh', (int)$options['ttl_tokens'], $force, false)) {
       $results['token_refresh'] = $this->sso->refreshCorpTokens($corpId);
@@ -141,7 +190,8 @@ final class CronSyncService
     }
 
     $structuresEmpty = $this->isStructuresEmpty($corpId);
-    if ($runCorp) {
+    $runStructuresStep = $runCorp && $stepAllowed($allowedSteps, 'structures');
+    if ($runStructuresStep) {
       $currentStep++;
       $this->reportProgress($progressCb, [
         'current' => $currentStep,
@@ -151,7 +201,7 @@ final class CronSyncService
       ]);
     }
     try {
-      if (!$runCorp) {
+      if (!$runStructuresStep) {
         $results['structures'] = $this->skipPayload($stats, 'structures', $structuresEmpty, 'scope');
       } elseif ($this->shouldRun($stats, 'structures', (int)$options['ttl_structures'], $force, $structuresEmpty)) {
         $results['structures'] = $this->universe->syncCorpStructures($corpId, $characterId, (int)$options['ttl_structures']);
@@ -163,9 +213,9 @@ final class CronSyncService
       $results['structures_error'] = $e->getMessage();
     }
 
-    if ($syncPublicStructures) {
+    if ($runCorp && $stepAllowed($allowedSteps, 'public_structures')) {
       $publicStructuresEmpty = $this->isPublicStructuresEmpty();
-      if ($runCorp) {
+      if ($allowPublicStructures) {
         $currentStep++;
         $this->reportProgress($progressCb, [
           'current' => $currentStep,
@@ -175,8 +225,8 @@ final class CronSyncService
         ]);
       }
       try {
-        if (!$runCorp) {
-          $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty, 'scope');
+        if (!$allowPublicStructures) {
+          $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty, 'disabled');
         } elseif ($this->shouldRun($stats, 'public_structures', (int)$options['ttl_public_structures'], $force, $publicStructuresEmpty)) {
           $results['public_structures'] = $this->universe->syncPublicStructures($corpId, $characterId, (int)$options['ttl_public_structures']);
           $stats['public_structures'] = gmdate('c');
@@ -187,11 +237,12 @@ final class CronSyncService
         $results['public_structures_error'] = $e->getMessage();
       }
     } else {
-      $results['public_structures'] = $this->skipPayload($stats, 'public_structures', false, 'disabled');
+      $results['public_structures'] = $this->skipPayload($stats, 'public_structures', false, 'scope');
     }
 
     $contractsEmpty = $this->isContractsEmpty($corpId);
-    if ($runCorp) {
+    $runContractsStep = $runCorp && $stepAllowed($allowedSteps, 'contracts');
+    if ($runContractsStep) {
       $currentStep++;
       $this->reportProgress($progressCb, [
         'current' => $currentStep,
@@ -200,7 +251,7 @@ final class CronSyncService
         'stage' => 'contracts',
       ]);
     }
-    if (!$runCorp) {
+    if (!$runContractsStep) {
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
       $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
