@@ -55,11 +55,13 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $requests = $db->select(
       "SELECT r.request_id, r.status, r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk,
               r.created_at, u.display_name AS requester_display_name, a.hauler_user_id,
-              h.display_name AS hauler_name
+              h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
          FROM haul_request r
          JOIN app_user u ON u.user_id = r.requester_user_id
          LEFT JOIN haul_assignment a ON a.request_id = r.request_id
          LEFT JOIN app_user h ON h.user_id = a.hauler_user_id
+         LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
+         LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
         WHERE r.corp_id = :cid
         ORDER BY r.created_at DESC
         LIMIT 25",
