@@ -187,7 +187,7 @@ final class DiscordWebhookService
     $collateral = (float)($details['collateral_isk'] ?? 0);
     $price = (float)($details['price_isk'] ?? 0);
     $requester = (string)($details['requester'] ?? 'Unknown');
-    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null, $details['request_id'] ?? null);
+    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
     $description = trim($from . ' → ' . $to);
     if ($description === '→') {
       $description = '';
@@ -295,7 +295,7 @@ final class DiscordWebhookService
     $status = trim((string)($details['status'] ?? ''));
     $actor = trim((string)($details['actor'] ?? ''));
     $actorLabel = trim((string)($details['actor_label'] ?? 'Actor'));
-    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null, $details['request_id'] ?? null);
+    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
     $description = trim($from . ' → ' . $to);
 
     $fields = [];
@@ -380,7 +380,7 @@ final class DiscordWebhookService
     $collateral = (float)($details['collateral_isk'] ?? 0.0);
     $price = (float)($details['price_isk'] ?? 0.0);
     $contractId = (int)($details['contract_id'] ?? 0);
-    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null, $requestId ?: null);
+    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
 
     $lines = [
       sprintf('Contract linked for request #%s', $requestId > 0 ? (string)$requestId : 'N/A'),
@@ -505,21 +505,17 @@ final class DiscordWebhookService
     return (string)($node['system_name'] ?? '');
   }
 
-  private function buildRequestUrl(?string $requestKey, ?int $requestId = null): string
+  private function buildRequestUrl(?string $requestKey): string
   {
     $requestKey = trim((string)$requestKey);
-    if ($requestKey === '' && !$requestId) {
+    if ($requestKey === '') {
       return '';
     }
     $baseUrl = rtrim((string)($this->config['app']['base_url'] ?? ''), '/');
     $basePath = rtrim((string)($this->config['app']['base_path'] ?? ''), '/');
     $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
     $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
-    if ($requestKey !== '') {
-      $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
-    } else {
-      $path = ($pathPrefix ?: '') . '/request?request_id=' . (string)$requestId;
-    }
+    $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
     return $baseUrl !== '' ? $baseUrl . $path : $path;
   }
 
