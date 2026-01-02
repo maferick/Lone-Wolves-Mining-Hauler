@@ -66,11 +66,15 @@ ob_start();
 
       <div style="margin-top:16px;">
         <div class="label">Attach contract after creation</div>
-        <div class="row">
-          <input class="input" type="text" id="contract-id" placeholder="Enter contract_id" />
-          <button class="btn" type="button" id="attach-contract">Attach Contract</button>
-        </div>
-        <div class="muted" id="attach-status" style="margin-top:8px;"></div>
+        <?php if (!empty($contractAttachEnabled)): ?>
+          <div class="row">
+            <input class="input" type="text" id="contract-id" placeholder="Enter contract_id" />
+            <button class="btn" type="button" id="attach-contract">Attach Contract</button>
+          </div>
+          <div class="muted" id="attach-status" style="margin-top:8px;"></div>
+        <?php else: ?>
+          <div class="muted" style="margin-top:6px;">Contract attachment is disabled by admin settings.</div>
+        <?php endif; ?>
       </div>
     <?php endif; ?>
   </div>
@@ -79,7 +83,7 @@ ob_start();
   </div>
 </section>
 
-<?php if (empty($error)): ?>
+<?php if (empty($error) && !empty($contractAttachEnabled)): ?>
 <script>
   (() => {
     const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;

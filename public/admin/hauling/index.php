@@ -81,6 +81,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
 
     <div style="margin-top:20px;">
+      <h3>Contract Attachment</h3>
+      <div class="muted">Control whether contract IDs can be attached to hauling requests.</div>
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Enable contract attach</span>
+          <input type="checkbox" id="contract-attach-enabled" />
+        </label>
+        <button class="btn" type="button" id="save-contract-attach">Save</button>
+      </div>
+      <div class="muted" id="contract-attach-note" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:20px;">
       <h3>Rate Plans</h3>
       <div class="muted">Set per-jump, collateral rate, and minimums per ship class.</div>
       <table class="table" id="rate-plan-table" style="margin-top:10px;">
@@ -251,6 +264,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     if (highInput) highInput.value = fees.high ?? 0;
   };
 
+  const loadContractAttach = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/contract-attach/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const toggle = document.getElementById('contract-attach-enabled');
+    const note = document.getElementById('contract-attach-note');
+    const enabled = !!data.attach_enabled;
+    if (toggle) toggle.checked = enabled;
+    if (note) note.textContent = enabled ? 'Contract attach enabled for requesters.' : 'Contract attach disabled. Requests cannot attach contract IDs.';
+  };
+
   const loadTolerance = async () => {
     const data = await fetchJson(`${basePath}/api/admin/settings/?corp_id=${corpId}`);
     if (data.ok) {
@@ -342,6 +365,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     loadPriorityFees();
   });
 
+  document.getElementById('save-contract-attach')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('contract-attach-enabled')?.checked ?? true;
+    await fetchJson(`${basePath}/api/admin/contract-attach/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        attach_enabled: enabled,
+      }),
+    });
+    loadContractAttach();
+  });
+
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
     const type = document.getElementById('tolerance-type').value;
     const value = parseFloat(document.getElementById('tolerance-value').value || '0');
@@ -418,6 +453,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
   loadPriority();
   loadPriorityFees();
+  loadContractAttach();
   loadTolerance();
   loadRatePlans();
   loadDnfRules();

@@ -47,6 +47,21 @@ if (!$canManage && !$isOwner) {
   api_send_json(['ok' => false, 'error' => 'forbidden'], 403);
 }
 
+$attachSettingRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.attach_enabled' LIMIT 1",
+  ['cid' => $corpId]
+);
+$attachSetting = $attachSettingRow && !empty($attachSettingRow['setting_json'])
+  ? Db::jsonDecode((string)$attachSettingRow['setting_json'], [])
+  : [];
+$attachEnabled = true;
+if (is_array($attachSetting) && array_key_exists('enabled', $attachSetting)) {
+  $attachEnabled = (bool)$attachSetting['enabled'];
+}
+if (!$attachEnabled) {
+  api_send_json(['ok' => false, 'error' => 'Contract attachment is disabled by admin settings.'], 403);
+}
+
 $cronSetting = $db->one(
   "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'esi.cron' LIMIT 1",
   ['cid' => $corpId]
