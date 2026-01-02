@@ -599,38 +599,111 @@ switch ($path) {
     $body = <<<HTML
       <section class="card">
         <div class="card-header">
-          <h2>FAQ</h2>
-          <p class="muted">How quotes turn into contracts.</p>
+          <h2>Frequently Asked Questions</h2>
+          <p class="muted">A clear guide from quote to delivery.</p>
         </div>
         <div class="content">
           <div class="stack">
-            <h3>What happens after I submit a quote request?</h3>
-            <p>Once your request is saved, it enters our review queue. A dispatcher validates the route, volume, and timing details, then calculates a quote that reflects the current hauling schedule and ship class availability.</p>
-            <ul>
-              <li><strong>Request captured:</strong> Your origin, destination, volume, and time window are logged and tied to a request ID.</li>
-              <li><strong>Rate analysis:</strong> We confirm the service class, fuel costs, and any special handling needs.</li>
-              <li><strong>Quote issued:</strong> A formal quote is created with pricing, assumptions, and a brief summary.</li>
-            </ul>
-          </div>
-          <div class="stack">
-            <h3>How do I move from a quote to a contract?</h3>
-            <p>When you approve the quote, we turn it into a contract so your job can be scheduled and tracked. The contract is the operational record that drives execution.</p>
+            <h3>How does the hauling request and contract process work?</h3>
+            <p>Our hauling process is designed to be clear, predictable, and easy to follow. Please complete each step carefully.</p>
             <ol>
-              <li><strong>Confirm the quote:</strong> Double-check the cargo details and timing window, then approve the quote.</li>
-              <li><strong>Contract draft:</strong> We generate a contract using the approved quote and attach the finalized terms.</li>
-              <li><strong>Dispatcher review:</strong> A dispatcher validates the contract hint text, notes, and any pickup/delivery constraints.</li>
-              <li><strong>Contract attached:</strong> The signed or accepted contract is linked to the request and becomes the source of truth for fulfillment.</li>
+              <li><strong>Get Quote:</strong> Fill in the quote form to calculate the hauling price and parameters.</li>
+              <li><strong>Create Request:</strong> Review the quoted price and submit the request by selecting Create Request.</li>
+              <li><strong>View Contract Instructions:</strong> Open View Contract Instructions to see the final contract details. This page contains the authoritative values that must be used when creating the in-game courier contract.</li>
+              <li><strong>Create the In-Game Contract:</strong> Using the information from the Contract Instructions page, create a private courier contract in-game.</li>
+              <li><strong>Contract Validation:</strong> Submitted contracts are validated only on pickup system, destination system, collateral, reward, and volume limit. Contracts that do not match these values may be rejected.</li>
+              <li><strong>Hauling Execution:</strong> Once approved, the contract is accepted by a hauler and delivered to the destination.</li>
+              <li><strong>Track Progress:</strong> You can follow the status of your requests and contracts via My Contracts.</li>
             </ol>
           </div>
           <div class="stack">
-            <h3>What information should be included to avoid delays?</h3>
-            <p>Clear details speed up approval and scheduling. We recommend including:</p>
-            <ul>
-              <li>Exact pickup and drop-off location names, including station or structure identifiers.</li>
-              <li>Total volume and any special cargo handling needs (fragile, time-sensitive, or split loads).</li>
-              <li>Preferred completion window and any blackout times.</li>
-              <li>Point of contact for handoff and confirmation steps.</li>
-            </ul>
+            <h3>Contract Instructions – Field Explanation</h3>
+            <p>The Contract Instructions page shows the final values required to create your courier contract. Each field is explained below, along with what you must do in-game.</p>
+            <div class="stack">
+              <h4>Request</h4>
+              <p>Internal request number and current status.</p>
+              <p><strong>In-game action:</strong> None. Reference only.</p>
+            </div>
+            <div class="stack">
+              <h4>Route</h4>
+              <p>Shows the pickup and destination systems (for example: Jita → Eldjaerin).</p>
+              <p><strong>In-game action:</strong></p>
+              <ul>
+                <li>Set the Start Location to the pickup system.</li>
+                <li>Set the End Location to the destination system.</li>
+                <li>Both systems must match exactly.</li>
+              </ul>
+            </div>
+            <div class="stack">
+              <h4>Contract Link State</h4>
+              <p>Indicates whether a contract has been linked to this request.</p>
+              <p><strong>In-game action:</strong> None.</p>
+            </div>
+            <div class="stack">
+              <h4>Contract ID</h4>
+              <p>Displays the in-game contract ID once a contract is linked.</p>
+              <p><strong>In-game action:</strong> None.</p>
+            </div>
+            <div class="stack">
+              <h4>Contract Status</h4>
+              <p>Shows the current processing status of the request or contract.</p>
+              <p><strong>In-game action:</strong> None.</p>
+            </div>
+            <div class="stack">
+              <h4>Issuer</h4>
+              <p>The organization providing the hauling service.</p>
+              <p><strong>In-game action:</strong> None.</p>
+            </div>
+            <div class="stack">
+              <h4>Private To</h4>
+              <p>Specifies who the contract must be issued to.</p>
+              <p><strong>In-game action:</strong></p>
+              <ul>
+                <li>Create a Private Courier Contract.</li>
+                <li>Set the recipient exactly as shown.</li>
+              </ul>
+            </div>
+            <div class="stack">
+              <h4>Collateral</h4>
+              <p>The ISK value paid out if the cargo is lost.</p>
+              <p><strong>In-game action:</strong></p>
+              <ul>
+                <li>Enter the Collateral amount exactly as shown.</li>
+                <li>This value is validated.</li>
+              </ul>
+            </div>
+            <div class="stack">
+              <h4>Reward</h4>
+              <p>The ISK paid to the hauler on successful delivery.</p>
+              <p><strong>In-game action:</strong></p>
+              <ul>
+                <li>Enter the Reward amount exactly as shown.</li>
+                <li>This value is validated.</li>
+              </ul>
+            </div>
+            <div class="stack">
+              <h4>Volume Limit</h4>
+              <p>The maximum allowed cargo volume for the contract.</p>
+              <p><strong>In-game action:</strong></p>
+              <ul>
+                <li>Ensure the total item volume does not exceed this limit.</li>
+                <li>Set the contract volume accordingly.</li>
+                <li>This value is validated.</li>
+              </ul>
+            </div>
+            <div class="stack">
+              <h4>Contract Description Template</h4>
+              <p>A reference string used to identify the contract (for example: Quote 0b30dbe99ede1189f4b499ca837d4756).</p>
+              <p><strong>In-game action:</strong> Copy this text into the Contract Description field when creating the contract.</p>
+            </div>
+            <div class="stack">
+              <h4>Important Notes</h4>
+              <ul>
+                <li>The Contract Instructions page is the single source of truth.</li>
+                <li>Only the listed fields are validated during review.</li>
+                <li>Exact matches are required to avoid rejection or delays.</li>
+              </ul>
+            </div>
           </div>
           <a class="btn ghost" href="{$dashboardUrl}">Back to dashboard</a>
         </div>
