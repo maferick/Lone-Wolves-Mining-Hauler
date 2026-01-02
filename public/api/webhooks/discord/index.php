@@ -11,7 +11,7 @@ $webhooks = $services['discord_webhook'];
 
 $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 10;
 $limit = $limit > 0 ? min($limit, 50) : 10;
-$result = $webhooks->dispatchQueued($limit);
+$result = $webhooks->sendPending($limit);
 
 api_send_json([
   'ok' => true,

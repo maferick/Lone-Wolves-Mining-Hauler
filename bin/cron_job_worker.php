@@ -32,7 +32,7 @@ $scope = (string)($payload['scope'] ?? 'all');
 $force = !empty($payload['force']);
 $useSde = !empty($payload['sde']);
 
-$cronService = new CronSyncService($db, $config, $services['esi']);
+$cronService = new CronSyncService($db, $config, $services['esi'], $services['discord_webhook'] ?? null);
 $jobQueue->updateProgress($jobId, [
   'current' => 0,
   'total' => 0,

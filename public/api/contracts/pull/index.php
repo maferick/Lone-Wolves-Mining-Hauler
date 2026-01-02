@@ -24,6 +24,17 @@ try {
   /** @var \App\Services\EsiService $esi */
   $esi = $services['esi'];
   $result = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
+
+  if (!empty($services['discord_webhook'])) {
+    try {
+      /** @var \App\Services\DiscordWebhookService $webhooks */
+      $webhooks = $services['discord_webhook'];
+      $discordPayload = $webhooks->buildContractsPulledPayload($result);
+      $webhooks->enqueue($corpId, 'esi.contracts.pulled', $discordPayload);
+    } catch (\Throwable $e) {
+      // Ignore webhook enqueue failures.
+    }
+  }
   api_send_json(['ok' => true, 'result' => $result]);
 } catch (Throwable $e) {
   api_send_json(['ok' => false, 'error' => $e->getMessage()], 500);

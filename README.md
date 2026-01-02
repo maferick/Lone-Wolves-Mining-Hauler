@@ -40,6 +40,19 @@ The script will:
 - call ESI with ETag revalidation
 - upsert into `esi_corp_contract` and `esi_corp_contract_item`
 
+## Discord webhook delivery (cron)
+Incoming webhook deliveries are queued and must be sent by a runner.
+
+Run manually:
+```bash
+php bin/cron_webhooks.php --limit=50
+```
+
+Recommended cron (every 1-2 minutes):
+```
+* * * * * php /path/to/hauling/bin/cron_webhooks.php --limit=50
+```
+
 
 ## Create database from .env
 If you have server-level credentials available (dev/staging), you can bootstrap the DB automatically:
@@ -67,6 +80,8 @@ Automation endpoints live under `/public/api/` so they never depend on rewrite r
 Available endpoints:
 - `/hauling/api/health`
 - `/hauling/api/contracts/sync?corp_id=XXX&character_id=YYY`
+- `/hauling/api/webhooks/discord/test?webhook_id=123`
+- `/hauling/api/jobs/webhooks?limit=25`
 
 All future automation (Discord webhooks, cron jobs, ESI pulls) should be added here.
 

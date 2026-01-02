@@ -234,7 +234,7 @@ $db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, 
 
   /** @var \App\Services\DiscordWebhookService $webhooks */
   $webhooks = $services['discord_webhook'];
-  $webhooks->enqueue($corpId, (int)$request['request_id'], $webhookPayload);
+  $webhooks->enqueue($corpId, 'haul.contract.attached', $webhookPayload);
 });
 
 api_send_json([

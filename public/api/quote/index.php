@@ -68,6 +68,24 @@ try {
     'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
   ]);
 
+  if (!empty($services['discord_webhook'])) {
+    try {
+      /** @var \App\Services\DiscordWebhookService $webhooks */
+      $webhooks = $services['discord_webhook'];
+      $webhookPayload = $webhooks->buildHaulRequestEmbed([
+        'title' => 'Haul Quote #' . (string)$quote['quote_id'],
+        'route' => $quote['route'] ?? [],
+        'volume_m3' => (float)($payload['volume_m3'] ?? $payload['volume'] ?? 0),
+        'collateral_isk' => (float)($payload['collateral_isk'] ?? $payload['collateral'] ?? 0),
+        'price_isk' => (float)$quote['price_total'],
+        'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
+      ]);
+      $webhooks->enqueue($corpId, 'haul.quote.created', $webhookPayload);
+    } catch (\Throwable $e) {
+      // Ignore webhook enqueue failures to avoid breaking the quote flow.
+    }
+  }
+
   api_send_json([
     'ok' => true,
     'quote_id' => $quote['quote_id'],
