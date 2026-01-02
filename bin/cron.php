@@ -19,6 +19,28 @@ require __DIR__ . '/../src/bootstrap.php';
 use App\Db\Db;
 use App\Services\JobQueueService;
 
+$log = static function (string $message): void {
+  $timestamp = gmdate('c');
+  fwrite(STDOUT, "[{$timestamp}] {$message}\n");
+};
+
+$lockFile = $_ENV['CRON_LOCK_FILE'] ?? (sys_get_temp_dir() . '/lone_wolves_cron.lock');
+$lockHandle = fopen($lockFile, 'c');
+if ($lockHandle === false) {
+  $log("Unable to open cron lock file: {$lockFile}");
+  exit(1);
+}
+if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
+  $log('Cron already running; exiting.');
+  exit(0);
+}
+ftruncate($lockHandle, 0);
+fwrite($lockHandle, (string)getmypid());
+register_shutdown_function(static function () use ($lockHandle): void {
+  flock($lockHandle, LOCK_UN);
+  fclose($lockHandle);
+});
+
 $webhookLimit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
 if ($webhookLimit <= 0) {
   $webhookLimit = 50;
@@ -35,11 +57,6 @@ $syncPublicStructures = (int)($_ENV['CRON_SYNC_PUBLIC_STRUCTURES'] ?? 0) === 1;
 
 $now = time();
 $jobQueue = new JobQueueService($db);
-
-$log = static function (string $message): void {
-  $timestamp = gmdate('c');
-  fwrite(STDOUT, "[{$timestamp}] {$message}\n");
-};
 
 $loadState = static function (Db $db, int $corpId): array {
   $row = $db->one(
