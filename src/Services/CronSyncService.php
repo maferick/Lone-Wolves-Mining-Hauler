@@ -131,6 +131,10 @@ final class CronSyncService
     ];
 
     $universeEmpty = $this->isUniverseEmpty($usingSde);
+    $sdeUpdateAvailable = false;
+    if ($usingSde && $runUniverse) {
+      $sdeUpdateAvailable = $this->universe->sdeUpdateAvailable();
+    }
     $runUniverseStep = $runUniverse && $stepAllowed($allowedSteps, 'universe');
     if ($runUniverseStep) {
       $currentStep++;
@@ -143,7 +147,13 @@ final class CronSyncService
     }
     if (!$runUniverseStep) {
       $results['universe'] = $this->skipPayload($stats, 'universe', $universeEmpty, 'scope');
-    } elseif ($this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)) {
+    } elseif ($usingSde && !$force && !$universeEmpty && !$sdeUpdateAvailable) {
+      $results['universe'] = $this->skipPayload($stats, 'universe', false, 'sde_unchanged');
+    } elseif (
+      $usingSde
+      ? ($force || $universeEmpty || $sdeUpdateAvailable)
+      : $this->shouldRun($stats, 'universe', (int)$options['ttl_universe'], $force, $universeEmpty)
+    ) {
       $results['universe'] = $this->universe->syncUniverse((int)$options['ttl_universe']);
       $stats['universe'] = gmdate('c');
     } else {
@@ -163,7 +173,13 @@ final class CronSyncService
     }
     if (!$runGraphStep) {
       $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', $graphEmpty, 'scope');
-    } elseif ($this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)) {
+    } elseif ($usingSde && !$force && !$graphEmpty && !$sdeUpdateAvailable) {
+      $results['stargate_graph'] = $this->skipPayload($stats, 'stargate_graph', false, 'sde_unchanged');
+    } elseif (
+      $usingSde
+      ? ($force || $graphEmpty || $sdeUpdateAvailable)
+      : $this->shouldRun($stats, 'stargate_graph', (int)$options['ttl_stargate'], $force, $graphEmpty)
+    ) {
       $results['stargate_graph'] = $this->universe->syncStargateGraph((int)$options['ttl_stargate'], true);
       $stats['stargate_graph'] = gmdate('c');
     } else {

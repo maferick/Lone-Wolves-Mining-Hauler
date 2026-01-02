@@ -213,7 +213,7 @@ foreach ($cronRows as $row) {
         $state['cron_sync'] = gmdate('c', $now);
         $updated = true;
       } else {
-        $jobId = $jobQueue->enqueueCronSync($corpId, $charId, 'universe', false, false, false);
+        $jobId = $jobQueue->enqueueCronSync($corpId, $charId, 'universe', false, true, false);
         $state['cron_sync'] = gmdate('c', $now);
         $updated = true;
         $log("Cron sync job queued for corp {$corpId}: {$jobId}.");
