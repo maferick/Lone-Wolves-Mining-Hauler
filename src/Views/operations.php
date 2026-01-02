@@ -214,7 +214,9 @@ ob_start();
             <?php
               $requestId = (int)($req['request_id'] ?? 0);
               $requestKey = (string)($req['request_key'] ?? '');
-              $requestLinkKey = $requestKey !== '' ? $requestKey : (string)$requestId;
+              $requestLinkParam = $requestKey !== ''
+                ? 'request_key=' . urlencode($requestKey)
+                : 'request_id=' . urlencode((string)$requestId);
             ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
@@ -224,7 +226,7 @@ ob_start();
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
               <td class="actions">
-                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?request_key=' . urlencode($requestLinkKey), ENT_QUOTES, 'UTF-8') ?>">Review</a>
+                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?' . $requestLinkParam, ENT_QUOTES, 'UTF-8') ?>">Review</a>
                 <button class="btn danger js-delete-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Delete</button>
               </td>
             </tr>
