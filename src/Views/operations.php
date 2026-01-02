@@ -51,6 +51,68 @@ $buildContractLabel = static function (array $req): string {
   return '—';
 };
 
+$buildContractDetails = static function (array $req): array {
+  $status = (string)($req['status'] ?? '');
+  $contractId = (int)($req['contract_id'] ?? 0);
+  $contractStatus = trim((string)($req['contract_status'] ?? ''));
+  $state = 'pending';
+  if ($status === 'contract_mismatch') {
+    $state = 'mismatch';
+  } elseif ($contractId > 0) {
+    $state = 'linked';
+  }
+
+  $validation = [];
+  if (!empty($req['contract_validation_json'])) {
+    $decoded = json_decode((string)$req['contract_validation_json'], true);
+    if (is_array($decoded)) {
+      $validation = $decoded;
+    }
+  }
+
+  $flagLabels = [
+    'type' => 'Courier contract',
+    'status' => 'Open status',
+    'start_system' => 'Pickup system',
+    'end_system' => 'Dropoff system',
+    'volume' => 'Volume',
+    'collateral' => 'Collateral',
+    'reward' => 'Reward',
+    'description' => 'Description tag',
+  ];
+
+  $flags = $validation['flags'] ?? [];
+  $checks = [];
+  foreach ($flagLabels as $key => $label) {
+    if (!array_key_exists($key, $flags)) {
+      continue;
+    }
+    $checks[] = [
+      'key' => $key,
+      'label' => $label,
+      'ok' => (bool)$flags[$key],
+    ];
+  }
+
+  $mismatch = [];
+  if (!empty($req['mismatch_reason_json'])) {
+    $decoded = json_decode((string)$req['mismatch_reason_json'], true);
+    if (is_array($decoded)) {
+      $mismatch = $decoded['mismatches'] ?? $decoded;
+    }
+  } elseif (!empty($validation['mismatch']['mismatches'])) {
+    $mismatch = $validation['mismatch']['mismatches'];
+  }
+
+  return [
+    'state' => $state,
+    'contract_id' => $contractId,
+    'contract_status' => $contractStatus,
+    'checks' => $checks,
+    'mismatches' => $mismatch,
+  ];
+};
+
 ob_start();
 ?>
 <section class="card">
@@ -164,11 +226,35 @@ ob_start();
         </thead>
         <tbody>
           <?php foreach ($requests as $req): ?>
+            <?php
+              $contractDetails = $buildContractDetails($req);
+              $contractDetailsJson = json_encode($contractDetails, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+              $contractState = $contractDetails['state'] ?? 'pending';
+              $hasContractDetails = !empty($contractDetails['checks']) || !empty($contractDetails['mismatches']);
+              $contractStateLabel = $contractState === 'linked' ? 'Matched' : ($contractState === 'mismatch' ? 'Mismatch' : 'Pending');
+            ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+              <td>
+                <div class="contract-cell">
+                  <span class="contract-bar contract-bar--<?= htmlspecialchars($contractState, ENT_QUOTES, 'UTF-8') ?>"></span>
+                  <div>
+                    <div><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="contract-meta">
+                      <span class="muted"><?= htmlspecialchars($contractStateLabel, ENT_QUOTES, 'UTF-8') ?></span>
+                      <?php if ($hasContractDetails): ?>
+                        <button class="btn ghost js-contract-details" type="button"
+                          data-request-id="<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?>"
+                          data-contract-details="<?= htmlspecialchars((string)$contractDetailsJson, ENT_QUOTES, 'UTF-8') ?>">
+                          Checks
+                        </button>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                </div>
+              </td>
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
@@ -322,6 +408,27 @@ ob_start();
             </button>
           <?php endforeach; ?>
         <?php endif; ?>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if ($isLoggedIn): ?>
+<div class="modal-backdrop" id="contract-modal" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label" id="contract-title">Contract checks</div>
+        <p class="muted" id="contract-subtitle" style="margin:4px 0 0;">Review validation results.</p>
+      </div>
+      <button class="btn ghost" type="button" id="contract-close">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="contract-checks" id="contract-checks"></div>
+      <div class="contract-mismatch" id="contract-mismatch" hidden>
+        <div class="label">Mismatch details</div>
+        <ul class="muted" id="contract-mismatch-list" style="margin:6px 0 0 18px;"></ul>
       </div>
     </div>
   </div>
@@ -524,6 +631,87 @@ ob_start();
       }
       window.location.reload();
     });
+  });
+
+  const contractModal = document.getElementById('contract-modal');
+  const contractClose = document.getElementById('contract-close');
+  const contractTitle = document.getElementById('contract-title');
+  const contractSubtitle = document.getElementById('contract-subtitle');
+  const contractChecks = document.getElementById('contract-checks');
+  const contractMismatch = document.getElementById('contract-mismatch');
+  const contractMismatchList = document.getElementById('contract-mismatch-list');
+
+  const closeContractModal = () => {
+    contractModal?.setAttribute('hidden', 'hidden');
+  };
+
+  const renderContractChecks = (details) => {
+    if (!contractChecks) return;
+    contractChecks.innerHTML = '';
+    const checks = Array.isArray(details?.checks) ? details.checks : [];
+    if (!checks.length) {
+      contractChecks.innerHTML = '<div class="muted">No validation details available yet.</div>';
+      return;
+    }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'contract-checklist';
+    checks.forEach((check) => {
+      const row = document.createElement('div');
+      row.className = `contract-check ${check.ok ? 'is-ok' : 'is-fail'}`;
+      row.innerHTML = `
+        <span class="check-dot"></span>
+        <span>${check.label || check.key}</span>
+      `;
+      wrapper.appendChild(row);
+    });
+    contractChecks.appendChild(wrapper);
+  };
+
+  const renderContractMismatch = (details) => {
+    if (!contractMismatch || !contractMismatchList) return;
+    const mismatches = details?.mismatches || {};
+    const entries = Object.entries(mismatches);
+    if (!entries.length) {
+      contractMismatch.setAttribute('hidden', 'hidden');
+      contractMismatchList.innerHTML = '';
+      return;
+    }
+    contractMismatch.removeAttribute('hidden');
+    contractMismatchList.innerHTML = '';
+    entries.forEach(([key, value]) => {
+      const item = document.createElement('li');
+      const detail = typeof value === 'string' ? value : JSON.stringify(value);
+      item.textContent = `${key}: ${detail}`;
+      contractMismatchList.appendChild(item);
+    });
+  };
+
+  document.querySelectorAll('.js-contract-details').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const requestId = btn.dataset.requestId;
+      const rawDetails = btn.dataset.contractDetails;
+      if (!rawDetails || !contractModal) return;
+      const details = JSON.parse(rawDetails);
+      const stateLabel = details?.state === 'linked'
+        ? 'Matched'
+        : (details?.state === 'mismatch' ? 'Mismatch' : 'Pending');
+      if (contractTitle) {
+        contractTitle.textContent = `Contract checks (${stateLabel})`;
+      }
+      if (contractSubtitle) {
+        contractSubtitle.textContent = `Request #${requestId || '—'}`;
+      }
+      renderContractChecks(details);
+      renderContractMismatch(details);
+      contractModal.removeAttribute('hidden');
+    });
+  });
+
+  contractClose?.addEventListener('click', closeContractModal);
+  contractModal?.addEventListener('click', (event) => {
+    if (event.target === contractModal) {
+      closeContractModal();
+    }
   });
 </script>
 <?php endif; ?>

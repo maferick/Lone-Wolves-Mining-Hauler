@@ -335,6 +335,49 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .status-dead{border-color: rgba(255,77,109,.55); color:#FFD1DA; background: rgba(255,77,109,.28)}
 .status-disabled{border-color: rgba(255,255,255,.25); color:var(--muted); background: rgba(255,255,255,.04)}
 .status-never{border-color: rgba(255,255,255,.2); color:var(--muted-2); background: rgba(255,255,255,.02)}
+.contract-cell{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+}
+.contract-bar{
+  width:6px;
+  min-height:34px;
+  border-radius:999px;
+  background: rgba(255,255,255,.12);
+  margin-top:2px;
+}
+.contract-bar--linked{background: rgba(46,229,157,.75)}
+.contract-bar--mismatch{background: rgba(255,77,109,.75)}
+.contract-bar--pending{background: rgba(255,204,102,.6)}
+.contract-meta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:4px;
+  flex-wrap:wrap;
+}
+.contract-checklist{
+  display:grid;
+  gap:8px;
+  margin-bottom:12px;
+}
+.contract-check{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+}
+.contract-check .check-dot{
+  width:10px;
+  height:10px;
+  border-radius:999px;
+  background: rgba(255,255,255,.2);
+}
+.contract-check.is-ok .check-dot{background: rgba(46,229,157,.85)}
+.contract-check.is-fail .check-dot{background: rgba(255,77,109,.85)}
+.contract-check.is-ok{color:#C9FBE6}
+.contract-check.is-fail{color:#FFD1DA}
 .cron-table{margin-top:14px}
 .cron-note{margin:8px 0 0; color:var(--muted); font-size:12px}
 .cron-section{margin-top:18px}
