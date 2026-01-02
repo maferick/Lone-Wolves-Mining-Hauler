@@ -25,7 +25,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
   if ($hasHaulRequest) {
     $statsRow = $db->one(
       "SELECT
-          SUM(CASE WHEN status IN ('requested','awaiting_contract','in_queue','draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
+          SUM(CASE WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
           SUM(CASE WHEN status IN ('in_progress','accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
           SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered
         FROM haul_request
@@ -41,7 +41,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
 
   if ($hasRequestView) {
     $requests = $db->select(
-      "SELECT r.request_id, r.status,
+      "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -58,8 +58,9 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     );
   } elseif ($hasHaulRequest) {
     $requests = $db->select(
-      "SELECT r.request_id, r.status, r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk,
-              r.created_at, u.display_name AS requester_display_name, a.hauler_user_id,
+      "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+              r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
+              u.display_name AS requester_display_name, a.hauler_user_id,
               h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
          FROM haul_request r
          JOIN app_user u ON u.user_id = r.requester_user_id

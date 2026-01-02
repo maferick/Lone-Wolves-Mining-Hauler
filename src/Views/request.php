@@ -6,6 +6,13 @@ $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canManage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
 $apiKey = $apiKey ?? '';
+$mismatchDetails = [];
+if (!empty($request['mismatch_reason_json'])) {
+  $decodedMismatch = json_decode((string)$request['mismatch_reason_json'], true);
+  if (is_array($decodedMismatch)) {
+    $mismatchDetails = $decodedMismatch['mismatches'] ?? $decodedMismatch;
+  }
+}
 
 ob_start();
 ?>
@@ -28,6 +35,30 @@ ob_start();
           <div><?= htmlspecialchars((string)$routeSummary, ENT_QUOTES, 'UTF-8') ?></div>
         </div>
       </div>
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <div class="label">Contract link state</div>
+          <div><?= htmlspecialchars((string)($request['status'] ?? 'unknown'), ENT_QUOTES, 'UTF-8') ?></div>
+        </div>
+        <div>
+          <div class="label">Contract ID</div>
+          <div><?= !empty($request['contract_id']) ? '#' . htmlspecialchars((string)$request['contract_id'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        </div>
+        <div>
+          <div class="label">Contract status</div>
+          <div><?= !empty($request['contract_status']) ? htmlspecialchars((string)$request['contract_status'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        </div>
+      </div>
+      <?php if (!empty($mismatchDetails)): ?>
+        <div style="margin-top:12px;">
+          <div class="label">Mismatch reason</div>
+          <ul class="muted" style="margin:6px 0 0 18px;">
+            <?php foreach ($mismatchDetails as $key => $detail): ?>
+              <li><?= htmlspecialchars((string)$key, ENT_QUOTES, 'UTF-8') ?>: <?= htmlspecialchars((string)json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?></li>
+            <?php endforeach; ?>
+          </ul>
+        </div>
+      <?php endif; ?>
 
       <div class="row" style="margin-top:16px;">
         <div>

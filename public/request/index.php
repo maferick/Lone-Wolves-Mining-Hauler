@@ -29,7 +29,8 @@ if ($requestId <= 0) {
 } else {
   $request = $db->one(
     "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
-            ship_class, route_policy, price_breakdown_json, quote_id, status
+            ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, contract_status,
+            contract_hint_text, mismatch_reason_json, contract_matched_at
        FROM haul_request
       WHERE request_id = :rid
       LIMIT 1",
@@ -85,9 +86,16 @@ if ($requestId <= 0) {
       $shipClassMax = (float)($breakdown['ship_class']['max_volume'] ?? 0);
       $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
 
+      $hintText = trim((string)($request['contract_hint_text'] ?? ''));
+      if ($hintText === '' && !empty($request['quote_id'])) {
+        $hintText = 'Quote #' . (string)$request['quote_id'];
+      }
+      if ($hintText === '') {
+        $hintText = 'Request #' . (string)$request['request_id'];
+      }
       $contractDescription = sprintf(
-        "Quote #%s | Note: assembled containers/wraps are OK (mention in contract).",
-        (string)($request['quote_id'] ?? 'N/A')
+        "%s | Note: assembled containers/wraps are OK (mention in contract).",
+        $hintText
       );
     }
   }

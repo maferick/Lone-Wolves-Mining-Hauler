@@ -50,6 +50,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db->execute("UPDATE discord_webhook SET is_enabled = 1 - is_enabled WHERE webhook_id=:id AND corp_id=:cid", ['id'=>$id,'cid'=>$corpId]);
     $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.toggle', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Updated.";
+  } elseif ($action === 'toggle_contract_link') {
+    $id = (int)($_POST['webhook_id'] ?? 0);
+    $db->execute(
+      "UPDATE discord_webhook
+          SET notify_on_contract_link = 1 - notify_on_contract_link
+        WHERE webhook_id = :id AND corp_id = :cid",
+      ['id' => $id, 'cid' => $corpId]
+    );
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.contract_link.toggle', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+    $msg = "Updated.";
   } elseif ($action === 'delete') {
     $id = (int)($_POST['webhook_id'] ?? 0);
     $db->execute("DELETE FROM discord_webhook WHERE webhook_id=:id AND corp_id=:cid", ['id'=>$id,'cid'=>$corpId]);
@@ -96,6 +106,7 @@ $hooks = $db->select(
           w.webhook_name,
           w.webhook_url,
           w.is_enabled,
+          w.notify_on_contract_link,
           d.status AS last_status,
           d.attempts AS last_attempts,
           d.last_error,
@@ -170,6 +181,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <th>Name</th>
           <th>URL</th>
           <th>Enabled</th>
+          <th>Contract Linked</th>
           <th>Last Delivery</th>
           <th>Actions</th>
         </tr>
@@ -182,6 +194,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <?= htmlspecialchars((string)$h['webhook_url'], ENT_QUOTES, 'UTF-8') ?>
           </td>
           <td><?= ((int)$h['is_enabled'] === 1) ? 'Yes' : 'No' ?></td>
+          <td><?= ((int)($h['notify_on_contract_link'] ?? 0) === 1) ? 'Yes' : 'No' ?></td>
           <td>
             <?php
               $status = $h['last_status'] ?? null;
@@ -211,6 +224,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <form method="post" style="display:flex; gap:8px;">
               <input type="hidden" name="webhook_id" value="<?= (int)$h['webhook_id'] ?>" />
               <button class="btn ghost" name="action" value="toggle" type="submit">Toggle</button>
+              <button class="btn ghost" name="action" value="toggle_contract_link" type="submit">Toggle Contract Link</button>
               <button class="btn" name="action" value="delete" type="submit" onclick="return confirm('Delete webhook?')">Delete</button>
             </form>
             <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test?webhook_id=<?= (int)$h['webhook_id'] ?><?= $apiKey !== '' ? '&amp;api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:6px;">

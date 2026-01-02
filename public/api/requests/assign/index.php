@@ -91,7 +91,7 @@ $db->tx(function ($db) use ($requestId, $haulerUserId, $corpId, $authCtx, $reque
   $db->execute(
     "UPDATE haul_request
         SET status = CASE
-          WHEN status IN ('requested','awaiting_contract','in_queue','draft','quoted','submitted','posted','accepted') THEN 'in_progress'
+          WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted','accepted') THEN 'in_progress'
           ELSE status
         END,
         updated_at = UTC_TIMESTAMP()
