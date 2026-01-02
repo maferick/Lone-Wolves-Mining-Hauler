@@ -71,22 +71,9 @@ if ($requestId <= 0) {
       $shipClassMax = (float)($breakdown['ship_class']['max_volume'] ?? 0);
       $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
 
-      $dnfNotes = [];
-      $softRules = $route['used_soft_dnf_rules'] ?? [];
-      if (is_array($softRules)) {
-        foreach ($softRules as $rule) {
-          if (!empty($rule['reason'])) {
-            $dnfNotes[] = (string)$rule['reason'];
-          }
-        }
-      }
-      $dnfText = $dnfNotes ? implode('; ', $dnfNotes) : 'None';
-
       $contractDescription = sprintf(
-        "Quote #%s | Priority: %s | DNF: %s | Note: assembled containers/wraps are OK (mention in contract).",
-        (string)($request['quote_id'] ?? 'N/A'),
-        (string)($request['route_policy'] ?? 'normal'),
-        $dnfText
+        "Quote #%s | Note: assembled containers/wraps are OK (mention in contract).",
+        (string)($request['quote_id'] ?? 'N/A')
       );
     }
   }
