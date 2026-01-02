@@ -15,6 +15,9 @@ declare(strict_types=1);
  *  - CRON_PUBLIC_STRUCTURES_INTERVAL (seconds, default 86400)
  *  - CRON_CONTRACTS_INTERVAL (seconds, default 300)
  *  - CRON_MATCH_INTERVAL (seconds, default 300)
+ *
+ * Corp overrides:
+ *  - app_setting key "cron.intervals" (JSON: task_key => interval seconds, minimum 60).
  */
 
 require __DIR__ . '/../src/bootstrap.php';
@@ -64,30 +67,16 @@ $webhookLimit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
 if ($webhookLimit <= 0) {
   $webhookLimit = 50;
 }
-$syncInterval = (int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300);
-if ($syncInterval <= 0) {
-  $syncInterval = 300;
-}
-$tokenRefreshInterval = (int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300);
-if ($tokenRefreshInterval <= 0) {
-  $tokenRefreshInterval = 300;
-}
-$structuresInterval = (int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900);
-if ($structuresInterval <= 0) {
-  $structuresInterval = 900;
-}
-$publicStructuresInterval = (int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400);
-if ($publicStructuresInterval <= 0) {
-  $publicStructuresInterval = 86400;
-}
-$contractsInterval = (int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300);
-if ($contractsInterval <= 0) {
-  $contractsInterval = 300;
-}
-$matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
-if ($matchInterval <= 0) {
-  $matchInterval = 300;
-}
+$normalizeInterval = static function (int $value, int $fallback): int {
+  $interval = $value > 0 ? $value : $fallback;
+  return max(60, $interval);
+};
+$syncInterval = $normalizeInterval((int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300), 300);
+$tokenRefreshInterval = $normalizeInterval((int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300), 300);
+$structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900), 900);
+$publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
+$contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
+$matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
 $workerLimit = (int)($_ENV['CRON_WORKER_LIMIT'] ?? 3);
 if ($workerLimit <= 0) {
   $workerLimit = 3;
@@ -99,6 +88,18 @@ $jobQueue = new JobQueueService($db);
 $loadState = static function (Db $db, int $corpId): array {
   $row = $db->one(
     "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'cron.scheduler' LIMIT 1",
+    ['cid' => $corpId]
+  );
+  if (!$row || empty($row['setting_json'])) {
+    return [];
+  }
+  $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+  return is_array($decoded) ? $decoded : [];
+};
+
+$loadIntervals = static function (Db $db, int $corpId): array {
+  $row = $db->one(
+    "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'cron.intervals' LIMIT 1",
     ['cid' => $corpId]
   );
   if (!$row || empty($row['setting_json'])) {
@@ -202,11 +203,18 @@ foreach ($cronRows as $row) {
 
   $state = $loadState($db, $corpId);
   $taskSettings = $loadTaskSettings($db, $corpId);
+  $intervalSettings = $loadIntervals($db, $corpId);
   $updated = false;
+  $corpSyncInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_SYNC_JOB] ?? 0), $syncInterval);
+  $corpTokenRefreshInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_TOKEN_REFRESH_JOB] ?? 0), $tokenRefreshInterval);
+  $corpStructuresInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_STRUCTURES_JOB] ?? 0), $structuresInterval);
+  $corpPublicStructuresInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_PUBLIC_STRUCTURES_JOB] ?? 0), $publicStructuresInterval);
+  $corpContractsInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_CONTRACTS_JOB] ?? 0), $contractsInterval);
+  $corpMatchInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CONTRACT_MATCH_JOB] ?? 0), $matchInterval);
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_SYNC_JOB)) {
     $log("Cron sync disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
+  } elseif ($shouldRun($state['cron_sync'] ?? null, $corpSyncInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_SYNC_JOB)) {
         $log("Cron sync job already queued for corp {$corpId}.");
@@ -225,7 +233,7 @@ foreach ($cronRows as $row) {
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
     $log("Token refresh disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['token_refresh'] ?? null, $tokenRefreshInterval, $now)) {
+  } elseif ($shouldRun($state['token_refresh'] ?? null, $corpTokenRefreshInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
         $log("Token refresh job already queued for corp {$corpId}.");
@@ -244,7 +252,7 @@ foreach ($cronRows as $row) {
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_STRUCTURES_JOB)) {
     $log("Structures sync disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['structures'] ?? null, $structuresInterval, $now)) {
+  } elseif ($shouldRun($state['structures'] ?? null, $corpStructuresInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_STRUCTURES_JOB)) {
         $log("Structures sync job already queued for corp {$corpId}.");
@@ -263,7 +271,7 @@ foreach ($cronRows as $row) {
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
     $log("Public structures sync disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['public_structures'] ?? null, $publicStructuresInterval, $now)) {
+  } elseif ($shouldRun($state['public_structures'] ?? null, $corpPublicStructuresInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
         $log("Public structures sync job already queued for corp {$corpId}.");
@@ -282,7 +290,7 @@ foreach ($cronRows as $row) {
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_CONTRACTS_JOB)) {
     $log("Contracts sync disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['contracts'] ?? null, $contractsInterval, $now)) {
+  } elseif ($shouldRun($state['contracts'] ?? null, $corpContractsInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_CONTRACTS_JOB)) {
         $log("Contracts sync job already queued for corp {$corpId}.");
@@ -301,7 +309,7 @@ foreach ($cronRows as $row) {
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CONTRACT_MATCH_JOB)) {
     $log("Contract match disabled for corp {$corpId}; skipping.");
-  } elseif ($shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
+  } elseif ($shouldRun($state['contract_match'] ?? null, $corpMatchInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CONTRACT_MATCH_JOB)) {
         $log("Contract match job already queued for corp {$corpId}.");

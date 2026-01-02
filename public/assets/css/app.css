@@ -155,6 +155,21 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   color: var(--text);
 }
 .btn.danger:hover{background: rgba(255,77,109,.3)}
+.btn.disabled{
+  opacity:.5;
+  pointer-events:none;
+}
+.visually-hidden{
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0, 0, 0, 0);
+  white-space:nowrap;
+  border:0;
+}
 .sso-button{
   display:inline-flex;
   align-items:center;
@@ -314,3 +329,17 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .cron-table{margin-top:14px}
 .cron-note{margin:8px 0 0; color:var(--muted); font-size:12px}
 .cron-section{margin-top:18px}
+.cron-interval-form{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.cron-interval-form input{
+  width:110px;
+}
+.cron-pagination{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-top:12px;
+}
