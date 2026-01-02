@@ -22,6 +22,8 @@ $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => '']
 $defaultPriority = $defaultPriority ?? 'normal';
 $apiKey = $apiKey ?? '';
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
+$canBuybackHaulage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.buyback');
+$buybackHaulagePrice = max(0.0, (float)($buybackHaulagePrice ?? 0.0));
 $pickupLocationOptions = $pickupLocationOptions ?? [];
 $destinationLocationOptions = $destinationLocationOptions ?? [];
 
@@ -137,6 +139,11 @@ ob_start();
           <button class="btn" type="button" id="quote-submit">Get Quote</button>
           <?php if (!$canCreateRequest): ?>
             <span class="muted" style="margin-left:12px;">Sign in with requester access to create a haul request.</span>
+          <?php endif; ?>
+          <?php if ($canBuybackHaulage && $buybackHaulagePrice > 0): ?>
+            <button class="btn ghost" type="button" id="buyback-haulage-btn">
+              Buyback haulage — <?= htmlspecialchars(number_format($buybackHaulagePrice, 2), ENT_QUOTES, 'UTF-8') ?> ISK
+            </button>
           <?php endif; ?>
         </div>
         <div class="alert alert-warning" id="quote-error" style="display:none;"></div>

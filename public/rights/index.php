@@ -37,6 +37,7 @@ $orderedPerms = [
   'haul.request.manage',
   'haul.assign',
   'haul.execute',
+  'haul.buyback',
 ];
 $orderPlaceholders = implode(',', array_fill(0, count($orderedPerms), '?'));
 
@@ -55,6 +56,7 @@ $haulPermKeys = [
   'haul.request.manage',
   'haul.assign',
   'haul.execute',
+  'haul.buyback',
 ];
 
 $haulPerms = [];

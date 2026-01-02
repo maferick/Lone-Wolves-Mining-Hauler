@@ -148,6 +148,7 @@ try {
       ['haul.request.manage','Manage haul requests','Edit/quote/cancel/post requests.'],
       ['haul.assign','Assign hauls','Assign requests to internal haulers.'],
       ['haul.execute','Execute hauls','Update status (pickup/in-transit/delivered).'],
+      ['haul.buyback','Buyback haulage','Access the buyback haulage option on the quote page.'],
       ['pricing.manage','Manage pricing','Create/update pricing rules and lanes.'],
       ['webhook.manage','Manage webhooks','Create/update Discord webhooks and templates.'],
       ['esi.manage','Manage ESI','Configure ESI tokens and scheduled pulls.'],
