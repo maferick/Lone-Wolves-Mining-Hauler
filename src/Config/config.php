@@ -51,7 +51,7 @@ return [
   ],
 
   'sso' => [
-    'scopes' => array_values(array_filter(explode(' ', getenv('EVE_SCOPES') ?: 'esi-contracts.read_corporation_contracts.v1 esi-corporations.read_structures.v1'))),
+    'scopes' => array_values(array_filter(explode(' ', getenv('EVE_SCOPES') ?: 'esi-contracts.read_corporation_contracts.v1 esi-corporations.read_structures.v1 esi-universe.read_structures.v1'))),
   ],
 
   'security' => [
