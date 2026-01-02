@@ -621,6 +621,18 @@ CREATE TABLE IF NOT EXISTS job_queue (
   CONSTRAINT fk_job_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS cron_task_setting (
+  task_setting_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NULL,
+  task_key           VARCHAR(96) NOT NULL,
+  is_enabled         TINYINT(1) NOT NULL DEFAULT 1,
+  updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (task_setting_id),
+  UNIQUE KEY uq_cron_task (corp_id, task_key),
+  KEY idx_cron_task (task_key, is_enabled),
+  CONSTRAINT fk_cron_task_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- =========================
 -- Operational Audit & Configuration
 -- =========================

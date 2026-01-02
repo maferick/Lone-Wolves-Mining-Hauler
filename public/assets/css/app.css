@@ -292,3 +292,25 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .table{width:100%; border-collapse:collapse; overflow:hidden; border-radius:14px; border:1px solid var(--border)}
 .table th,.table td{padding:10px 10px; border-bottom:1px solid rgba(255,255,255,.08); font-size:13px}
 .table th{color:var(--muted); font-weight:600; text-align:left; background: rgba(255,255,255,.03)}
+.table td .btn{padding:6px 10px; border-radius:12px; font-size:12px}
+.table .actions{display:flex; gap:8px; flex-wrap:wrap}
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+  border:1px solid var(--border);
+  background: rgba(255,255,255,.03);
+}
+.status-success{border-color: rgba(46,229,157,.5); color:#C9FBE6; background: rgba(46,229,157,.15)}
+.status-failed{border-color: rgba(255,77,109,.55); color:#FFD1DA; background: rgba(255,77,109,.18)}
+.status-running{border-color: rgba(124,92,255,.5); color:#DAD0FF; background: rgba(124,92,255,.18)}
+.status-queued{border-color: rgba(255,204,102,.5); color:#FFE7B8; background: rgba(255,204,102,.18)}
+.status-dead{border-color: rgba(255,77,109,.55); color:#FFD1DA; background: rgba(255,77,109,.28)}
+.status-disabled{border-color: rgba(255,255,255,.25); color:var(--muted); background: rgba(255,255,255,.04)}
+.status-never{border-color: rgba(255,255,255,.2); color:var(--muted-2); background: rgba(255,255,255,.02)}
+.cron-table{margin-top:14px}
+.cron-note{margin:8px 0 0; color:var(--muted); font-size:12px}
+.cron-section{margin-top:18px}
