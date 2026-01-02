@@ -111,6 +111,8 @@ final class HaulRequestService
           'collateral_isk' => (float)$quote['collateral_isk'],
           'price_isk' => (float)$quote['price_total'],
           'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
+          'requester_character_id' => (int)($authCtx['character_id'] ?? 0),
+          'ship_class' => $shipClass,
         ]);
         $this->webhooks->enqueue($corpId, 'haul.request.created', $payload);
       } catch (\Throwable $e) {

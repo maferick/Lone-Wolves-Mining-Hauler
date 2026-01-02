@@ -62,7 +62,7 @@ if (!$request) {
 }
 
 $hauler = $db->one(
-  "SELECT user_id, display_name FROM app_user WHERE user_id = :uid AND corp_id = :cid LIMIT 1",
+  "SELECT user_id, display_name, character_id FROM app_user WHERE user_id = :uid AND corp_id = :cid LIMIT 1",
   ['uid' => $haulerUserId, 'cid' => $corpId]
 );
 
@@ -141,6 +141,7 @@ if (!empty($services['discord_webhook'])) {
       'reward_isk' => (float)($request['reward_isk'] ?? 0),
       'requester' => (string)($request['requester_name'] ?? ''),
       'hauler' => (string)($hauler['display_name'] ?? ''),
+      'hauler_character_id' => (int)($hauler['character_id'] ?? 0),
       'actor' => $assignerName,
       'actor_label' => 'Assigned By',
       'status' => 'assigned',

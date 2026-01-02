@@ -79,6 +79,8 @@ try {
         'collateral_isk' => (float)($payload['collateral_isk'] ?? $payload['collateral'] ?? 0),
         'price_isk' => (float)$quote['price_total'],
         'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
+        'requester_character_id' => (int)($authCtx['character_id'] ?? 0),
+        'ship_class' => (string)($quote['breakdown']['ship_class']['service_class'] ?? ''),
       ]);
       $webhooks->enqueue($corpId, 'haul.quote.created', $webhookPayload);
     } catch (\Throwable $e) {
