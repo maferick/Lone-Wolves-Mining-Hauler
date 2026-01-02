@@ -95,10 +95,7 @@ if ($requestKey === '') {
       if ($hintText === '') {
         $hintText = 'Request #' . (string)$request['request_id'];
       }
-      $contractDescription = sprintf(
-        "%s | Note: assembled containers/wraps are OK (mention in contract).",
-        $hintText
-      );
+      $contractDescription = $hintText;
     }
   }
 }
