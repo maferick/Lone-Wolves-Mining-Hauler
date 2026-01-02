@@ -62,13 +62,18 @@ final class CorpContractsService
       );
 
       if (!$resp['ok']) {
-        // If ESI returns 404/403, likely insufficient corp roles or scopes
+        // ESI returns 404 when paging past the last page.
+        if ($resp['status'] === 404 && $page > 1) {
+          break;
+        }
+        // If ESI returns 404/403 on page 1, likely insufficient corp roles or scopes
         throw new \RuntimeException("ESI contracts pull failed (page {$page}): HTTP {$resp['status']}");
       }
 
       $contracts = is_array($resp['json']) ? $resp['json'] : [];
       if (count($contracts) === 0) break; // no more pages
 
+      $totalPages = (int)($resp['headers']['x-pages'] ?? 0);
       foreach ($contracts as $c) {
         $fetchedContracts++;
         $contractId = (int)($c['contract_id'] ?? 0);
@@ -92,6 +97,9 @@ final class CorpContractsService
         }
       }
 
+      if ($totalPages > 0 && $page >= $totalPages) {
+        break;
+      }
       $page++;
     }
 
@@ -125,6 +133,9 @@ final class CorpContractsService
       );
 
       if (!$resp['ok']) {
+        if ($resp['status'] === 404 && $page > 1) {
+          break;
+        }
         throw new \RuntimeException("ESI contracts lookup failed (page {$page}): HTTP {$resp['status']}");
       }
 
@@ -133,6 +144,7 @@ final class CorpContractsService
         break;
       }
 
+      $totalPages = (int)($resp['headers']['x-pages'] ?? 0);
       foreach ($contracts as $c) {
         $currentId = (int)($c['contract_id'] ?? 0);
         if ($currentId === $contractId) {
@@ -141,6 +153,9 @@ final class CorpContractsService
         }
       }
 
+      if ($totalPages > 0 && $page >= $totalPages) {
+        break;
+      }
       $page++;
     }
 
