@@ -40,17 +40,16 @@ The script will:
 - call ESI with ETag revalidation
 - upsert into `esi_corp_contract` and `esi_corp_contract_item`
 
-## Discord webhook delivery (cron)
-Incoming webhook deliveries are queued and must be sent by a runner.
+## Cron scheduler
+Run the unified scheduler every minute. It triggers:
+- Discord webhook delivery
+- ESI cron sync (tokens, structures, contracts, universe)
+- Contract matching
+- Async cron job processing
 
-Run manually:
-```bash
-php bin/cron_webhooks.php --limit=50
+Recommended cron (every minute):
 ```
-
-Recommended cron (every 1-2 minutes):
-```
-* * * * * php /path/to/hauling/bin/cron_webhooks.php --limit=50
+* * * * * php /path/to/hauling/bin/cron.php
 ```
 
 
