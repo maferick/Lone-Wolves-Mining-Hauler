@@ -9,7 +9,7 @@ $title = $appName . ' • Rates';
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $corpId = (int)($config['corp']['id'] ?? 0);
 
-$ratePlans = $db->all(
+$ratePlans = $db->select(
   "SELECT service_class, rate_per_jump, collateral_rate, min_price, updated_at
      FROM rate_plan
     WHERE corp_id = :cid
