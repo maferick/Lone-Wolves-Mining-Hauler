@@ -37,7 +37,7 @@ if ($cronCharId <= 0 && $scope !== 'universe') {
 }
 
 $jobQueue = new JobQueueService($db);
-$jobId = $jobQueue->enqueueCronSync($corpId, $cronCharId, $scope, $force, $useSde, [
+$jobId = $jobQueue->enqueueCronSync($corpId, $cronCharId, $scope, $force, $useSde, false, [
   'actor_user_id' => $authCtx['user_id'] ?? null,
   'actor_character_id' => $authCtx['character_id'] ?? null,
   'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
