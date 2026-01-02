@@ -54,7 +54,6 @@ $body = $body ?? '';
           <a class="nav-link" href="<?= ($basePath ?: '') ?>/#quote">Quote</a>
         <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
-        <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>
       </nav>
 

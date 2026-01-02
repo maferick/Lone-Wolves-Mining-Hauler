@@ -5,6 +5,7 @@ use App\Auth\Auth;
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $me = $authCtx['display_name'] ?? 'User';
+$apiKey = (string)($config['security']['api_key'] ?? '');
 $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
 ?>
 <div class="adminbar">
@@ -18,6 +19,7 @@ $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/esi/">ESI</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/cron/">Cron</a>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Webhooks</a>
+    <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>">API</a>
     <?php if ($canRights): ?>
       <a class="nav-link" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
     <?php endif; ?>
