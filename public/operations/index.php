@@ -44,7 +44,8 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
 
   if ($hasRequestView) {
     $hasRequestKey = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'request_key'");
-    $requestKeySelect = $hasRequestKey ? 'r.request_key' : "'' AS request_key";
+    $requestKeySelect = $hasRequestKey ? 'r.request_key' : 'hr.request_key AS request_key';
+    $requestKeyJoin = $hasRequestKey ? '' : 'LEFT JOIN haul_request hr ON hr.request_id = r.request_id';
     $requests = $db->select(
       "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
               COALESCE(fs.system_name, r.from_name) AS from_name,
@@ -54,6 +55,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
          FROM v_haul_request_display r
          LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
          LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
+         {$requestKeyJoin}
          LEFT JOIN haul_assignment a ON a.request_id = r.request_id
          LEFT JOIN app_user u ON u.user_id = a.hauler_user_id
         WHERE r.corp_id = :cid
