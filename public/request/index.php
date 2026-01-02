@@ -4,6 +4,8 @@ declare(strict_types=1);
 // Standalone request endpoint (works even if routing rules are bypassed)
 require_once __DIR__ . '/../../src/bootstrap.php';
 
+use App\Db\Db;
+
 $appName = $config['app']['name'];
 $title = $appName . ' • Contract Instructions';
 $basePathForViews = rtrim((string)($config['app']['base_path'] ?? ''), '/');
@@ -18,6 +20,7 @@ $issuerName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Cor
 $shipClassLabel = '';
 $shipClassMax = 0.0;
 $contractDescription = '';
+$contractAttachEnabled = true;
 
 if ($requestId <= 0) {
   $error = 'Request ID is required.';
@@ -43,6 +46,17 @@ if ($requestId <= 0) {
       http_response_code(403);
       $error = 'You do not have access to this request.';
     } else {
+      $attachRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.attach_enabled' LIMIT 1",
+        ['cid' => $corpId]
+      );
+      $attachSetting = $attachRow && !empty($attachRow['setting_json'])
+        ? Db::jsonDecode((string)$attachRow['setting_json'], [])
+        : [];
+      if (is_array($attachSetting) && array_key_exists('enabled', $attachSetting)) {
+        $contractAttachEnabled = (bool)$attachSetting['enabled'];
+      }
+
       $quote = null;
       if (!empty($request['quote_id'])) {
         $quote = $db->one(
