@@ -27,8 +27,24 @@ $log = static function (string $message): void {
   fwrite(STDOUT, "[{$timestamp}] {$message}\n");
 };
 
-$lockFile = $_ENV['CRON_LOCK_FILE'] ?? (sys_get_temp_dir() . '/lone_wolves_cron.lock');
-$lockHandle = fopen($lockFile, 'c');
+$lockFile = $_ENV['CRON_LOCK_FILE'] ?? null;
+$lockCandidates = $lockFile ? [$lockFile] : [
+  sys_get_temp_dir() . '/lone_wolves_cron.lock',
+  __DIR__ . '/../tmp/lone_wolves_cron.lock',
+];
+$lockHandle = false;
+foreach ($lockCandidates as $candidate) {
+  $dir = dirname($candidate);
+  if (!is_dir($dir)) {
+    mkdir($dir, 0775, true);
+  }
+  $handle = @fopen($candidate, 'c');
+  if ($handle !== false) {
+    $lockFile = $candidate;
+    $lockHandle = $handle;
+    break;
+  }
+}
 if ($lockHandle === false) {
   $log("Unable to open cron lock file: {$lockFile}");
   exit(1);
