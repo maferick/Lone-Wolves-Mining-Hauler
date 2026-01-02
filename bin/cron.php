@@ -17,8 +17,6 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 use App\Db\Db;
-use App\Services\ContractMatchService;
-use App\Services\CronSyncService;
 use App\Services\JobQueueService;
 
 $webhookLimit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
@@ -36,6 +34,7 @@ if ($matchInterval <= 0) {
 $syncPublicStructures = (int)($_ENV['CRON_SYNC_PUBLIC_STRUCTURES'] ?? 0) === 1;
 
 $now = time();
+$jobQueue = new JobQueueService($db);
 
 $log = static function (string $message): void {
   $timestamp = gmdate('c');
@@ -81,8 +80,12 @@ try {
   if (!isset($services['discord_webhook'])) {
     $log('Discord webhook service not configured.');
   } else {
-    $result = $services['discord_webhook']->sendPending($webhookLimit);
-    $log("Webhook delivery processed: {$result['processed']} (sent {$result['sent']}, failed {$result['failed']}, pending {$result['pending']}).");
+    if ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_DELIVERY_JOB)) {
+      $log('Webhook delivery job already queued.');
+    } else {
+      $jobId = $jobQueue->enqueueWebhookDelivery($webhookLimit);
+      $log("Webhook delivery job queued: {$jobId}.");
+    }
   }
 } catch (Throwable $e) {
   $log("Webhook delivery error: {$e->getMessage()}");
@@ -114,14 +117,16 @@ foreach ($cronRows as $row) {
 
   if ($shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
     try {
-      $cron = new CronSyncService($db, $config, $services['esi'], $services['discord_webhook'] ?? null);
-      $cron->run($corpId, $charId, [
-        'scope' => 'all',
-        'sync_public_structures' => $syncPublicStructures,
-      ]);
-      $state['cron_sync'] = gmdate('c', $now);
-      $updated = true;
-      $log("Cron sync ran for corp {$corpId}.");
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_SYNC_JOB)) {
+        $log("Cron sync job already queued for corp {$corpId}.");
+        $state['cron_sync'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueueCronSync($corpId, $charId, 'all', false, false, $syncPublicStructures);
+        $state['cron_sync'] = gmdate('c', $now);
+        $updated = true;
+        $log("Cron sync job queued for corp {$corpId}: {$jobId}.");
+      }
     } catch (Throwable $e) {
       $log("Cron sync error for corp {$corpId}: {$e->getMessage()}");
     }
@@ -129,11 +134,16 @@ foreach ($cronRows as $row) {
 
   if ($shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
     try {
-      $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
-      $result = $matcher->matchOpenRequests($corpId);
-      $state['contract_match'] = gmdate('c', $now);
-      $updated = true;
-      $log("Contract match ran for corp {$corpId}: matched {$result['matched']}, mismatched {$result['mismatched']}, completed {$result['completed']}.");
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CONTRACT_MATCH_JOB)) {
+        $log("Contract match job already queued for corp {$corpId}.");
+        $state['contract_match'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueueContractMatch($corpId);
+        $state['contract_match'] = gmdate('c', $now);
+        $updated = true;
+        $log("Contract match job queued for corp {$corpId}: {$jobId}.");
+      }
     } catch (Throwable $e) {
       $log("Contract match error for corp {$corpId}: {$e->getMessage()}");
     }
@@ -142,59 +152,4 @@ foreach ($cronRows as $row) {
   if ($updated) {
     $saveState($db, $corpId, $state);
   }
-}
-
-$jobQueue = new JobQueueService($db);
-$workerId = gethostname() . ':' . getmypid();
-$job = $jobQueue->claimNextCronSync($workerId);
-if (!$job) {
-  $log('No queued cron sync jobs.');
-  exit(0);
-}
-
-$jobId = (int)$job['job_id'];
-$payload = [];
-if (!empty($job['payload_json'])) {
-  $decoded = Db::jsonDecode((string)$job['payload_json'], []);
-  if (is_array($decoded)) {
-    $payload = $decoded;
-  }
-}
-
-$corpId = (int)($job['corp_id'] ?? 0);
-$charId = (int)($payload['character_id'] ?? 0);
-$scope = (string)($payload['scope'] ?? 'all');
-$force = !empty($payload['force']);
-$useSde = !empty($payload['sde']);
-
-$cronService = new CronSyncService($db, $config, $services['esi'], $services['discord_webhook'] ?? null);
-$jobQueue->updateProgress($jobId, [
-  'current' => 0,
-  'total' => 0,
-  'label' => 'Starting sync',
-  'stage' => 'start',
-], 'Cron sync started.');
-$jobQueue->markStarted($jobId);
-
-try {
-  $result = $cronService->run($corpId, $charId, [
-    'force' => $force,
-    'scope' => $scope,
-    'sde' => $useSde,
-    'on_progress' => function (array $progress) use ($jobQueue, $jobId): void {
-      $jobQueue->updateProgress(
-        $jobId,
-        $progress,
-        $progress['label'] ?? null
-      );
-    },
-  ]);
-
-  $jobQueue->markSucceeded($jobId, $result);
-  $log("Cron sync job {$jobId} completed.");
-  exit(0);
-} catch (Throwable $e) {
-  $jobQueue->markFailed($jobId, $e->getMessage());
-  $log("Cron sync job {$jobId} failed: {$e->getMessage()}");
-  exit(1);
 }

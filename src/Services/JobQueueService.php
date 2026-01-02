@@ -8,6 +8,8 @@ use App\Db\Db;
 final class JobQueueService
 {
   public const CRON_SYNC_JOB = 'cron.sync';
+  public const CONTRACT_MATCH_JOB = 'cron.contract_match';
+  public const WEBHOOK_DELIVERY_JOB = 'cron.webhook_delivery';
 
   public function __construct(private Db $db)
   {
@@ -19,12 +21,14 @@ final class JobQueueService
     string $scope,
     bool $force,
     bool $useSde,
+    bool $syncPublicStructures = false,
     array $auditContext = []
   ): int {
     $payload = [
       'scope' => $scope,
       'force' => $force,
       'sde' => $useSde,
+      'sync_public_structures' => $syncPublicStructures,
       'character_id' => $characterId,
       'progress' => [
         'current' => 0,
@@ -65,20 +69,114 @@ final class JobQueueService
     return $jobId;
   }
 
+  public function enqueueContractMatch(int $corpId, array $auditContext = []): int
+  {
+    $payload = [
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => 'Contract match queued.',
+        ],
+      ],
+    ];
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => $corpId,
+      'job_type' => self::CONTRACT_MATCH_JOB,
+      'priority' => 120,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      $corpId,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      'cron.contract_match.queued',
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
+  }
+
+  public function enqueueWebhookDelivery(int $limit, array $auditContext = []): int
+  {
+    $payload = [
+      'limit' => $limit,
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => 'Webhook delivery queued.',
+        ],
+      ],
+    ];
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => null,
+      'job_type' => self::WEBHOOK_DELIVERY_JOB,
+      'priority' => 90,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      null,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      'cron.webhook_delivery.queued',
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
+  }
+
   public function claimNextCronSync(string $workerId): ?array
   {
-    return $this->db->tx(function (Db $db) use ($workerId) {
+    return $this->claimNextJob([self::CRON_SYNC_JOB], $workerId);
+  }
+
+  public function claimNextJob(array $jobTypes, string $workerId): ?array
+  {
+    return $this->db->tx(function (Db $db) use ($workerId, $jobTypes) {
+      if ($jobTypes === []) {
+        return null;
+      }
+      $placeholders = implode(',', array_fill(0, count($jobTypes), '?'));
       $row = $db->one(
         "SELECT *
            FROM job_queue
-          WHERE job_type = :job_type
+          WHERE job_type IN ({$placeholders})
             AND status = 'queued'
             AND run_at <= UTC_TIMESTAMP()
             AND attempt < max_attempts
           ORDER BY priority ASC, run_at ASC
           LIMIT 1
           FOR UPDATE",
-        ['job_type' => self::CRON_SYNC_JOB]
+        $jobTypes
       );
 
       if (!$row) {
@@ -110,6 +208,28 @@ final class JobQueueService
     });
   }
 
+  public function hasPendingJob(?int $corpId, string $jobType): bool
+  {
+    $params = ['job_type' => $jobType];
+    $corpClause = 'corp_id IS NULL';
+    if ($corpId !== null) {
+      $corpClause = 'corp_id = :corp_id';
+      $params['corp_id'] = $corpId;
+    }
+
+    $row = $this->db->one(
+      "SELECT job_id
+         FROM job_queue
+        WHERE job_type = :job_type
+          AND {$corpClause}
+          AND status IN ('queued','running')
+        LIMIT 1",
+      $params
+    );
+
+    return !empty($row);
+  }
+
   public function getJobForCorp(int $jobId, int $corpId): ?array
   {
     return $this->db->one(
@@ -138,19 +258,34 @@ final class JobQueueService
     });
   }
 
-  public function markStarted(int $jobId): void
+  public function markStarted(
+    int $jobId,
+    string $auditAction = 'cron.sync.started',
+    ?string $logMessage = null
+  ): void
   {
     $job = $this->fetchJob($jobId);
     if (!$job) return;
 
     $payload = $this->decodePayload($job);
     $payload['started_at'] = gmdate('c');
+    if ($logMessage) {
+      $payload['log'][] = [
+        'time' => gmdate('c'),
+        'message' => $logMessage,
+      ];
+    }
+
+    $corpId = $job['corp_id'] !== null ? (int)$job['corp_id'] : null;
+    if ($corpId !== null && $corpId <= 0) {
+      $corpId = null;
+    }
 
     $this->db->audit(
-      (int)$job['corp_id'],
+      $corpId,
       null,
       null,
-      'cron.sync.started',
+      $auditAction,
       'job_queue',
       (string)$jobId,
       null,
@@ -160,7 +295,12 @@ final class JobQueueService
     );
   }
 
-  public function markSucceeded(int $jobId, array $result): void
+  public function markSucceeded(
+    int $jobId,
+    array $result,
+    string $auditAction = 'cron.sync.completed',
+    string $logMessage = 'Cron sync completed.'
+  ): void
   {
     $job = $this->fetchJob($jobId);
     if (!$job) return;
@@ -175,7 +315,7 @@ final class JobQueueService
     ]);
     $payload['log'][] = [
       'time' => gmdate('c'),
-      'message' => 'Cron sync completed.',
+      'message' => $logMessage,
     ];
 
     $this->db->execute(
@@ -190,11 +330,16 @@ final class JobQueueService
       ]
     );
 
+    $corpId = $job['corp_id'] !== null ? (int)$job['corp_id'] : null;
+    if ($corpId !== null && $corpId <= 0) {
+      $corpId = null;
+    }
+
     $this->db->audit(
-      (int)$job['corp_id'],
+      $corpId,
       null,
       null,
-      'cron.sync.completed',
+      $auditAction,
       'job_queue',
       (string)$jobId,
       null,
@@ -204,7 +349,13 @@ final class JobQueueService
     );
   }
 
-  public function markFailed(int $jobId, string $error, array $result = []): void
+  public function markFailed(
+    int $jobId,
+    string $error,
+    array $result = [],
+    string $auditAction = 'cron.sync.failed',
+    ?string $logMessage = null
+  ): void
   {
     $job = $this->fetchJob($jobId);
     if (!$job) return;
@@ -222,7 +373,7 @@ final class JobQueueService
     ]);
     $payload['log'][] = [
       'time' => gmdate('c'),
-      'message' => "Cron sync failed: {$error}",
+      'message' => $logMessage ?? "Cron sync failed: {$error}",
     ];
 
     $this->db->execute(
@@ -240,11 +391,16 @@ final class JobQueueService
       ]
     );
 
+    $corpId = $job['corp_id'] !== null ? (int)$job['corp_id'] : null;
+    if ($corpId !== null && $corpId <= 0) {
+      $corpId = null;
+    }
+
     $this->db->audit(
-      (int)$job['corp_id'],
+      $corpId,
       null,
       null,
-      'cron.sync.failed',
+      $auditAction,
       'job_queue',
       (string)$jobId,
       null,
