@@ -412,15 +412,21 @@ final class DiscordWebhookService
       'timestamp' => gmdate('c'),
     ];
 
-    if ($hauler !== '') {
+    if ($requester !== '') {
+      $author = ['name' => $requester];
+      if ($requesterAvatarUrl !== '') {
+        $author['icon_url'] = $requesterAvatarUrl;
+      }
+      $embed['author'] = $author;
+    } elseif ($hauler !== '') {
       $author = ['name' => $hauler];
       if ($haulerAvatarUrl !== '') {
         $author['icon_url'] = $haulerAvatarUrl;
       }
       $embed['author'] = $author;
     }
-    if ($requesterAvatarUrl !== '') {
-      $embed['thumbnail'] = ['url' => $requesterAvatarUrl];
+    if ($shipImageUrl !== '') {
+      $embed['thumbnail'] = ['url' => $shipImageUrl];
     }
     if ($actor !== '') {
       $footer = ['text' => ($actorLabel !== '' ? $actorLabel : 'Actor') . ': ' . $actor];
@@ -428,9 +434,6 @@ final class DiscordWebhookService
         $footer['icon_url'] = $actorAvatarUrl;
       }
       $embed['footer'] = $footer;
-    }
-    if ($shipImageUrl !== '') {
-      $embed['image'] = ['url' => $shipImageUrl];
     }
 
     return [
