@@ -60,8 +60,10 @@ final class HaulRequestService
     $routeProfile = (string)($route['profile'] ?? $route['route_profile'] ?? $quote['profile'] ?? 'balanced');
     $routePolicy = $this->normalizeRoutePolicy($routeProfile);
     $contractHintText = 'Quote #' . (string)$quoteId;
+    $requestKey = $this->generateRequestKey();
 
     $requestId = $this->db->insert('haul_request', [
+      'request_key' => $requestKey,
       'corp_id' => $corpId,
       'service_id' => (int)$service['service_id'],
       'requester_user_id' => (int)($authCtx['user_id'] ?? 0),
@@ -103,6 +105,7 @@ final class HaulRequestService
         $payload = $this->webhooks->buildHaulRequestEmbed([
           'title' => 'Haul Request #' . (string)$requestId,
           'request_id' => $requestId,
+          'request_key' => $requestKey,
           'route' => $route,
           'volume_m3' => (float)$quote['volume_m3'],
           'collateral_isk' => (float)$quote['collateral_isk'],
@@ -117,10 +120,16 @@ final class HaulRequestService
 
     return [
       'request_id' => $requestId,
+      'request_key' => $requestKey,
       'quote' => $quote,
       'route' => $route,
       'breakdown' => $breakdown,
     ];
+  }
+
+  private function generateRequestKey(): string
+  {
+    return bin2hex(random_bytes(16));
   }
 
   private function normalizeRoutePolicy(string $policy): string

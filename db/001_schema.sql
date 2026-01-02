@@ -356,6 +356,7 @@ CREATE TABLE IF NOT EXISTS route_cache (
 
 CREATE TABLE IF NOT EXISTS haul_request (
   request_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_key        VARCHAR(64) NOT NULL DEFAULT '',
   corp_id            BIGINT UNSIGNED NOT NULL,
   service_id         INT UNSIGNED NOT NULL,
   requester_user_id  BIGINT UNSIGNED NOT NULL,
@@ -404,6 +405,7 @@ CREATE TABLE IF NOT EXISTS haul_request (
   updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   PRIMARY KEY (request_id),
+  UNIQUE KEY uq_request_key (request_key),
   KEY idx_request_corp (corp_id, status, created_at),
   KEY idx_request_service (service_id),
   KEY idx_request_requester (requester_user_id),
@@ -417,6 +419,7 @@ CREATE TABLE IF NOT EXISTS haul_request (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE haul_request
+  ADD COLUMN IF NOT EXISTS request_key VARCHAR(64) NOT NULL DEFAULT '' AFTER request_id,
   ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy,
   ADD COLUMN IF NOT EXISTS contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
   ADD COLUMN IF NOT EXISTS contract_matched_at DATETIME NULL AFTER contract_status,
@@ -750,6 +753,7 @@ CREATE TABLE IF NOT EXISTS rate_plan (
 CREATE OR REPLACE VIEW v_haul_request_display AS
 SELECT
   r.request_id,
+  r.request_key,
   r.corp_id,
   c.corp_name,
   r.service_id,

@@ -10,6 +10,7 @@ $canAssignOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.assign');
 $canExecuteOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.execute');
 $queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'delivered' => 0];
 $requests = $requests ?? [];
+$haulers = $haulers ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
 $userId = (int)($authCtx['user_id'] ?? 0);
@@ -212,6 +213,8 @@ ob_start();
           <?php foreach ($requests as $req): ?>
             <?php
               $requestId = (int)($req['request_id'] ?? 0);
+              $requestKey = (string)($req['request_key'] ?? '');
+              $requestLinkKey = $requestKey !== '' ? $requestKey : (string)$requestId;
             ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
@@ -221,7 +224,7 @@ ob_start();
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
               <td class="actions">
-                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?request_id=' . $requestId, ENT_QUOTES, 'UTF-8') ?>">Review</a>
+                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?request_key=' . urlencode($requestLinkKey), ENT_QUOTES, 'UTF-8') ?>">Review</a>
                 <button class="btn danger js-delete-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Delete</button>
               </td>
             </tr>
@@ -274,6 +277,7 @@ ob_start();
                 <?php else: ?>
                   <button class="btn ghost js-assign-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign to me</button>
                 <?php endif; ?>
+                <button class="btn ghost js-assign-other" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign…</button>
               </td>
             </tr>
           <?php endforeach; ?>
@@ -282,6 +286,42 @@ ob_start();
     <?php endif; ?>
   </div>
 </section>
+
+<?php if ($canAssignOps && $requestsAvailable): ?>
+<div class="modal-backdrop" id="assign-modal" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="label" id="assign-title">Assign hauler</div>
+        <p class="muted" style="margin:4px 0 0;">Search and select the hauler to assign.</p>
+      </div>
+      <button class="btn ghost" type="button" id="assign-cancel">Close</button>
+    </div>
+    <div class="modal-body">
+      <input class="input" type="text" id="assign-search" placeholder="Search by name..." />
+      <div class="modal-list" id="assign-list">
+        <?php if (empty($haulers)): ?>
+          <div class="muted">No active members available.</div>
+        <?php else: ?>
+          <?php foreach ($haulers as $hauler): ?>
+            <?php
+              $haulerId = (int)($hauler['user_id'] ?? 0);
+              $displayName = (string)($hauler['display_name'] ?? 'Unknown');
+              $characterName = trim((string)($hauler['character_name'] ?? ''));
+              $label = $characterName !== '' ? $displayName . ' (' . $characterName . ')' : $displayName;
+            ?>
+            <button class="btn ghost js-assign-select" type="button"
+              data-hauler-id="<?= htmlspecialchars((string)$haulerId, ENT_QUOTES, 'UTF-8') ?>"
+              data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">
+              <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+            </button>
+          <?php endforeach; ?>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <section class="card" id="status">
   <div class="card-header">
@@ -368,6 +408,79 @@ ob_start();
       if (!requestId) return;
       btn.disabled = true;
       const data = await sendJson(`${basePath}/api/requests/assign/`, { request_id: requestId });
+      if (!data.ok) {
+        alert(data.error || 'Assign failed.');
+        btn.disabled = false;
+        return;
+      }
+      window.location.reload();
+    });
+  });
+
+  const assignModal = document.getElementById('assign-modal');
+  const assignSearch = document.getElementById('assign-search');
+  const assignList = document.getElementById('assign-list');
+  const assignTitle = document.getElementById('assign-title');
+  const assignCancel = document.getElementById('assign-cancel');
+  let activeRequestId = 0;
+
+  const closeAssignModal = () => {
+    if (assignModal) {
+      assignModal.setAttribute('hidden', 'hidden');
+    }
+    if (assignSearch) {
+      assignSearch.value = '';
+    }
+    if (assignList) {
+      assignList.querySelectorAll('.js-assign-select').forEach((btn) => {
+        btn.removeAttribute('hidden');
+      });
+    }
+    activeRequestId = 0;
+  };
+
+  const openAssignModal = (requestId) => {
+    if (!assignModal || !assignList) return;
+    activeRequestId = requestId;
+    if (assignTitle) {
+      assignTitle.textContent = `Assign request #${requestId}`;
+    }
+    assignModal.removeAttribute('hidden');
+    assignSearch?.focus();
+  };
+
+  document.querySelectorAll('.js-assign-other').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const requestId = parseInt(btn.dataset.requestId || '0', 10);
+      if (!requestId) return;
+      openAssignModal(requestId);
+    });
+  });
+
+  assignCancel?.addEventListener('click', closeAssignModal);
+  assignModal?.addEventListener('click', (event) => {
+    if (event.target === assignModal) {
+      closeAssignModal();
+    }
+  });
+
+  assignSearch?.addEventListener('input', () => {
+    const term = assignSearch.value.trim().toLowerCase();
+    assignList?.querySelectorAll('.js-assign-select').forEach((btn) => {
+      const label = (btn.dataset.label || '').toLowerCase();
+      btn.toggleAttribute('hidden', term !== '' && !label.includes(term));
+    });
+  });
+
+  assignList?.querySelectorAll('.js-assign-select').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const haulerId = parseInt(btn.dataset.haulerId || '0', 10);
+      if (!activeRequestId || !haulerId) return;
+      btn.disabled = true;
+      const data = await sendJson(`${basePath}/api/requests/assign/`, {
+        request_id: activeRequestId,
+        hauler_user_id: haulerId,
+      });
       if (!data.ok) {
         alert(data.error || 'Assign failed.');
         btn.disabled = false;

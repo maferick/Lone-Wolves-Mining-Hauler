@@ -12,11 +12,13 @@ $queueStats = [
   'delivered' => 0,
 ];
 $requests = [];
+$haulers = [];
 $requestsAvailable = false;
 $dbOk = $health['db'] ?? false;
 $apiKey = (string)($config['security']['api_key'] ?? '');
 
 $canViewOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.request.read');
+$canAssignOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.assign');
 $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
 
 if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
@@ -42,7 +44,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
 
   if ($hasRequestView) {
     $requests = $db->select(
-      "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+      "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -59,7 +61,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     );
   } elseif ($hasHaulRequest) {
     $requests = $db->select(
-      "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+      "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
               u.display_name AS requester_display_name, a.hauler_user_id,
               h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
@@ -78,6 +80,17 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
 
   if ($requests) {
     $requestsAvailable = true;
+  }
+
+  if ($canAssignOps) {
+    $haulers = $db->select(
+      "SELECT user_id, display_name, character_name
+         FROM app_user
+        WHERE corp_id = :cid
+          AND status = 'active'
+        ORDER BY display_name ASC",
+      ['cid' => $corpId]
+    );
   }
 }
 

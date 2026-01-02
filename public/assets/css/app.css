@@ -351,3 +351,41 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   gap:12px;
   margin-top:12px;
 }
+
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  background: rgba(8,11,20,.72);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  z-index:200;
+}
+.modal{
+  width:min(520px, 100%);
+  background: rgba(18,24,36,.98);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow:0 25px 70px rgba(0,0,0,.5);
+  padding:20px;
+}
+.modal-header{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:flex-start;
+}
+.modal-body{
+  margin-top:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.modal-list{
+  display:grid;
+  gap:8px;
+  max-height:320px;
+  overflow:auto;
+  padding-right:4px;
+}

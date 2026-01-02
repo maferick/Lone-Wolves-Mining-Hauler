@@ -36,12 +36,14 @@ try {
   $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
   $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
   $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
-  $path = ($pathPrefix ?: '') . '/request?request_id=' . (string)$result['request_id'];
+  $requestKey = (string)($result['request_key'] ?? '');
+  $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey !== '' ? $requestKey : (string)$result['request_id']);
   $requestUrl = $baseUrl !== '' ? $baseUrl . $path : $path;
 
   api_send_json([
     'ok' => true,
     'request_id' => $result['request_id'],
+    'request_key' => $requestKey,
     'request_url' => $requestUrl,
     'quote' => $result['quote'],
     'breakdown' => $result['breakdown'],
