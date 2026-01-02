@@ -28,6 +28,42 @@ if ($basePath !== '' && $path === $basePath) {
   }
 }
 
+if ($basePath === '') {
+  $knownRoutes = [
+    '/operations',
+    '/request',
+    '/docs',
+    '/rates',
+    '/faq',
+    '/health',
+    '/login',
+    '/logout',
+    '/rights',
+    '/api/ping',
+  ];
+
+  foreach ($knownRoutes as $route) {
+    if (str_ends_with($path, $route) && $path !== $route) {
+      $candidateBase = rtrim(substr($path, 0, -strlen($route)), '/');
+      if ($candidateBase !== '' && $candidateBase !== '.') {
+        $basePath = $candidateBase;
+        $config['app']['base_path'] = $basePath;
+        $path = $route;
+        break;
+      }
+    }
+  }
+
+  if ($basePath === '' && $path !== '/') {
+    $segments = array_values(array_filter(explode('/', $path)));
+    if (count($segments) === 1 && !in_array('/' . $segments[0], $knownRoutes, true)) {
+      $basePath = '/' . $segments[0];
+      $config['app']['base_path'] = $basePath;
+      $path = '/';
+    }
+  }
+}
+
 // Serve static assets when the front controller is used as the router.
 if (str_starts_with($path, '/assets/')) {
   $publicRoot = realpath(__DIR__);
