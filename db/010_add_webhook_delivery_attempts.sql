@@ -1,0 +1,2 @@
+ALTER TABLE webhook_delivery
+  ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0 AFTER status;
