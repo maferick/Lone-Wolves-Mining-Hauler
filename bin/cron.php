@@ -82,6 +82,35 @@ $saveState = static function (Db $db, int $corpId, array $state): void {
   );
 };
 
+$loadTaskSettings = static function (Db $db, ?int $corpId): array {
+  if ($corpId === null) {
+    $rows = $db->select(
+      "SELECT task_key, is_enabled
+         FROM cron_task_setting
+        WHERE corp_id IS NULL"
+    );
+  } else {
+    $rows = $db->select(
+      "SELECT task_key, is_enabled
+         FROM cron_task_setting
+        WHERE corp_id = :cid",
+      ['cid' => $corpId]
+    );
+  }
+  $settings = [];
+  foreach ($rows as $row) {
+    $settings[(string)$row['task_key']] = (int)$row['is_enabled'] === 1;
+  }
+  return $settings;
+};
+
+$isTaskEnabled = static function (array $settings, string $taskKey): bool {
+  if (!array_key_exists($taskKey, $settings)) {
+    return true;
+  }
+  return (bool)$settings[$taskKey];
+};
+
 $shouldRun = static function (?string $lastRun, int $intervalSeconds, int $now): bool {
   if (!$lastRun) {
     return true;
@@ -93,8 +122,12 @@ $shouldRun = static function (?string $lastRun, int $intervalSeconds, int $now):
   return ($now - $ts) >= $intervalSeconds;
 };
 
+$globalTaskSettings = $loadTaskSettings($db, null);
+
 try {
-  if (!isset($services['discord_webhook'])) {
+  if (!$isTaskEnabled($globalTaskSettings, JobQueueService::WEBHOOK_DELIVERY_JOB)) {
+    $log('Webhook delivery disabled; skipping.');
+  } elseif (!isset($services['discord_webhook'])) {
     $log('Discord webhook service not configured.');
   } else {
     if ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_DELIVERY_JOB)) {
@@ -130,9 +163,11 @@ foreach ($cronRows as $row) {
   }
 
   $state = $loadState($db, $corpId);
+  $taskSettings = $loadTaskSettings($db, $corpId);
   $updated = false;
 
-  if ($shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
+  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_SYNC_JOB)
+    && $shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_SYNC_JOB)) {
         $log("Cron sync job already queued for corp {$corpId}.");
@@ -149,7 +184,8 @@ foreach ($cronRows as $row) {
     }
   }
 
-  if ($shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
+  if ($isTaskEnabled($taskSettings, JobQueueService::CONTRACT_MATCH_JOB)
+    && $shouldRun($state['contract_match'] ?? null, $matchInterval, $now)) {
     try {
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CONTRACT_MATCH_JOB)) {
         $log("Contract match job already queued for corp {$corpId}.");
