@@ -14,6 +14,7 @@ $queueStats = [
 $requests = [];
 $requestsAvailable = false;
 $dbOk = $health['db'] ?? false;
+$apiKey = (string)($config['security']['api_key'] ?? '');
 
 $canViewOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));

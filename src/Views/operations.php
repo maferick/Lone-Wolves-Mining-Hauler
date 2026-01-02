@@ -13,6 +13,7 @@ $requests = $requests ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
 $userId = (int)($authCtx['user_id'] ?? 0);
+$apiKey = $apiKey ?? '';
 
 $buildRouteLabel = static function (array $req): string {
   $fromName = $req['from_name'] ?? $req['from_location_name'] ?? null;
@@ -332,11 +333,13 @@ ob_start();
 <?php if ($isLoggedIn): ?>
 <script>
   const basePath = <?= json_encode($basePath ?: '') ?>;
+  const apiKey = <?= json_encode($apiKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
   const sendJson = async (url, payload) => {
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
       },
       body: JSON.stringify(payload),
     });
