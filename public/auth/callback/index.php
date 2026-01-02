@@ -20,6 +20,22 @@ $state = $_GET['state'] ?? '';
 $mode = $_SESSION['sso_mode'] ?? 'member';
 $returnTo = $_SESSION['sso_return_to'] ?? '';
 
+if (($code === '' || $state === '') && !empty($_SERVER['HTTP_REFERER'])) {
+  $ref = parse_url((string)$_SERVER['HTTP_REFERER']);
+  $refHost = (string)($ref['host'] ?? '');
+  $reqHost = (string)($_SERVER['HTTP_HOST'] ?? '');
+  $refPath = (string)($ref['path'] ?? '');
+
+  if ($refHost !== '' && $reqHost !== '' && strcasecmp($refHost, $reqHost) === 0 && str_contains($refPath, '/auth/callback')) {
+    $query = (string)($ref['query'] ?? '');
+    if ($query !== '') {
+      parse_str($query, $refQuery);
+      $code = $code !== '' ? $code : (string)($refQuery['code'] ?? '');
+      $state = $state !== '' ? $state : (string)($refQuery['state'] ?? '');
+    }
+  }
+}
+
 if ($db === null || !isset($services['sso_login'], $services['eve_public'])) {
   http_response_code(503);
   echo "SSO unavailable (database offline).";
