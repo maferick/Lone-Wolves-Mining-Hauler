@@ -61,7 +61,7 @@ ob_start();
             <p class="muted">Monitor incoming requests and see status changes in real time.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="#queue">Open queue</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Open queue</a>
           </div>
         </div>
         <div class="card" style="background: rgba(255,255,255,.02);">
@@ -70,7 +70,7 @@ ob_start();
             <p class="muted">Quote, update, and audit haul requests before posting.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="#queue">Review requests</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Review requests</a>
           </div>
         </div>
       </div>
@@ -81,7 +81,7 @@ ob_start();
             <p class="muted">Dispatch internal haulers and track assignments.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="#queue">Assign jobs</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
           </div>
         </div>
         <div class="card" style="background: rgba(255,255,255,.02);">
@@ -90,7 +90,7 @@ ob_start();
             <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="#queue">Update activity</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Update activity</a>
           </div>
         </div>
       </div>
