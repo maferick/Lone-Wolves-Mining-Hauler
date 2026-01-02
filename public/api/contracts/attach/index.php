@@ -166,7 +166,9 @@ $securityCounts = $breakdown['security_counts'] ?? ['high' => 0, 'low' => 0, 'nu
 
 $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-$requestPath = ($basePath ?: '') . '/request?request_id=' . (string)$request['request_id'];
+$baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
+$pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
+$requestPath = ($pathPrefix ?: '') . '/request?request_id=' . (string)$request['request_id'];
 $requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
 
 $webhookPayload = [
