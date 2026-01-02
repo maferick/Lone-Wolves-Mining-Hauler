@@ -275,6 +275,9 @@ try {
 
   // Redirect to admin for admins; otherwise return to dashboard.
   $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+  if ($base !== '' && str_ends_with($base, '/auth/callback')) {
+    $base = '';
+  }
   $redirectPath = $isAdmin ? '/admin/' : '/';
   $returnTo = (string)$returnTo;
   if ($returnTo !== '' && str_starts_with($returnTo, '/') && !str_starts_with($returnTo, '//')) {
