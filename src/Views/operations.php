@@ -352,17 +352,31 @@ ob_start();
         </thead>
         <tbody>
           <?php foreach ($requests as $req): ?>
-            <?php $requestId = (int)($req['request_id'] ?? 0); ?>
+            <?php
+              $requestId = (int)($req['request_id'] ?? 0);
+              $updateStatusOptions = [
+                'in_progress' => 'Picked up',
+                'in_transit' => 'In transit',
+                'delivered' => 'Delivered',
+              ];
+              $currentStatus = (string)($req['status'] ?? '');
+              $statusLabel = $updateStatusOptions[$currentStatus] ?? $currentStatus;
+              $selectedStatus = array_key_exists($currentStatus, $updateStatusOptions)
+                ? $currentStatus
+                : 'in_progress';
+            ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)$statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
               <td>
                 <div class="row" style="gap:8px; align-items:center;">
                   <select class="input js-status-select" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">
-                    <option value="in_progress">Picked up</option>
-                    <option value="in_transit">In transit</option>
-                    <option value="delivered">Delivered</option>
+                    <?php foreach ($updateStatusOptions as $value => $label): ?>
+                      <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>"<?= $value === $selectedStatus ? ' selected' : '' ?>>
+                        <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                      </option>
+                    <?php endforeach; ?>
                   </select>
                   <button class="btn ghost js-update-status" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Update</button>
                 </div>
