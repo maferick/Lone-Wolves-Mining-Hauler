@@ -34,9 +34,24 @@ if ($corpId <= 0) {
 }
 
 $request = $db->one(
-  "SELECT request_id, requester_user_id, status
-     FROM haul_request
-    WHERE request_id = :rid AND corp_id = :cid
+  "SELECT r.request_id,
+          r.requester_user_id,
+          r.status,
+          r.from_location_id,
+          r.to_location_id,
+          r.from_location_type,
+          r.to_location_type,
+          r.volume_m3,
+          r.reward_isk,
+          r.title,
+          u.display_name AS requester_name,
+          fs.system_name AS from_system_name,
+          ts.system_name AS to_system_name
+     FROM haul_request r
+     LEFT JOIN app_user u ON u.user_id = r.requester_user_id
+     LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
+     LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
+    WHERE r.request_id = :rid AND r.corp_id = :cid
     LIMIT 1",
   ['rid' => $requestId, 'cid' => $corpId]
 );
@@ -109,6 +124,30 @@ $db->tx(function ($db) use ($requestId, $haulerUserId, $corpId, $authCtx, $reque
     $_SERVER['HTTP_USER_AGENT'] ?? null
   );
 });
+
+if (!empty($services['discord_webhook'])) {
+  /** @var \App\Services\DiscordWebhookService $webhooks */
+  $webhooks = $services['discord_webhook'];
+  try {
+    $assignerName = (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown');
+    $payload = $webhooks->buildHaulAssignmentPayload([
+      'title' => 'Haul Assigned #' . (string)$requestId,
+      'request_id' => $requestId,
+      'from_system' => (string)($request['from_system_name'] ?? ''),
+      'to_system' => (string)($request['to_system_name'] ?? ''),
+      'volume_m3' => (float)($request['volume_m3'] ?? 0),
+      'reward_isk' => (float)($request['reward_isk'] ?? 0),
+      'requester' => (string)($request['requester_name'] ?? ''),
+      'hauler' => (string)($hauler['display_name'] ?? ''),
+      'actor' => $assignerName,
+      'actor_label' => 'Assigned By',
+      'status' => 'assigned',
+    ]);
+    $webhooks->enqueue($corpId, 'haul.assignment.created', $payload);
+  } catch (\Throwable $e) {
+    // Ignore webhook enqueue failures to avoid blocking the assignment flow.
+  }
+}
 
 api_send_json([
   'ok' => true,

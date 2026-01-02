@@ -165,6 +165,9 @@ final class DiscordWebhookService
     $requester = (string)($details['requester'] ?? 'Unknown');
     $requestUrl = $this->buildRequestUrl($details['request_id'] ?? null);
     $description = trim($from . ' → ' . $to);
+    if ($description === '→') {
+      $description = '';
+    }
 
     $fields = [
       [
@@ -254,6 +257,95 @@ final class DiscordWebhookService
     ];
   }
 
+  public function buildHaulAssignmentPayload(array $details): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $title = (string)($details['title'] ?? 'Haul Assignment');
+    $route = $details['route'] ?? [];
+    $from = (string)($details['from_system'] ?? $this->extractRouteEndpoint($route, 'from'));
+    $to = (string)($details['to_system'] ?? $this->extractRouteEndpoint($route, 'to'));
+    $volume = (float)($details['volume_m3'] ?? 0);
+    $reward = (float)($details['reward_isk'] ?? 0);
+    $requester = trim((string)($details['requester'] ?? ''));
+    $hauler = trim((string)($details['hauler'] ?? ''));
+    $status = trim((string)($details['status'] ?? ''));
+    $actor = trim((string)($details['actor'] ?? ''));
+    $actorLabel = trim((string)($details['actor_label'] ?? 'Actor'));
+    $requestUrl = $this->buildRequestUrl($details['request_id'] ?? null);
+    $description = trim($from . ' → ' . $to);
+
+    $fields = [];
+    if ($description !== '') {
+      $fields[] = [
+        'name' => 'Route',
+        'value' => $description,
+        'inline' => false,
+      ];
+    }
+    if ($volume > 0) {
+      $fields[] = [
+        'name' => 'Volume',
+        'value' => number_format($volume, 0) . ' m³',
+        'inline' => true,
+      ];
+    }
+    if ($reward > 0) {
+      $fields[] = [
+        'name' => 'Reward',
+        'value' => number_format($reward, 2) . ' ISK',
+        'inline' => true,
+      ];
+    }
+    if ($requester !== '') {
+      $fields[] = [
+        'name' => 'Requester',
+        'value' => $requester,
+        'inline' => true,
+      ];
+    }
+    if ($hauler !== '') {
+      $fields[] = [
+        'name' => 'Hauler',
+        'value' => $hauler,
+        'inline' => true,
+      ];
+    }
+    if ($actor !== '') {
+      $fields[] = [
+        'name' => $actorLabel !== '' ? $actorLabel : 'Actor',
+        'value' => $actor,
+        'inline' => true,
+      ];
+    }
+    if ($status !== '') {
+      $fields[] = [
+        'name' => 'Status',
+        'value' => $status,
+        'inline' => true,
+      ];
+    }
+
+    if ($requestUrl !== '') {
+      $fields[] = [
+        'name' => 'Request',
+        'value' => '[' . $title . '](' . $requestUrl . ')',
+        'inline' => false,
+      ];
+    }
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        [
+          'title' => $title,
+          'description' => $description,
+          'fields' => $fields,
+          'timestamp' => gmdate('c'),
+        ],
+      ],
+    ];
+  }
+
   private function isEventEnabled(int $corpId, string $eventKey): bool
   {
     $settings = $this->getEventSettings($corpId);
@@ -297,6 +389,8 @@ final class DiscordWebhookService
       'haul.request.created' => true,
       'haul.quote.created' => true,
       'haul.contract.attached' => true,
+      'haul.assignment.created' => true,
+      'haul.assignment.picked_up' => true,
       'esi.contracts.pulled' => true,
       'webhook.test' => true,
     ];
