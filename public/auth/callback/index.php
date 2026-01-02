@@ -27,8 +27,18 @@ if ($db === null || !isset($services['sso_login'], $services['eve_public'])) {
 }
 
 if ($code === '' || $state === '') {
+  $errorDetail = (string)($_GET['error_description'] ?? $_GET['error'] ?? '');
+  $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+  $loginUrl = ($base ?: '') . '/login/?start=1&mode=' . rawurlencode($mode);
+  if ($returnTo !== '' && str_starts_with($returnTo, '/') && !str_starts_with($returnTo, '//')) {
+    $loginUrl .= '&return=' . rawurlencode($returnTo);
+  }
+
   http_response_code(400);
-  echo "Missing code/state";
+  if ($errorDetail !== '') {
+    echo "SSO error: " . htmlspecialchars($errorDetail, ENT_QUOTES, 'UTF-8') . "<br>";
+  }
+  echo "Missing code/state. <a href=\"" . htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') . "\">Restart login</a>";
   exit;
 }
 
