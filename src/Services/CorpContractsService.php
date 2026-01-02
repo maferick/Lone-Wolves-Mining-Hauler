@@ -42,6 +42,7 @@ final class CorpContractsService
       throw new \RuntimeException("No sso_token found for corp_id={$corpId}, character_id={$characterOwnerId}");
     }
     $token = $this->sso->ensureAccessToken($token);
+    $tokenId = (int)$token['token_id'];
 
     // ESI requires Bearer token for corp endpoints
     $bearer = $token['access_token'];
@@ -53,8 +54,9 @@ final class CorpContractsService
     $upsertedItems = 0;
 
     while ($page <= $pageLimit) {
-      $resp = $this->esiAuthedGet(
+      $resp = $this->esiAuthedGetWithRefresh(
         $bearer,
+        $tokenId,
         "/v1/corporations/{$corpId}/contracts/",
         ['page' => $page],
         $corpId,
@@ -84,8 +86,9 @@ final class CorpContractsService
 
         // Pull items only for non-courier? PushX-like usually cares about courier volume/collateral/reward.
         // Still: keep it comprehensive and pull items when endpoint returns data.
-        $itemsResp = $this->esiAuthedGet(
+        $itemsResp = $this->esiAuthedGetWithRefresh(
           $bearer,
+          $tokenId,
           "/v1/corporations/{$corpId}/contracts/{$contractId}/items/",
           null,
           $corpId,
@@ -120,12 +123,14 @@ final class CorpContractsService
       throw new \RuntimeException("No sso_token found for corp_id={$corpId}, character_id={$characterOwnerId}");
     }
     $token = $this->sso->ensureAccessToken($token);
+    $tokenId = (int)$token['token_id'];
     $bearer = $token['access_token'];
 
     $page = 1;
     while ($page <= $pageLimit) {
-      $resp = $this->esiAuthedGet(
+      $resp = $this->esiAuthedGetWithRefresh(
         $bearer,
+        $tokenId,
         "/v1/corporations/{$corpId}/contracts/",
         ['page' => $page],
         $corpId,
@@ -274,6 +279,26 @@ final class CorpContractsService
     $decoded = null;
     try { $decoded = Db::jsonDecode($raw, null); } catch (\Throwable $e) {}
     return ['ok' => $status >= 200 && $status < 300, 'status' => $status, 'headers' => $respHeaders, 'json' => $decoded, 'raw' => $raw, 'from_cache' => false];
+  }
+
+  private function esiAuthedGetWithRefresh(
+    string &$bearer,
+    int $tokenId,
+    string $path,
+    ?array $query,
+    int $corpId,
+    int $ttl
+  ): array {
+    $resp = $this->esiAuthedGet($bearer, $path, $query, $corpId, $ttl);
+    if ($resp['ok'] || $resp['status'] !== 401) {
+      return $resp;
+    }
+
+    $token = $this->sso->refreshToken($tokenId);
+    $bearer = $token['access_token'];
+    $retry = $this->esiAuthedGet($bearer, $path, $query, $corpId, $ttl);
+    $retry['refreshed'] = true;
+    return $retry;
   }
 
   private function upsertContract(int $corpId, array $c, string $rawJson): void
