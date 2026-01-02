@@ -187,16 +187,29 @@ final class DiscordWebhookService
     $collateral = (float)($details['collateral_isk'] ?? 0);
     $price = (float)($details['price_isk'] ?? 0);
     $requester = (string)($details['requester'] ?? 'Unknown');
+    $requesterCharacterId = (int)($details['requester_character_id'] ?? 0);
+    $requesterAvatarUrl = trim((string)($details['requester_avatar_url'] ?? ''));
+    $shipClass = trim((string)($details['ship_class'] ?? ''));
     $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
     $description = trim($from . ' → ' . $to);
     if ($description === '→') {
       $description = '';
     }
 
+    $requesterAvatarUrl = $requesterAvatarUrl !== ''
+      ? $requesterAvatarUrl
+      : $this->buildCharacterPortraitUrl($requesterCharacterId);
+    $shipLabel = $this->formatShipClassLabel($shipClass);
+    $priceLabel = $this->formatIskShort($price);
     $fields = [
       [
         'name' => 'Route',
-        'value' => sprintf('%d jumps (%d HS / %d LS / %d NS)', $jumps, $hs, $ls, $ns),
+        'value' => sprintf("%d jumps\n(%d HS / %d LS / %d NS)", $jumps, $hs, $ls, $ns),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Transport',
+        'value' => $shipLabel !== '' ? $shipLabel : 'N/A',
         'inline' => true,
       ],
       [
@@ -211,7 +224,7 @@ final class DiscordWebhookService
       ],
       [
         'name' => 'Price',
-        'value' => number_format($price, 2) . ' ISK',
+        'value' => $priceLabel,
         'inline' => true,
       ],
       [
@@ -229,15 +242,25 @@ final class DiscordWebhookService
       ];
     }
 
+    $embed = [
+      'title' => $title,
+      'description' => $description,
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    if ($requester !== '') {
+      $author = ['name' => $requester];
+      if ($requesterAvatarUrl !== '') {
+        $author['icon_url'] = $requesterAvatarUrl;
+      }
+      $embed['author'] = $author;
+    }
+
     return [
       'username' => $appName,
       'embeds' => [
-        [
-          'title' => $title,
-          'description' => $description,
-          'fields' => $fields,
-          'timestamp' => gmdate('c'),
-        ],
+        $embed,
       ],
     ];
   }
@@ -292,12 +315,17 @@ final class DiscordWebhookService
     $reward = (float)($details['reward_isk'] ?? 0);
     $requester = trim((string)($details['requester'] ?? ''));
     $hauler = trim((string)($details['hauler'] ?? ''));
+    $haulerCharacterId = (int)($details['hauler_character_id'] ?? 0);
+    $haulerAvatarUrl = trim((string)($details['hauler_avatar_url'] ?? ''));
     $status = trim((string)($details['status'] ?? ''));
     $actor = trim((string)($details['actor'] ?? ''));
     $actorLabel = trim((string)($details['actor_label'] ?? 'Actor'));
     $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
     $description = trim($from . ' → ' . $to);
 
+    $haulerAvatarUrl = $haulerAvatarUrl !== ''
+      ? $haulerAvatarUrl
+      : $this->buildCharacterPortraitUrl($haulerCharacterId);
     $fields = [];
     if ($description !== '') {
       $fields[] = [
@@ -316,7 +344,7 @@ final class DiscordWebhookService
     if ($reward > 0) {
       $fields[] = [
         'name' => 'Reward',
-        'value' => number_format($reward, 2) . ' ISK',
+        'value' => $this->formatIskShort($reward),
         'inline' => true,
       ];
     }
@@ -357,15 +385,25 @@ final class DiscordWebhookService
       ];
     }
 
+    $embed = [
+      'title' => $title,
+      'description' => $description,
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    if ($hauler !== '') {
+      $author = ['name' => $hauler];
+      if ($haulerAvatarUrl !== '') {
+        $author['icon_url'] = $haulerAvatarUrl;
+      }
+      $embed['author'] = $author;
+    }
+
     return [
       'username' => $appName,
       'embeds' => [
-        [
-          'title' => $title,
-          'description' => $description,
-          'fields' => $fields,
-          'timestamp' => gmdate('c'),
-        ],
+        $embed,
       ],
     ];
   }
@@ -517,6 +555,59 @@ final class DiscordWebhookService
     $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
     $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
     return $baseUrl !== '' ? $baseUrl . $path : $path;
+  }
+
+  private function formatShipClassLabel(string $shipClass): string
+  {
+    $normalized = strtoupper(trim($shipClass));
+    $labels = [
+      'BR' => 'Blockade Runner',
+      'DST' => 'Deep Space Transport',
+      'JF' => 'Jump Freighter',
+      'FREIGHTER' => 'Freighter',
+    ];
+
+    return $labels[$normalized] ?? $shipClass;
+  }
+
+  private function formatIskShort(float $amount): string
+  {
+    $abs = abs($amount);
+    $suffix = ' ISK';
+    $value = $amount;
+    $unit = '';
+
+    if ($abs >= 1_000_000_000_000) {
+      $value = $amount / 1_000_000_000_000;
+      $unit = 'T';
+    } elseif ($abs >= 1_000_000_000) {
+      $value = $amount / 1_000_000_000;
+      $unit = 'B';
+    } elseif ($abs >= 1_000_000) {
+      $value = $amount / 1_000_000;
+      $unit = 'M';
+    } elseif ($abs >= 1_000) {
+      $value = $amount / 1_000;
+      $unit = 'K';
+    }
+
+    if ($unit === '') {
+      return number_format($amount, 0) . $suffix;
+    }
+
+    $decimals = abs($value) < 10 ? 1 : 0;
+    $formatted = number_format($value, $decimals);
+    $formatted = rtrim(rtrim($formatted, '0'), '.');
+
+    return $formatted . $unit . $suffix;
+  }
+
+  private function buildCharacterPortraitUrl(int $characterId): string
+  {
+    if ($characterId <= 0) {
+      return '';
+    }
+    return 'https://images.evetech.net/characters/' . $characterId . '/portrait?size=64';
   }
 
   private function snippet(string $body, int $max = 400): string

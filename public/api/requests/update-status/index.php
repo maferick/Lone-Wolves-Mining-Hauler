@@ -53,6 +53,7 @@ $request = $db->one(
           u.display_name AS requester_name,
           a.hauler_user_id,
           h.display_name AS hauler_name,
+          h.character_id AS hauler_character_id,
           fs.system_name AS from_system_name,
           ts.system_name AS to_system_name
      FROM haul_request r
@@ -150,6 +151,7 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
       'reward_isk' => (float)($request['reward_isk'] ?? 0),
       'requester' => (string)($request['requester_name'] ?? ''),
       'hauler' => (string)($request['hauler_name'] ?? ''),
+      'hauler_character_id' => (int)($request['hauler_character_id'] ?? 0),
       'actor' => $actorName,
       'actor_label' => 'Picked Up By',
       'status' => 'in_progress',
