@@ -28,7 +28,7 @@ final class ContractMatchService
   public function matchOpenRequests(int $corpId): array
   {
     $requests = $this->db->select(
-      "SELECT request_id, corp_id, from_location_id, to_location_id, volume_m3, collateral_isk, reward_isk,
+      "SELECT request_id, request_key, corp_id, from_location_id, to_location_id, volume_m3, collateral_isk, reward_isk,
               ship_class, route_policy, route_profile, contract_hint_text, contract_id, contract_status, status
          FROM haul_request
         WHERE corp_id = :cid
@@ -457,6 +457,7 @@ final class ContractMatchService
 
     $payload = $this->webhooks->buildContractLinkedPayload([
       'request_id' => (int)($request['request_id'] ?? 0),
+      'request_key' => (string)($request['request_key'] ?? ''),
       'route' => $routeLabel,
       'ship_class' => (string)($request['ship_class'] ?? ''),
       'volume_m3' => (float)($request['volume_m3'] ?? 0.0),

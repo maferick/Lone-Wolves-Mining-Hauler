@@ -28,7 +28,7 @@ if ($corpId <= 0) {
 }
 
 $request = $db->one(
-  "SELECT request_id, requester_user_id, from_location_id, to_location_id, collateral_isk, reward_isk, volume_m3, ship_class,
+  "SELECT request_id, request_key, requester_user_id, from_location_id, to_location_id, collateral_isk, reward_isk, volume_m3, ship_class,
           route_policy, price_breakdown_json, quote_id
      FROM haul_request
     WHERE corp_id = :cid AND quote_id = :qid
@@ -183,7 +183,8 @@ $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
 $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
-$requestPath = ($pathPrefix ?: '') . '/request?request_id=' . (string)$request['request_id'];
+$requestKey = (string)($request['request_key'] ?? '');
+$requestPath = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey !== '' ? $requestKey : (string)$request['request_id']);
 $requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
 
 $webhookPayload = [

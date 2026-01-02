@@ -41,6 +41,7 @@ if ($corpId <= 0) {
 
 $request = $db->one(
   "SELECT r.request_id,
+          r.request_key,
           r.status,
           r.from_location_id,
           r.to_location_id,
@@ -142,6 +143,7 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
     $payload = $webhooks->buildHaulAssignmentPayload([
       'title' => 'Haul Picked Up #' . (string)$requestId,
       'request_id' => $requestId,
+      'request_key' => (string)($request['request_key'] ?? ''),
       'from_system' => (string)($request['from_system_name'] ?? ''),
       'to_system' => (string)($request['to_system_name'] ?? ''),
       'volume_m3' => (float)($request['volume_m3'] ?? 0),
