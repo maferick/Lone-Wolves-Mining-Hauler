@@ -41,12 +41,15 @@ final class CronSyncService
       'ttl_contracts' => 300,
       'ttl_structures' => 900,
       'ttl_public_structures' => 86400,
+      'sync_public_structures' => true,
       'on_progress' => null,
     ], $options);
 
     $force = (bool)$options['force'];
     $scope = (string)$options['scope'];
     $useSde = (bool)$options['sde'];
+    $syncPublicStructures = (bool)$options['sync_public_structures'];
+    $usingSde = $useSde || (bool)($this->config['sde']['enabled'] ?? false);
     $this->universe->setForceSde($useSde);
     $runUniverse = in_array($scope, ['all', 'universe'], true);
     $runCorp = $scope === 'all';
@@ -59,7 +62,9 @@ final class CronSyncService
     if ($runCorp) {
       $steps[] = ['key' => 'token_refresh', 'label' => 'Token refresh'];
       $steps[] = ['key' => 'structures', 'label' => 'Structures'];
-      $steps[] = ['key' => 'public_structures', 'label' => 'Public structures'];
+      if ($syncPublicStructures) {
+        $steps[] = ['key' => 'public_structures', 'label' => 'Public structures'];
+      }
       $steps[] = ['key' => 'contracts', 'label' => 'Contracts'];
     }
     $totalSteps = count($steps);
@@ -79,7 +84,7 @@ final class CronSyncService
       'started_at' => gmdate('c'),
     ];
 
-    $universeEmpty = $this->isUniverseEmpty();
+    $universeEmpty = $this->isUniverseEmpty($usingSde);
     if ($runUniverse) {
       $currentStep++;
       $this->reportProgress($progressCb, [
@@ -158,27 +163,31 @@ final class CronSyncService
       $results['structures_error'] = $e->getMessage();
     }
 
-    $publicStructuresEmpty = $this->isPublicStructuresEmpty();
-    if ($runCorp) {
-      $currentStep++;
-      $this->reportProgress($progressCb, [
-        'current' => $currentStep,
-        'total' => $totalSteps,
-        'label' => 'Public structures',
-        'stage' => 'public_structures',
-      ]);
-    }
-    try {
-      if (!$runCorp) {
-        $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty, 'scope');
-      } elseif ($this->shouldRun($stats, 'public_structures', (int)$options['ttl_public_structures'], $force, $publicStructuresEmpty)) {
-        $results['public_structures'] = $this->universe->syncPublicStructures($corpId, $characterId, (int)$options['ttl_public_structures']);
-        $stats['public_structures'] = gmdate('c');
-      } else {
-        $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty);
+    if ($syncPublicStructures) {
+      $publicStructuresEmpty = $this->isPublicStructuresEmpty();
+      if ($runCorp) {
+        $currentStep++;
+        $this->reportProgress($progressCb, [
+          'current' => $currentStep,
+          'total' => $totalSteps,
+          'label' => 'Public structures',
+          'stage' => 'public_structures',
+        ]);
       }
-    } catch (\Throwable $e) {
-      $results['public_structures_error'] = $e->getMessage();
+      try {
+        if (!$runCorp) {
+          $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty, 'scope');
+        } elseif ($this->shouldRun($stats, 'public_structures', (int)$options['ttl_public_structures'], $force, $publicStructuresEmpty)) {
+          $results['public_structures'] = $this->universe->syncPublicStructures($corpId, $characterId, (int)$options['ttl_public_structures']);
+          $stats['public_structures'] = gmdate('c');
+        } else {
+          $results['public_structures'] = $this->skipPayload($stats, 'public_structures', $publicStructuresEmpty);
+        }
+      } catch (\Throwable $e) {
+        $results['public_structures_error'] = $e->getMessage();
+      }
+    } else {
+      $results['public_structures'] = $this->skipPayload($stats, 'public_structures', false, 'disabled');
     }
 
     $contractsEmpty = $this->isContractsEmpty($corpId);
@@ -278,11 +287,14 @@ final class CronSyncService
     return $ts === false ? null : $ts;
   }
 
-  private function isUniverseEmpty(): bool
+  private function isUniverseEmpty(bool $usingSde): bool
   {
     $regionCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_region");
     $constellationCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_constellation");
     $systemCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_system");
+    if (!$usingSde) {
+      return $regionCount === 0 || $constellationCount === 0 || $systemCount === 0;
+    }
     $stationCount = (int)$this->db->fetchValue("SELECT COUNT(*) FROM eve_station");
     return $regionCount === 0 || $constellationCount === 0 || $systemCount === 0 || $stationCount === 0;
   }

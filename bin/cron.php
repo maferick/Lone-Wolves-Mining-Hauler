@@ -11,6 +11,7 @@ declare(strict_types=1);
  *  - CRON_WEBHOOK_LIMIT (default 50)
  *  - CRON_SYNC_INTERVAL (seconds, default 300)
  *  - CRON_MATCH_INTERVAL (seconds, default 300)
+ *  - CRON_SYNC_PUBLIC_STRUCTURES (default 0)
  */
 
 require __DIR__ . '/../src/bootstrap.php';
@@ -32,6 +33,7 @@ $matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
 if ($matchInterval <= 0) {
   $matchInterval = 300;
 }
+$syncPublicStructures = (int)($_ENV['CRON_SYNC_PUBLIC_STRUCTURES'] ?? 0) === 1;
 
 $now = time();
 
@@ -113,7 +115,10 @@ foreach ($cronRows as $row) {
   if ($shouldRun($state['cron_sync'] ?? null, $syncInterval, $now)) {
     try {
       $cron = new CronSyncService($db, $config, $services['esi'], $services['discord_webhook'] ?? null);
-      $cron->run($corpId, $charId, ['scope' => 'all']);
+      $cron->run($corpId, $charId, [
+        'scope' => 'all',
+        'sync_public_structures' => $syncPublicStructures,
+      ]);
       $state['cron_sync'] = gmdate('c', $now);
       $updated = true;
       $log("Cron sync ran for corp {$corpId}.");
