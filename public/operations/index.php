@@ -47,7 +47,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $requestKeySelect = $hasRequestKey ? 'r.request_key' : 'hr.request_key AS request_key';
     $requestKeyJoin = $hasRequestKey ? '' : 'LEFT JOIN haul_request hr ON hr.request_id = r.request_id';
     $requests = $db->select(
-      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.contract_validation_json, r.mismatch_reason_json,
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -67,7 +67,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $hasRequestKey = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'request_key'");
     $requestKeySelect = $hasRequestKey ? 'r.request_key' : "'' AS request_key";
     $requests = $db->select(
-      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.contract_validation_json, r.mismatch_reason_json,
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
               u.display_name AS requester_display_name, a.hauler_user_id,
               h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
