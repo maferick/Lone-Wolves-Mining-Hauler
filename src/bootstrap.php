@@ -40,19 +40,7 @@ if (file_exists($envPath)) {
     [$k, $v] = explode('=', $line, 2);
     $k = trim($k);
     $v = trim($v);
-    if ($v !== '') {
-      $quote = $v[0];
-      if ($quote === '"' || $quote === "'") {
-        $endPos = strpos($v, $quote, 1);
-        if ($endPos !== false) {
-          $v = substr($v, 1, $endPos - 1);
-        }
-      } elseif (str_contains($v, '#')) {
-        $parts = preg_split('/\s+#/', $v, 2);
-        $v = $parts[0] ?? $v;
-      }
-    }
-    $v = trim($v, "\"' \t");
+    $v = trim($v, "\"'");
     if ($k !== '' && getenv($k) === false) {
       putenv($k . '=' . $v);
       $_ENV[$k] = $v;
