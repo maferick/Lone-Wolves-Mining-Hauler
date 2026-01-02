@@ -27,10 +27,6 @@ ob_start();
           <div class="label">Route</div>
           <div><?= htmlspecialchars((string)$routeSummary, ENT_QUOTES, 'UTF-8') ?></div>
         </div>
-        <div>
-          <div class="label">Priority</div>
-          <div><?= htmlspecialchars((string)$request['route_policy'], ENT_QUOTES, 'UTF-8') ?></div>
-        </div>
       </div>
 
       <div class="row" style="margin-top:16px;">

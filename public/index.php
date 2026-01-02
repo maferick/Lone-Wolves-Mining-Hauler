@@ -465,22 +465,9 @@ switch ($path) {
           $shipClassMax = (float)($breakdown['ship_class']['max_volume'] ?? 0);
           $shipClassLabel = $shipClass !== '' ? $shipClass : 'N/A';
 
-          $dnfNotes = [];
-          $softRules = $route['used_soft_dnf_rules'] ?? [];
-          if (is_array($softRules)) {
-            foreach ($softRules as $rule) {
-              if (!empty($rule['reason'])) {
-                $dnfNotes[] = (string)$rule['reason'];
-              }
-            }
-          }
-          $dnfText = $dnfNotes ? implode('; ', $dnfNotes) : 'None';
-
           $contractDescription = sprintf(
-            "Quote #%s | Priority: %s | DNF: %s | Note: assembled containers/wraps are OK (mention in contract).",
-            (string)($request['quote_id'] ?? 'N/A'),
-            (string)($request['route_policy'] ?? 'normal'),
-            $dnfText
+            "Quote #%s | Note: assembled containers/wraps are OK (mention in contract).",
+            (string)($request['quote_id'] ?? 'N/A')
           );
         }
       }
@@ -505,6 +492,21 @@ switch ($path) {
     $body = '<section class="card"><div class="card-header"><h2>FAQ</h2><p class="muted">Coming soon.</p></div><div class="content"><a class="btn ghost" href="' . htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') . '">Back to dashboard</a></div></section>';
     $basePath = $basePath;
     require __DIR__ . '/../src/Views/layout.php';
+    break;
+
+  case '/api/quote':
+  case '/api/quote/':
+    require __DIR__ . '/api/quote/index.php';
+    break;
+
+  case '/api/requests/create':
+  case '/api/requests/create/':
+    require __DIR__ . '/api/requests/create/index.php';
+    break;
+
+  case '/api/contracts/attach':
+  case '/api/contracts/attach/':
+    require __DIR__ . '/api/contracts/attach/index.php';
     break;
 
   case '/api/ping':
