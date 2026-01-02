@@ -10,8 +10,11 @@ declare(strict_types=1);
  * Env overrides:
  *  - CRON_WEBHOOK_LIMIT (default 50)
  *  - CRON_SYNC_INTERVAL (seconds, default 300)
+ *  - CRON_TOKEN_REFRESH_INTERVAL (seconds, default 300)
+ *  - CRON_STRUCTURES_INTERVAL (seconds, default 900)
+ *  - CRON_PUBLIC_STRUCTURES_INTERVAL (seconds, default 86400)
+ *  - CRON_CONTRACTS_INTERVAL (seconds, default 300)
  *  - CRON_MATCH_INTERVAL (seconds, default 300)
- *  - CRON_SYNC_PUBLIC_STRUCTURES (default 0)
  */
 
 require __DIR__ . '/../src/bootstrap.php';
@@ -49,11 +52,26 @@ $syncInterval = (int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300);
 if ($syncInterval <= 0) {
   $syncInterval = 300;
 }
+$tokenRefreshInterval = (int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300);
+if ($tokenRefreshInterval <= 0) {
+  $tokenRefreshInterval = 300;
+}
+$structuresInterval = (int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900);
+if ($structuresInterval <= 0) {
+  $structuresInterval = 900;
+}
+$publicStructuresInterval = (int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400);
+if ($publicStructuresInterval <= 0) {
+  $publicStructuresInterval = 86400;
+}
+$contractsInterval = (int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300);
+if ($contractsInterval <= 0) {
+  $contractsInterval = 300;
+}
 $matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
 if ($matchInterval <= 0) {
   $matchInterval = 300;
 }
-$syncPublicStructures = (int)($_ENV['CRON_SYNC_PUBLIC_STRUCTURES'] ?? 0) === 1;
 
 $now = time();
 $jobQueue = new JobQueueService($db);
@@ -174,13 +192,85 @@ foreach ($cronRows as $row) {
         $state['cron_sync'] = gmdate('c', $now);
         $updated = true;
       } else {
-        $jobId = $jobQueue->enqueueCronSync($corpId, $charId, 'all', false, false, $syncPublicStructures);
+        $jobId = $jobQueue->enqueueCronSync($corpId, $charId, 'universe', false, false, false);
         $state['cron_sync'] = gmdate('c', $now);
         $updated = true;
         $log("Cron sync job queued for corp {$corpId}: {$jobId}.");
       }
     } catch (Throwable $e) {
       $log("Cron sync error for corp {$corpId}: {$e->getMessage()}");
+    }
+  }
+
+  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_TOKEN_REFRESH_JOB)
+    && $shouldRun($state['token_refresh'] ?? null, $tokenRefreshInterval, $now)) {
+    try {
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
+        $log("Token refresh job already queued for corp {$corpId}.");
+        $state['token_refresh'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueueTokenRefresh($corpId, $charId);
+        $state['token_refresh'] = gmdate('c', $now);
+        $updated = true;
+        $log("Token refresh job queued for corp {$corpId}: {$jobId}.");
+      }
+    } catch (Throwable $e) {
+      $log("Token refresh error for corp {$corpId}: {$e->getMessage()}");
+    }
+  }
+
+  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_STRUCTURES_JOB)
+    && $shouldRun($state['structures'] ?? null, $structuresInterval, $now)) {
+    try {
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_STRUCTURES_JOB)) {
+        $log("Structures sync job already queued for corp {$corpId}.");
+        $state['structures'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueueStructuresSync($corpId, $charId);
+        $state['structures'] = gmdate('c', $now);
+        $updated = true;
+        $log("Structures sync job queued for corp {$corpId}: {$jobId}.");
+      }
+    } catch (Throwable $e) {
+      $log("Structures sync error for corp {$corpId}: {$e->getMessage()}");
+    }
+  }
+
+  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)
+    && $shouldRun($state['public_structures'] ?? null, $publicStructuresInterval, $now)) {
+    try {
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
+        $log("Public structures sync job already queued for corp {$corpId}.");
+        $state['public_structures'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueuePublicStructuresSync($corpId, $charId);
+        $state['public_structures'] = gmdate('c', $now);
+        $updated = true;
+        $log("Public structures sync job queued for corp {$corpId}: {$jobId}.");
+      }
+    } catch (Throwable $e) {
+      $log("Public structures sync error for corp {$corpId}: {$e->getMessage()}");
+    }
+  }
+
+  if ($isTaskEnabled($taskSettings, JobQueueService::CRON_CONTRACTS_JOB)
+    && $shouldRun($state['contracts'] ?? null, $contractsInterval, $now)) {
+    try {
+      if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_CONTRACTS_JOB)) {
+        $log("Contracts sync job already queued for corp {$corpId}.");
+        $state['contracts'] = gmdate('c', $now);
+        $updated = true;
+      } else {
+        $jobId = $jobQueue->enqueueContractsSync($corpId, $charId);
+        $state['contracts'] = gmdate('c', $now);
+        $updated = true;
+        $log("Contracts sync job queued for corp {$corpId}: {$jobId}.");
+      }
+    } catch (Throwable $e) {
+      $log("Contracts sync error for corp {$corpId}: {$e->getMessage()}");
     }
   }
 

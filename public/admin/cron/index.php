@@ -35,6 +35,22 @@ $syncInterval = (int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300);
 if ($syncInterval <= 0) {
   $syncInterval = 300;
 }
+$tokenRefreshInterval = (int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300);
+if ($tokenRefreshInterval <= 0) {
+  $tokenRefreshInterval = 300;
+}
+$structuresInterval = (int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900);
+if ($structuresInterval <= 0) {
+  $structuresInterval = 900;
+}
+$publicStructuresInterval = (int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400);
+if ($publicStructuresInterval <= 0) {
+  $publicStructuresInterval = 86400;
+}
+$contractsInterval = (int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300);
+if ($contractsInterval <= 0) {
+  $contractsInterval = 300;
+}
 $matchInterval = (int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300);
 if ($matchInterval <= 0) {
   $matchInterval = 300;
@@ -186,8 +202,41 @@ $taskDefinitions = [
     'name' => 'ESI Sync',
     'schedule' => $syncInterval . 's',
     'scope' => 'corp',
-    'description' => 'Refreshes tokens, structures, public structures, and contracts.',
+    'description' => 'Refreshes universe data and the stargate graph.',
+    'sync_scope' => 'universe',
     'runner' => 'sync',
+  ],
+  JobQueueService::CRON_TOKEN_REFRESH_JOB => [
+    'key' => JobQueueService::CRON_TOKEN_REFRESH_JOB,
+    'name' => 'Token Refresh',
+    'schedule' => $tokenRefreshInterval . 's',
+    'scope' => 'corp',
+    'description' => 'Refreshes corp ESI tokens.',
+    'runner' => 'task',
+  ],
+  JobQueueService::CRON_STRUCTURES_JOB => [
+    'key' => JobQueueService::CRON_STRUCTURES_JOB,
+    'name' => 'Structures',
+    'schedule' => $structuresInterval . 's',
+    'scope' => 'corp',
+    'description' => 'Pulls corp structure data.',
+    'runner' => 'task',
+  ],
+  JobQueueService::CRON_PUBLIC_STRUCTURES_JOB => [
+    'key' => JobQueueService::CRON_PUBLIC_STRUCTURES_JOB,
+    'name' => 'Public Structures',
+    'schedule' => $publicStructuresInterval . 's',
+    'scope' => 'corp',
+    'description' => 'Pulls public structure data.',
+    'runner' => 'task',
+  ],
+  JobQueueService::CRON_CONTRACTS_JOB => [
+    'key' => JobQueueService::CRON_CONTRACTS_JOB,
+    'name' => 'Contracts',
+    'schedule' => $contractsInterval . 's',
+    'scope' => 'corp',
+    'description' => 'Pulls corp contracts.',
+    'runner' => 'task',
   ],
   JobQueueService::CONTRACT_MATCH_JOB => [
     'key' => JobQueueService::CONTRACT_MATCH_JOB,
@@ -286,7 +335,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card">
   <div class="card-header">
     <h2>Cron Manager</h2>
-    <p class="muted">Run the scheduler every minute. It queues the ESI sync, sends Discord webhooks, runs contract matching, and processes queued cron jobs.</p>
+    <p class="muted">Run the scheduler every minute. It queues ESI sync, token refresh, structure pulls, contract pulls, Discord webhooks, and contract matching.</p>
   </div>
 
   <div class="content">
@@ -368,7 +417,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <td>
                 <div class="actions">
                   <?php if ($task['runner'] === 'sync'): ?>
-                    <button class="btn" type="button" data-run-sync="all">Run Now</button>
+                    <button class="btn" type="button" data-run-sync="<?= htmlspecialchars((string)($task['sync_scope'] ?? 'all'), ENT_QUOTES, 'UTF-8') ?>">Run Now</button>
                   <?php else: ?>
                     <button class="btn" type="button" data-run-task="<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>">Run Now</button>
                   <?php endif; ?>
@@ -585,7 +634,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
   document.querySelectorAll('[data-run-sync]').forEach((button) => {
     button.addEventListener('click', () => {
-      startJob('all', false, false);
+      const scope = button.getAttribute('data-run-sync') || 'all';
+      startJob(scope, false, false);
     });
   });
 

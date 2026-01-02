@@ -8,6 +8,10 @@ use App\Db\Db;
 final class JobQueueService
 {
   public const CRON_SYNC_JOB = 'cron.sync';
+  public const CRON_TOKEN_REFRESH_JOB = 'cron.token_refresh';
+  public const CRON_STRUCTURES_JOB = 'cron.structures';
+  public const CRON_PUBLIC_STRUCTURES_JOB = 'cron.public_structures';
+  public const CRON_CONTRACTS_JOB = 'cron.contracts';
   public const CONTRACT_MATCH_JOB = 'cron.contract_match';
   public const WEBHOOK_DELIVERY_JOB = 'cron.webhook_delivery';
 
@@ -67,6 +71,67 @@ final class JobQueueService
     );
 
     return $jobId;
+  }
+
+  public function enqueueTokenRefresh(int $corpId, int $characterId, array $auditContext = []): int
+  {
+    return $this->enqueueEsiJob(
+      $corpId,
+      $characterId,
+      self::CRON_TOKEN_REFRESH_JOB,
+      'Token refresh queued.',
+      [
+        'steps' => ['token_refresh'],
+      ],
+      'cron.token_refresh.queued',
+      $auditContext
+    );
+  }
+
+  public function enqueueStructuresSync(int $corpId, int $characterId, array $auditContext = []): int
+  {
+    return $this->enqueueEsiJob(
+      $corpId,
+      $characterId,
+      self::CRON_STRUCTURES_JOB,
+      'Structures sync queued.',
+      [
+        'steps' => ['structures'],
+      ],
+      'cron.structures.queued',
+      $auditContext
+    );
+  }
+
+  public function enqueuePublicStructuresSync(int $corpId, int $characterId, array $auditContext = []): int
+  {
+    return $this->enqueueEsiJob(
+      $corpId,
+      $characterId,
+      self::CRON_PUBLIC_STRUCTURES_JOB,
+      'Public structures sync queued.',
+      [
+        'steps' => ['public_structures'],
+        'sync_public_structures' => true,
+      ],
+      'cron.public_structures.queued',
+      $auditContext
+    );
+  }
+
+  public function enqueueContractsSync(int $corpId, int $characterId, array $auditContext = []): int
+  {
+    return $this->enqueueEsiJob(
+      $corpId,
+      $characterId,
+      self::CRON_CONTRACTS_JOB,
+      'Contracts sync queued.',
+      [
+        'steps' => ['contracts'],
+      ],
+      'cron.contracts.queued',
+      $auditContext
+    );
   }
 
   public function enqueueContractMatch(int $corpId, array $auditContext = []): int
@@ -447,5 +512,60 @@ final class JobQueueService
     }
     $decoded = Db::jsonDecode((string)$job['payload_json'], []);
     return is_array($decoded) ? $decoded : [];
+  }
+
+  private function enqueueEsiJob(
+    int $corpId,
+    int $characterId,
+    string $jobType,
+    string $queueMessage,
+    array $payloadOverrides,
+    string $auditAction,
+    array $auditContext
+  ): int {
+    $payload = array_merge([
+      'scope' => 'all',
+      'force' => false,
+      'sde' => false,
+      'sync_public_structures' => false,
+      'steps' => null,
+      'character_id' => $characterId,
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => $queueMessage,
+        ],
+      ],
+    ], $payloadOverrides);
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => $corpId,
+      'job_type' => $jobType,
+      'priority' => 100,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      $corpId,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      $auditAction,
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
   }
 }
