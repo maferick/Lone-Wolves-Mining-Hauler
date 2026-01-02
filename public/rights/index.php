@@ -18,6 +18,39 @@ $title = $appName . ' • Rights';
 $msg = null;
 $msgTone = 'info';
 
+$permList = [
+  ['haul.request.create','Create haul request','Create new haul requests and submit for posting.'],
+  ['haul.request.read','View haul requests','View haul requests for the corporation.'],
+  ['haul.request.manage','Manage haul requests','Edit/quote/cancel/post requests.'],
+  ['haul.assign','Assign hauls','Assign requests to internal haulers.'],
+  ['haul.execute','Execute hauls','Update status (pickup/in-transit/delivered).'],
+  ['haul.buyback','Buyback haulage','Access the buyback haulage option on the quote page.'],
+  ['pricing.manage','Manage pricing','Create/update pricing rules and lanes.'],
+  ['webhook.manage','Manage webhooks','Create/update Discord webhooks and templates.'],
+  ['esi.manage','Manage ESI','Configure ESI tokens and scheduled pulls.'],
+  ['user.manage','Manage users','Manage user access and role assignments.'],
+  ['corp.manage','Manage corporation settings','Configure corp profile, defaults, and access rules.'],
+];
+
+foreach ($permList as $perm) {
+  $db->execute(
+    "INSERT INTO permission (perm_key, perm_name, description) VALUES (:k, :n, :d)
+     ON DUPLICATE KEY UPDATE perm_name=VALUES(perm_name), description=VALUES(description)",
+    ['k' => $perm[0], 'n' => $perm[1], 'd' => $perm[2]]
+  );
+}
+
+$adminRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE role_key = 'admin' AND corp_id = :cid LIMIT 1", [
+  'cid' => $corpId,
+]);
+if ($adminRoleId > 0) {
+  $db->execute(
+    "INSERT IGNORE INTO role_permission (role_id, perm_id, allow)
+     SELECT :rid, p.perm_id, 1 FROM permission p",
+    ['rid' => $adminRoleId]
+  );
+}
+
 $roles = $db->select(
   "SELECT role_id, role_key, role_name
      FROM role
