@@ -314,18 +314,31 @@ final class DiscordWebhookService
     $volume = (float)($details['volume_m3'] ?? 0);
     $reward = (float)($details['reward_isk'] ?? 0);
     $requester = trim((string)($details['requester'] ?? ''));
+    $requesterCharacterId = (int)($details['requester_character_id'] ?? 0);
+    $requesterAvatarUrl = trim((string)($details['requester_avatar_url'] ?? ''));
     $hauler = trim((string)($details['hauler'] ?? ''));
     $haulerCharacterId = (int)($details['hauler_character_id'] ?? 0);
     $haulerAvatarUrl = trim((string)($details['hauler_avatar_url'] ?? ''));
     $status = trim((string)($details['status'] ?? ''));
     $actor = trim((string)($details['actor'] ?? ''));
     $actorLabel = trim((string)($details['actor_label'] ?? 'Actor'));
+    $actorCharacterId = (int)($details['actor_character_id'] ?? 0);
+    $actorAvatarUrl = trim((string)($details['actor_avatar_url'] ?? ''));
+    $shipClass = trim((string)($details['ship_class'] ?? ''));
     $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
     $description = trim($from . ' → ' . $to);
 
+    $requesterAvatarUrl = $requesterAvatarUrl !== ''
+      ? $requesterAvatarUrl
+      : $this->buildCharacterPortraitUrl($requesterCharacterId);
     $haulerAvatarUrl = $haulerAvatarUrl !== ''
       ? $haulerAvatarUrl
       : $this->buildCharacterPortraitUrl($haulerCharacterId);
+    $actorAvatarUrl = $actorAvatarUrl !== ''
+      ? $actorAvatarUrl
+      : $this->buildCharacterPortraitUrl($actorCharacterId);
+    $shipLabel = $this->formatShipClassLabel($shipClass !== '' ? $shipClass : 'JF');
+    $shipImageUrl = $this->buildShipClassImageUrl($shipClass !== '' ? $shipClass : 'JF');
     $fields = [];
     if ($description !== '') {
       $fields[] = [
@@ -345,6 +358,13 @@ final class DiscordWebhookService
       $fields[] = [
         'name' => 'Reward',
         'value' => $this->formatIskShort($reward),
+        'inline' => true,
+      ];
+    }
+    if ($shipLabel !== '') {
+      $fields[] = [
+        'name' => 'Transport',
+        'value' => $shipLabel,
         'inline' => true,
       ];
     }
@@ -398,6 +418,19 @@ final class DiscordWebhookService
         $author['icon_url'] = $haulerAvatarUrl;
       }
       $embed['author'] = $author;
+    }
+    if ($requesterAvatarUrl !== '') {
+      $embed['thumbnail'] = ['url' => $requesterAvatarUrl];
+    }
+    if ($actor !== '') {
+      $footer = ['text' => ($actorLabel !== '' ? $actorLabel : 'Actor') . ': ' . $actor];
+      if ($actorAvatarUrl !== '') {
+        $footer['icon_url'] = $actorAvatarUrl;
+      }
+      $embed['footer'] = $footer;
+    }
+    if ($shipImageUrl !== '') {
+      $embed['image'] = ['url' => $shipImageUrl];
     }
 
     return [
@@ -608,6 +641,33 @@ final class DiscordWebhookService
       return '';
     }
     return 'https://images.evetech.net/characters/' . $characterId . '/portrait?size=64';
+  }
+
+  private function buildShipClassImageUrl(string $shipClass): string
+  {
+    $normalized = strtoupper(trim($shipClass));
+    $typeIds = match ($normalized) {
+      'BR' => [12733, 12735, 12743, 12745],
+      'DST' => [12727, 12729, 12731, 12737],
+      'FREIGHTER' => [20183, 20185, 20187, 20189],
+      'JF', '' => [28844, 28846, 28848, 28850],
+      default => [],
+    };
+
+    if ($typeIds === []) {
+      return '';
+    }
+
+    $typeId = $typeIds[array_rand($typeIds)];
+    return $this->buildTypeRenderUrl($typeId);
+  }
+
+  private function buildTypeRenderUrl(int $typeId): string
+  {
+    if ($typeId <= 0) {
+      return '';
+    }
+    return 'https://images.evetech.net/types/' . $typeId . '/render?size=512';
   }
 
   private function snippet(string $body, int $max = 400): string

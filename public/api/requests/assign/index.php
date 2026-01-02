@@ -45,7 +45,9 @@ $request = $db->one(
           r.volume_m3,
           r.reward_isk,
           r.title,
+          r.ship_class,
           u.display_name AS requester_name,
+          u.character_id AS requester_character_id,
           fs.system_name AS from_system_name,
           ts.system_name AS to_system_name
      FROM haul_request r
@@ -140,11 +142,14 @@ if (!empty($services['discord_webhook'])) {
       'volume_m3' => (float)($request['volume_m3'] ?? 0),
       'reward_isk' => (float)($request['reward_isk'] ?? 0),
       'requester' => (string)($request['requester_name'] ?? ''),
+      'requester_character_id' => (int)($request['requester_character_id'] ?? 0),
       'hauler' => (string)($hauler['display_name'] ?? ''),
       'hauler_character_id' => (int)($hauler['character_id'] ?? 0),
       'actor' => $assignerName,
       'actor_label' => 'Assigned By',
+      'actor_character_id' => (int)($authCtx['character_id'] ?? 0),
       'status' => 'assigned',
+      'ship_class' => (string)($request['ship_class'] ?? ''),
     ]);
     $webhooks->enqueue($corpId, 'haul.assignment.created', $payload);
   } catch (\Throwable $e) {
