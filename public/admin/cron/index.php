@@ -56,9 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$cmd = $cronCharId > 0
-  ? sprintf('php bin/cron_sync.php %d %d', $corpId, $cronCharId)
-  : sprintf('php bin/cron_sync.php %d <character_id>', $corpId);
+$cmd = 'php bin/cron.php';
 $cmdUniverse = sprintf('php bin/cron_sync.php %d --scope=universe', $corpId);
 $cmdUniverseSde = sprintf('php bin/cron_sync.php %d --scope=universe --sde', $corpId);
 
@@ -68,7 +66,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card">
   <div class="card-header">
     <h2>Cron Manager</h2>
-    <p class="muted">Use these commands in your scheduler to refresh tokens or pre-initialize universe data.</p>
+    <p class="muted">Run the scheduler every minute. It queues the ESI sync, sends Discord webhooks, runs contract matching, and processes queued cron jobs.</p>
   </div>
 
   <div class="content">
@@ -83,32 +81,20 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <code><?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
     </div>
 
-    <p class="muted" style="margin-top:12px;">Universe/map bootstrap command (safe to run separately):</p>
-    <div class="pill" style="margin:12px 0;">
-      <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
-    </div>
-
-    <p class="muted" style="margin-top:12px;">Universe/map bootstrap command (force SDE + auto-update):</p>
-    <div class="pill" style="margin:12px 0;">
-      <code><?= htmlspecialchars($cmdUniverseSde, ENT_QUOTES, 'UTF-8') ?></code>
-    </div>
-
     <p class="muted" style="margin-top:12px;">Example crontab entry (runs every minute):</p>
     <div class="pill" style="margin:12px 0;">
       <code>* * * * * <?= htmlspecialchars($cmd, ENT_QUOTES, 'UTF-8') ?></code>
     </div>
 
-    <p class="muted" style="margin-top:12px;">Async worker (process queued web cron runs):</p>
-    <div class="pill" style="margin:12px 0;">
-      <code><?= htmlspecialchars('php bin/cron_job_worker.php', ENT_QUOTES, 'UTF-8') ?></code>
-    </div>
-
-    <p class="muted" style="margin-top:12px;">Example worker crontab entry (runs every minute):</p>
-    <div class="pill" style="margin:12px 0;">
-      <code>* * * * * <?= htmlspecialchars('php bin/cron_job_worker.php', ENT_QUOTES, 'UTF-8') ?></code>
-    </div>
-
     <p class="muted">Tip: set the cron character on the <a href="<?= ($basePath ?: '') ?>/admin/esi/">ESI Tokens</a> page.</p>
+
+    <p class="muted" style="margin-top:12px;">Manual universe/map bootstrap (optional):</p>
+    <div class="pill" style="margin:12px 0;">
+      <code><?= htmlspecialchars($cmdUniverse, ENT_QUOTES, 'UTF-8') ?></code>
+    </div>
+    <div class="pill" style="margin:12px 0;">
+      <code><?= htmlspecialchars($cmdUniverseSde, ENT_QUOTES, 'UTF-8') ?></code>
+    </div>
 
     <h3 style="margin-top:18px;">Run now</h3>
     <form method="post" id="cron-run-form" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
