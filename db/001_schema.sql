@@ -561,23 +561,24 @@ CREATE TABLE IF NOT EXISTS discord_webhook (
 
 CREATE TABLE IF NOT EXISTS webhook_delivery (
   delivery_id        BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NOT NULL,
   webhook_id         BIGINT UNSIGNED NOT NULL,
-  request_id         BIGINT UNSIGNED NULL,
-  status             ENUM('queued','sent','failed','retrying','dead') NOT NULL DEFAULT 'queued',
-  attempt_count      INT UNSIGNED NOT NULL DEFAULT 0,
+  event_key          VARCHAR(64) NOT NULL,
+  payload_json       JSON NOT NULL,
+  status             ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending',
+  attempts           INT NOT NULL DEFAULT 0,
   next_attempt_at    DATETIME NULL,
-  last_attempt_at    DATETIME NULL,
-  http_status        INT NULL,
-  error_text         VARCHAR(2048) NULL,
-  payload_json       LONGTEXT NOT NULL,
-  response_text      LONGTEXT NULL,
-  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  last_http_status   INT NULL,
+  last_error         TEXT NULL,
+  sent_at            DATETIME NULL,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (delivery_id),
-  KEY idx_delivery_webhook (webhook_id, status, next_attempt_at),
-  KEY idx_delivery_request (request_id),
+  KEY idx_delivery_corp_status (corp_id, status, next_attempt_at),
+  KEY idx_delivery_webhook (webhook_id, status),
+  KEY idx_delivery_event (event_key, created_at),
   CONSTRAINT fk_delivery_webhook FOREIGN KEY (webhook_id) REFERENCES discord_webhook(webhook_id) ON DELETE CASCADE,
-  CONSTRAINT fk_delivery_request FOREIGN KEY (request_id) REFERENCES haul_request(request_id) ON DELETE SET NULL
+  CONSTRAINT fk_delivery_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================

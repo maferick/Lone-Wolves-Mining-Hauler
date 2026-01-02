@@ -24,7 +24,7 @@ $cronJson = $cronSetting ? Db::jsonDecode($cronSetting['setting_json'], []) : []
 $cronCharId = (int)($cronJson['character_id'] ?? 0);
 $cronCharName = (string)($cronJson['character_name'] ?? '');
 
-$cronService = new CronSyncService($db, $config, $services['esi']);
+$cronService = new CronSyncService($db, $config, $services['esi'], $services['discord_webhook'] ?? null);
 $cronStats = $cronService->getStats($corpId);
 $runResult = null;
 $runError = null;

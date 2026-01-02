@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Db\Db;
+use App\Services\DiscordWebhookService;
 
 /**
  * src/Services/CronSyncService.php
@@ -20,7 +21,8 @@ final class CronSyncService
   public function __construct(
     private Db $db,
     private array $config,
-    private EsiService $esi
+    private EsiService $esi,
+    private ?DiscordWebhookService $webhooks = null
   ) {
     $esiClient = new EsiClient($db, $config);
     $this->sso = new SsoService($db, $config);
@@ -194,6 +196,14 @@ final class CronSyncService
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
       $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
       $stats['contracts'] = gmdate('c');
+      if ($this->webhooks) {
+        try {
+          $payload = $this->webhooks->buildContractsPulledPayload($results['contracts']);
+          $this->webhooks->enqueue($corpId, 'esi.contracts.pulled', $payload);
+        } catch (\Throwable $e) {
+          // Ignore webhook enqueue failures.
+        }
+      }
     } else {
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty);
     }

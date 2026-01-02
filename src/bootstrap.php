@@ -184,6 +184,7 @@ $services = [];
     $esiClient = new \App\Services\EsiClient($db, $config);
     $esiRouteService = new \App\Services\EsiRouteService($esiClient, $config);
     $routeService = new \App\Services\RouteService($db, $config, $esiRouteService);
+    $discordWebhookService = new \App\Services\DiscordWebhookService($db, $config);
     $services = [
       'esi' => new \App\Services\EsiService($db, $config),
       'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
@@ -192,8 +193,8 @@ $services = [];
       'eve_public' => new \App\Services\EvePublicDataService($db, $config, $esiClient),
       'route' => $routeService,
       'pricing' => new \App\Services\PricingService($db, $routeService, $config),
-      'haul_request' => new \App\Services\HaulRequestService($db),
-      'discord_webhook' => new \App\Services\DiscordWebhookService($db, $config),
+      'discord_webhook' => $discordWebhookService,
+      'haul_request' => new \App\Services\HaulRequestService($db, $discordWebhookService),
     ];
   } else {
   $services = [

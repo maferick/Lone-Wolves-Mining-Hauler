@@ -4,10 +4,14 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Db\Db;
+use App\Services\DiscordWebhookService;
 
 final class HaulRequestService
 {
-  public function __construct(private Db $db)
+  public function __construct(
+    private Db $db,
+    private ?DiscordWebhookService $webhooks = null
+  )
   {
   }
 
@@ -89,6 +93,23 @@ final class HaulRequestService
       ]),
       'created_by_user_id' => (int)($authCtx['user_id'] ?? 0) ?: null,
     ]);
+
+    if ($this->webhooks) {
+      try {
+        $payload = $this->webhooks->buildHaulRequestEmbed([
+          'title' => 'Haul Request #' . (string)$requestId,
+          'request_id' => $requestId,
+          'route' => $route,
+          'volume_m3' => (float)$quote['volume_m3'],
+          'collateral_isk' => (float)$quote['collateral_isk'],
+          'price_isk' => (float)$quote['price_total'],
+          'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
+        ]);
+        $this->webhooks->enqueue($corpId, 'haul.request.created', $payload);
+      } catch (\Throwable $e) {
+        // Swallow webhook enqueue failures to avoid blocking the request flow.
+      }
+    }
 
     return [
       'request_id' => $requestId,

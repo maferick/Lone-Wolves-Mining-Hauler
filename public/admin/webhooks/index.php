@@ -48,7 +48,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 }
 
-$hooks = $db->select("SELECT webhook_id, webhook_name, webhook_url, is_enabled FROM discord_webhook WHERE corp_id=:cid ORDER BY webhook_id DESC", ['cid'=>$corpId]);
+$hooks = $db->select(
+  "SELECT w.webhook_id,
+          w.webhook_name,
+          w.webhook_url,
+          w.is_enabled,
+          d.status AS last_status,
+          d.attempts AS last_attempts,
+          d.last_error,
+          d.last_http_status,
+          d.sent_at AS last_sent_at,
+          d.created_at AS last_delivery_at
+     FROM discord_webhook w
+     LEFT JOIN webhook_delivery d
+       ON d.delivery_id = (
+          SELECT wd.delivery_id
+            FROM webhook_delivery wd
+           WHERE wd.webhook_id = w.webhook_id
+           ORDER BY wd.created_at DESC
+           LIMIT 1
+       )
+    WHERE w.corp_id = :cid
+    ORDER BY w.webhook_id DESC",
+  ['cid' => $corpId]
+);
+
+$apiKey = (string)($config['security']['api_key'] ?? '');
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -85,6 +110,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <th>Name</th>
           <th>URL</th>
           <th>Enabled</th>
+          <th>Last Delivery</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -97,10 +123,38 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </td>
           <td><?= ((int)$h['is_enabled'] === 1) ? 'Yes' : 'No' ?></td>
           <td>
+            <?php
+              $status = $h['last_status'] ?? null;
+              $attempts = (int)($h['last_attempts'] ?? 0);
+              $httpStatus = $h['last_http_status'] ?? null;
+              $error = trim((string)($h['last_error'] ?? ''));
+              $errorSnippet = $error !== '' ? (strlen($error) > 140 ? substr($error, 0, 140) . '…' : $error) : '';
+            ?>
+            <?php if ($status): ?>
+              <div><strong><?= htmlspecialchars((string)$status, ENT_QUOTES, 'UTF-8') ?></strong> (<?= $attempts ?> attempts)</div>
+              <div class="muted" style="font-size:12px;">
+                HTTP <?= htmlspecialchars((string)($httpStatus ?? 'n/a'), ENT_QUOTES, 'UTF-8') ?>
+                <?php if (!empty($h['last_sent_at'])): ?>
+                  • Sent <?= htmlspecialchars((string)$h['last_sent_at'], ENT_QUOTES, 'UTF-8') ?>
+                <?php elseif (!empty($h['last_delivery_at'])): ?>
+                  • Created <?= htmlspecialchars((string)$h['last_delivery_at'], ENT_QUOTES, 'UTF-8') ?>
+                <?php endif; ?>
+              </div>
+              <?php if ($errorSnippet !== ''): ?>
+                <div class="muted" style="font-size:12px; margin-top:4px;"><?= htmlspecialchars($errorSnippet, ENT_QUOTES, 'UTF-8') ?></div>
+              <?php endif; ?>
+            <?php else: ?>
+              <span class="muted">No deliveries yet.</span>
+            <?php endif; ?>
+          </td>
+          <td>
             <form method="post" style="display:flex; gap:8px;">
               <input type="hidden" name="webhook_id" value="<?= (int)$h['webhook_id'] ?>" />
               <button class="btn ghost" name="action" value="toggle" type="submit">Toggle</button>
               <button class="btn" name="action" value="delete" type="submit" onclick="return confirm('Delete webhook?')">Delete</button>
+            </form>
+            <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test?webhook_id=<?= (int)$h['webhook_id'] ?><?= $apiKey !== '' ? '&amp;api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:6px;">
+              <button class="btn ghost" type="submit">Send Test</button>
             </form>
           </td>
         </tr>

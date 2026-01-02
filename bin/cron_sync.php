@@ -67,7 +67,7 @@ if ($charId <= 0 && $scope !== 'universe') {
 try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
-  $cron = new CronSyncService($db, $config, $esi);
+  $cron = new CronSyncService($db, $config, $esi, $services['discord_webhook'] ?? null);
   $results = $cron->run($corpId, $charId, [
     'force' => $force,
     'scope' => $scope,
