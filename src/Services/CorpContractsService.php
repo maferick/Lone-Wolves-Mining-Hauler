@@ -35,7 +35,7 @@ final class CorpContractsService
    *
    * $characterOwnerId is the EVE character_id that owns the token.
    */
-  public function pull(int $corpId, int $characterOwnerId, int $pageLimit = 50): array
+  public function pull(int $corpId, int $characterOwnerId, int $pageLimit = 50, int $lookbackHours = 24): array
   {
     $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
     if (!$token) {
@@ -52,6 +52,8 @@ final class CorpContractsService
     $fetchedContracts = 0;
     $upsertedContracts = 0;
     $upsertedItems = 0;
+
+    $cutoffTs = time() - ($lookbackHours * 3600);
 
     while ($page <= $pageLimit) {
       $resp = $this->esiAuthedGetWithRefresh(
@@ -76,8 +78,15 @@ final class CorpContractsService
       if (count($contracts) === 0) break; // no more pages
 
       $totalPages = (int)($resp['headers']['x-pages'] ?? 0);
+      $stopPaging = false;
       foreach ($contracts as $c) {
         $fetchedContracts++;
+        $issuedAt = $c['date_issued'] ?? null;
+        $issuedTs = $issuedAt ? strtotime((string)$issuedAt) : false;
+        if ($issuedTs !== false && $issuedTs < $cutoffTs) {
+          $stopPaging = true;
+          continue;
+        }
         $contractId = (int)($c['contract_id'] ?? 0);
         if ($contractId <= 0) continue;
 
@@ -100,6 +109,9 @@ final class CorpContractsService
         }
       }
 
+      if ($stopPaging) {
+        break;
+      }
       if ($totalPages > 0 && $page >= $totalPages) {
         break;
       }
