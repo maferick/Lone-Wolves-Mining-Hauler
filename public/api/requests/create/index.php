@@ -37,8 +37,11 @@ try {
   $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
   $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
   $requestKey = (string)($result['request_key'] ?? '');
-  $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey !== '' ? $requestKey : (string)$result['request_id']);
-  $requestUrl = $baseUrl !== '' ? $baseUrl . $path : $path;
+  $requestUrl = '';
+  if ($requestKey !== '') {
+    $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
+    $requestUrl = $baseUrl !== '' ? $baseUrl . $path : $path;
+  }
 
   api_send_json([
     'ok' => true,

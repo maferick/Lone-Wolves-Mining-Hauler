@@ -13,7 +13,6 @@ $apiKey = (string)($config['security']['api_key'] ?? '');
 
 \App\Auth\Auth::requireLogin($authCtx);
 $requestKey = trim((string)($_GET['request_key'] ?? ''));
-$requestId = (int)($_GET['request_id'] ?? 0);
 $error = null;
 $request = null;
 $routeSummary = '';
@@ -23,21 +22,19 @@ $shipClassMax = 0.0;
 $contractDescription = '';
 $contractAttachEnabled = true;
 
-if ($requestKey === '' && $requestId <= 0) {
+if ($requestKey === '') {
   $error = 'Request key is required.';
 } elseif ($db === null || !($health['db'] ?? false)) {
   $error = 'Database unavailable.';
 } else {
-  $whereClause = $requestKey !== '' ? 'request_key = :rkey' : 'request_id = :rid';
-  $params = $requestKey !== '' ? ['rkey' => $requestKey] : ['rid' => $requestId];
   $request = $db->one(
     "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
             ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, contract_status,
             contract_hint_text, mismatch_reason_json, contract_matched_at, request_key
        FROM haul_request
-      WHERE {$whereClause}
+      WHERE request_key = :rkey
       LIMIT 1",
-    $params
+    ['rkey' => $requestKey]
   );
 
   if (!$request) {

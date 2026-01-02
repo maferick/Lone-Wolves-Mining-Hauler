@@ -214,9 +214,8 @@ ob_start();
             <?php
               $requestId = (int)($req['request_id'] ?? 0);
               $requestKey = (string)($req['request_key'] ?? '');
-              $requestLinkParam = $requestKey !== ''
-                ? 'request_key=' . urlencode($requestKey)
-                : 'request_id=' . urlencode((string)$requestId);
+              $requestLinkParam = $requestKey !== '' ? 'request_key=' . urlencode($requestKey) : '';
+              $requestLink = $requestLinkParam !== '' ? ($basePath ?: '') . '/request?' . $requestLinkParam : null;
             ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
@@ -226,7 +225,11 @@ ob_start();
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
               <td class="actions">
-                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?' . $requestLinkParam, ENT_QUOTES, 'UTF-8') ?>">Review</a>
+                <?php if ($requestLink): ?>
+                  <a class="btn ghost" href="<?= htmlspecialchars($requestLink, ENT_QUOTES, 'UTF-8') ?>">Review</a>
+                <?php else: ?>
+                  <span class="muted">Missing request key</span>
+                <?php endif; ?>
                 <button class="btn danger js-delete-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Delete</button>
               </td>
             </tr>

@@ -184,8 +184,11 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
 $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
 $requestKey = (string)($request['request_key'] ?? '');
-$requestPath = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey !== '' ? $requestKey : (string)$request['request_id']);
-$requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
+$requestUrl = '';
+if ($requestKey !== '') {
+  $requestPath = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
+  $requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
+}
 
 $webhookPayload = [
   'username' => (string)($config['app']['name'] ?? 'Lone Wolves Hauling'),
