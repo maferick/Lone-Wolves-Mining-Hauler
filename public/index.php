@@ -503,6 +503,18 @@ switch ($path) {
   case '/api/requests/create/':
     require __DIR__ . '/api/requests/create/index.php';
     break;
+  case '/api/requests/delete':
+  case '/api/requests/delete/':
+    require __DIR__ . '/api/requests/delete/index.php';
+    break;
+  case '/api/requests/assign':
+  case '/api/requests/assign/':
+    require __DIR__ . '/api/requests/assign/index.php';
+    break;
+  case '/api/requests/update-status':
+  case '/api/requests/update-status/':
+    require __DIR__ . '/api/requests/update-status/index.php';
+    break;
 
   case '/api/contracts/attach':
   case '/api/contracts/attach/':
