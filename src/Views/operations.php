@@ -12,6 +12,19 @@ $queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'delivered
 $requests = $requests ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
+$userId = (int)($authCtx['user_id'] ?? 0);
+
+$buildRouteLabel = static function (array $req): string {
+  $fromName = $req['from_name'] ?? $req['from_location_name'] ?? null;
+  $toName = $req['to_name'] ?? $req['to_location_name'] ?? null;
+  if (!$fromName && !empty($req['from_location_id'])) {
+    $fromName = 'Location #' . (string)$req['from_location_id'];
+  }
+  if (!$toName && !empty($req['to_location_id'])) {
+    $toName = 'Location #' . (string)$req['to_location_id'];
+  }
+  return trim((string)$fromName) . ' → ' . trim((string)$toName);
+};
 
 ob_start();
 ?>
@@ -70,7 +83,7 @@ ob_start();
             <p class="muted">Quote, update, and audit haul requests before posting.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Review requests</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#manage', ENT_QUOTES, 'UTF-8') ?>">Review requests</a>
           </div>
         </div>
       </div>
@@ -81,7 +94,7 @@ ob_start();
             <p class="muted">Dispatch internal haulers and track assignments.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#assign', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
           </div>
         </div>
         <div class="card" style="background: rgba(255,255,255,.02);">
@@ -90,7 +103,7 @@ ob_start();
             <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
           </div>
           <div class="card-footer">
-            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Update activity</a>
+            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#status', ENT_QUOTES, 'UTF-8') ?>">Update activity</a>
           </div>
         </div>
       </div>
@@ -125,19 +138,9 @@ ob_start();
         </thead>
         <tbody>
           <?php foreach ($requests as $req): ?>
-            <?php
-              $fromName = $req['from_name'] ?? $req['from_location_name'] ?? null;
-              $toName = $req['to_name'] ?? $req['to_location_name'] ?? null;
-              if (!$fromName && !empty($req['from_location_id'])) {
-                $fromName = 'Location #' . (string)$req['from_location_id'];
-              }
-              if (!$toName && !empty($req['to_location_id'])) {
-                $toName = 'Location #' . (string)$req['to_location_id'];
-              }
-            ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars(trim((string)$fromName) . ' → ' . trim((string)$toName), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
@@ -153,6 +156,215 @@ ob_start();
     <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') ?>">Back to dashboard</a>
   </div>
 </section>
+
+<section class="card" id="manage">
+  <div class="card-header">
+    <h2>Manage requests</h2>
+    <p class="muted">Review quote details, attach contracts, and remove requests when needed.</p>
+  </div>
+  <div class="content">
+    <?php if (!$isLoggedIn): ?>
+      <p class="muted">Sign in to manage requests.</p>
+    <?php elseif (!$canManageOps): ?>
+      <p class="muted">You do not have permission to manage requests.</p>
+    <?php elseif (!$requestsAvailable): ?>
+      <p class="muted">No hauling requests available to manage.</p>
+    <?php else: ?>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Request</th>
+            <th>Route</th>
+            <th>Status</th>
+            <th>Reward</th>
+            <th>Requester</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($requests as $req): ?>
+            <?php
+              $requestId = (int)($req['request_id'] ?? 0);
+            ?>
+            <tr>
+              <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
+              <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td class="actions">
+                <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/request?request_id=' . $requestId, ENT_QUOTES, 'UTF-8') ?>">Review</a>
+                <button class="btn danger js-delete-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Delete</button>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
+  </div>
+</section>
+
+<section class="card" id="assign">
+  <div class="card-header">
+    <h2>Assign haulers</h2>
+    <p class="muted">Dispatch internal haulers and track assignments.</p>
+  </div>
+  <div class="content">
+    <?php if (!$isLoggedIn): ?>
+      <p class="muted">Sign in to assign haulers.</p>
+    <?php elseif (!$canAssignOps): ?>
+      <p class="muted">You do not have permission to assign haulers.</p>
+    <?php elseif (!$requestsAvailable): ?>
+      <p class="muted">No hauling requests available for assignment.</p>
+    <?php else: ?>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Request</th>
+            <th>Route</th>
+            <th>Status</th>
+            <th>Assigned</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($requests as $req): ?>
+            <?php
+              $requestId = (int)($req['request_id'] ?? 0);
+              $haulerUserId = (int)($req['hauler_user_id'] ?? 0);
+              $assignedLabel = (string)($req['hauler_name'] ?? 'Unassigned');
+              $isAssignedToSelf = $haulerUserId > 0 && $haulerUserId === $userId;
+            ?>
+            <tr>
+              <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($assignedLabel, ENT_QUOTES, 'UTF-8') ?></td>
+              <td>
+                <?php if ($isAssignedToSelf): ?>
+                  <span class="pill subtle">Assigned to you</span>
+                <?php else: ?>
+                  <button class="btn ghost js-assign-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign to me</button>
+                <?php endif; ?>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
+  </div>
+</section>
+
+<section class="card" id="status">
+  <div class="card-header">
+    <h2>Update status</h2>
+    <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
+  </div>
+  <div class="content">
+    <?php if (!$isLoggedIn): ?>
+      <p class="muted">Sign in to update haul status.</p>
+    <?php elseif (!$canExecuteOps): ?>
+      <p class="muted">You do not have permission to update request statuses.</p>
+    <?php elseif (!$requestsAvailable): ?>
+      <p class="muted">No hauling requests available for status updates.</p>
+    <?php else: ?>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Request</th>
+            <th>Route</th>
+            <th>Status</th>
+            <th>Update</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($requests as $req): ?>
+            <?php $requestId = (int)($req['request_id'] ?? 0); ?>
+            <tr>
+              <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td>
+                <div class="row" style="gap:8px; align-items:center;">
+                  <select class="input js-status-select" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">
+                    <option value="in_progress">Picked up</option>
+                    <option value="in_transit">In transit</option>
+                    <option value="delivered">Delivered</option>
+                  </select>
+                  <button class="btn ghost js-update-status" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Update</button>
+                </div>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
+  </div>
+</section>
+
+<?php if ($isLoggedIn): ?>
+<script>
+  const basePath = <?= json_encode($basePath ?: '') ?>;
+  const sendJson = async (url, payload) => {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return resp.json();
+  };
+
+  document.querySelectorAll('.js-delete-request').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const requestId = parseInt(btn.dataset.requestId || '0', 10);
+      if (!requestId) return;
+      if (!confirm('Delete this contract request? This cannot be undone.')) return;
+      btn.disabled = true;
+      const data = await sendJson(`${basePath}/api/requests/delete/`, { request_id: requestId });
+      if (!data.ok) {
+        alert(data.error || 'Delete failed.');
+        btn.disabled = false;
+        return;
+      }
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll('.js-assign-request').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const requestId = parseInt(btn.dataset.requestId || '0', 10);
+      if (!requestId) return;
+      btn.disabled = true;
+      const data = await sendJson(`${basePath}/api/requests/assign/`, { request_id: requestId });
+      if (!data.ok) {
+        alert(data.error || 'Assign failed.');
+        btn.disabled = false;
+        return;
+      }
+      window.location.reload();
+    });
+  });
+
+  document.querySelectorAll('.js-update-status').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const requestId = parseInt(btn.dataset.requestId || '0', 10);
+      const select = document.querySelector(`.js-status-select[data-request-id="${requestId}"]`);
+      const status = select?.value;
+      if (!requestId || !status) return;
+      btn.disabled = true;
+      const data = await sendJson(`${basePath}/api/requests/update-status/`, { request_id: requestId, status });
+      if (!data.ok) {
+        alert(data.error || 'Status update failed.');
+        btn.disabled = false;
+        return;
+      }
+      window.location.reload();
+    });
+  });
+</script>
+<?php endif; ?>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/layout.php';
