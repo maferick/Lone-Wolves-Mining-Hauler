@@ -65,6 +65,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'esi.cron.clear', 'app_setting', 'esi.cron', null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Cron character cleared.";
   }
+
+  if ($action === 'delete_token' && !empty($_POST['character_id'])) {
+    $charId = (int)$_POST['character_id'];
+    $token = $db->one(
+      "SELECT owner_name FROM sso_token WHERE corp_id = :cid AND owner_type = 'character' AND owner_id = :oid LIMIT 1",
+      ['cid' => $corpId, 'oid' => $charId]
+    );
+    $charName = (string)($token['owner_name'] ?? '');
+    $db->tx(function (Db $db) use ($corpId, $charId) {
+      $db->execute(
+        "DELETE FROM sso_token WHERE corp_id = :cid AND owner_type = 'character' AND owner_id = :oid LIMIT 1",
+        ['cid' => $corpId, 'oid' => $charId]
+      );
+      $db->execute(
+        "DELETE FROM app_setting
+          WHERE corp_id = :cid
+            AND setting_key = 'esi.cron'
+            AND JSON_EXTRACT(setting_json, '$.character_id') = :oid
+          LIMIT 1",
+        ['cid' => $corpId, 'oid' => $charId]
+      );
+    });
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'esi.token.delete', 'sso_token', (string)$charId, null, [
+      'character_id' => $charId,
+      'character_name' => $charName,
+    ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+    $msg = "Removed token for " . ($charName !== '' ? $charName : (string)$charId) . ".";
+  }
 }
 
 $cronSetting = $db->one(
@@ -141,6 +169,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <?php else: ?>
                 <button class="btn ghost" name="action" value="set_cron" type="submit">Use for Cron</button>
               <?php endif; ?>
+              <button class="btn ghost" name="action" value="delete_token" type="submit" onclick="return confirm('Remove this ESI token?');">Remove</button>
             </form>
           </td>
         </tr>
