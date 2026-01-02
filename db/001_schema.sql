@@ -416,6 +416,9 @@ CREATE TABLE IF NOT EXISTS haul_request (
   CONSTRAINT fk_request_requester FOREIGN KEY (requester_user_id) REFERENCES app_user(user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+ALTER TABLE haul_request
+  ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy;
+
 CREATE TABLE IF NOT EXISTS haul_request_item (
   request_item_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   request_id         BIGINT UNSIGNED NOT NULL,
