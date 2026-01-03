@@ -42,25 +42,29 @@ ob_start();
         </div>
         <div>
           <div class="label">Contract ID</div>
-          <div><?= !empty($request['contract_id']) ? '#' . htmlspecialchars((string)$request['contract_id'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+          <div><?= !empty($request['esi_contract_id']) ? '#' . htmlspecialchars((string)$request['esi_contract_id'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_id']) ? '#' . htmlspecialchars((string)$request['contract_id'], ENT_QUOTES, 'UTF-8') : '—') ?></div>
         </div>
         <div>
           <div class="label">Contract status</div>
-          <div><?= !empty($request['contract_status']) ? htmlspecialchars((string)$request['contract_status'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+          <div><?= !empty($request['esi_status']) ? htmlspecialchars((string)$request['esi_status'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_status_esi']) ? htmlspecialchars((string)$request['contract_status_esi'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_status']) ? htmlspecialchars((string)$request['contract_status'], ENT_QUOTES, 'UTF-8') : '—')) ?></div>
         </div>
       </div>
       <div class="row" style="margin-top:12px;">
         <div>
           <div class="label">Contract lifecycle</div>
-          <div><?= !empty($request['contract_state']) ? htmlspecialchars((string)$request['contract_state'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+          <div><?= !empty($request['contract_lifecycle']) ? htmlspecialchars((string)$request['contract_lifecycle'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_state']) ? htmlspecialchars((string)$request['contract_state'], ENT_QUOTES, 'UTF-8') : '—') ?></div>
         </div>
         <div>
           <div class="label">ESI status</div>
-          <div><?= !empty($request['contract_status_esi']) ? htmlspecialchars((string)$request['contract_status_esi'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+          <div><?= !empty($request['esi_status']) ? htmlspecialchars((string)$request['esi_status'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_status_esi']) ? htmlspecialchars((string)$request['contract_status_esi'], ENT_QUOTES, 'UTF-8') : '—') ?></div>
         </div>
         <div>
-          <div class="label">Accepted by</div>
-          <div><?= !empty($request['contract_acceptor_name']) ? htmlspecialchars((string)$request['contract_acceptor_name'], ENT_QUOTES, 'UTF-8') : 'Unassigned' ?></div>
+          <div class="label">In-game acceptor</div>
+          <div><?= !empty($request['esi_acceptor_name']) ? htmlspecialchars((string)$request['esi_acceptor_name'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_acceptor_name']) ? htmlspecialchars((string)$request['contract_acceptor_name'], ENT_QUOTES, 'UTF-8') : 'Unaccepted') ?></div>
+        </div>
+        <div>
+          <div class="label">Ops assigned</div>
+          <div><?= !empty($request['ops_assignee_name']) ? htmlspecialchars((string)$request['ops_assignee_name'], ENT_QUOTES, 'UTF-8') : 'Unassigned' ?></div>
         </div>
       </div>
       <?php if (!empty($mismatchDetails)): ?>

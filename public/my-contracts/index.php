@@ -54,23 +54,23 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
   }
 
   if ($hasRequestView) {
-    $hasContractStatusEsi = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_status_esi'");
-    $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
-    $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_state'");
-    $contractStateSelect = $hasContractState ? 'r.contract_state' : 'NULL AS contract_state';
+    $hasEsiStatus = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'esi_status'");
+    $esiStatusSelect = $hasEsiStatus ? 'r.esi_status' : 'r.contract_status_esi AS esi_status';
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_lifecycle'");
+    $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'r.contract_state AS contract_lifecycle';
     $hasMismatchJson = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'mismatch_reason_json'");
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
-    $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_acceptor_name'");
-    $acceptorNameSelect = $hasContractAcceptorName
-      ? 'r.contract_acceptor_name'
-      : "COALESCE(a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name";
-    $acceptorNameJoin = $hasContractAcceptorName
+    $hasEsiAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'esi_acceptor_name'");
+    $acceptorNameSelect = $hasEsiAcceptorName
+      ? 'r.esi_acceptor_name'
+      : "COALESCE(a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS esi_acceptor_name";
+    $acceptorNameJoin = $hasEsiAcceptorName
       ? ''
       : "LEFT JOIN eve_entity a_ent ON a_ent.entity_id = r.contract_acceptor_id AND a_ent.entity_type = 'character'";
     $requests = $db->select(
-      "SELECT r.request_id, r.status, r.contract_id, r.contract_status, {$contractStatusEsiSelect},
-              {$contractStateSelect}, {$mismatchSelect},
-              r.contract_acceptor_id, {$acceptorNameSelect},
+      "SELECT r.request_id, r.status, r.contract_id, r.esi_contract_id, r.contract_status, {$esiStatusSelect},
+              {$contractLifecycleSelect}, {$mismatchSelect},
+              r.esi_acceptor_id, {$acceptorNameSelect},
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, hr.request_key
@@ -86,26 +86,26 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
       [$corpId, $userId]
     );
   } elseif ($hasHaulRequest) {
-    $hasContractStatusEsi = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_status_esi'");
-    $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
-    $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
-    $contractStateSelect = $hasContractState ? 'r.contract_state' : 'NULL AS contract_state';
+    $hasEsiStatus = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'esi_status'");
+    $esiStatusSelect = $hasEsiStatus ? 'r.esi_status' : 'r.contract_status_esi AS esi_status';
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+    $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'r.contract_state AS contract_lifecycle';
     $hasMismatchJson = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'mismatch_reason_json'");
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
-    $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_name'");
-    $acceptorNameSelect = $hasContractAcceptorName
-      ? "COALESCE(r.contract_acceptor_name, ce.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name"
-      : "COALESCE(ce.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name";
+    $hasEsiAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'esi_acceptor_name'");
+    $acceptorNameSelect = $hasEsiAcceptorName
+      ? "COALESCE(r.esi_acceptor_name, ce.name, CONCAT('Character:', r.esi_acceptor_id)) AS esi_acceptor_name"
+      : "COALESCE(ce.name, CONCAT('Character:', r.contract_acceptor_id)) AS esi_acceptor_name";
     $requests = $db->select(
-      "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.contract_status, {$contractStatusEsiSelect},
-              {$contractStateSelect}, {$mismatchSelect},
-              r.contract_acceptor_id, {$acceptorNameSelect},
+      "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.esi_contract_id, r.contract_status, {$esiStatusSelect},
+              {$contractLifecycleSelect}, {$mismatchSelect},
+              r.esi_acceptor_id, {$acceptorNameSelect},
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
-              fs.system_name AS from_name, ts.system_name AS to_name,
+              fs.system_name AS from_name, ts.system_name AS to_name
          FROM haul_request r
          LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
          LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
-         LEFT JOIN eve_entity ce ON ce.entity_id = r.contract_acceptor_id AND ce.entity_type = 'character'
+         LEFT JOIN eve_entity ce ON ce.entity_id = COALESCE(r.esi_acceptor_id, r.contract_acceptor_id) AND ce.entity_type = 'character'
         WHERE r.corp_id = ?
           AND r.requester_user_id = ?
         ORDER BY r.created_at DESC

@@ -40,14 +40,15 @@ final class ContractReconcileService
     ];
 
     $requests = $this->db->select(
-      "SELECT request_id, request_key, contract_id, contract_status_esi, contract_state, contract_lifecycle,
-              contract_acceptor_id, contract_acceptor_name, acceptor_id, acceptor_name,
-              last_contract_hash, date_accepted, date_completed, date_expired,
+      "SELECT request_id, request_key, contract_id, esi_contract_id, contract_status_esi, esi_status,
+              contract_state, contract_lifecycle, contract_acceptor_id, contract_acceptor_name,
+              acceptor_id, acceptor_name, esi_acceptor_id, esi_acceptor_name,
+              last_contract_hash, contract_hash, date_accepted, date_completed, date_expired,
               from_location_id, from_location_type, to_location_id, to_location_type,
               ship_class, volume_m3, collateral_isk, reward_isk
          FROM haul_request
         WHERE corp_id = :cid
-          AND contract_id IS NOT NULL",
+          AND (esi_contract_id IS NOT NULL OR contract_id IS NOT NULL)",
       ['cid' => $corpId]
     );
 
@@ -59,7 +60,7 @@ final class ContractReconcileService
 
     $contractIds = [];
     foreach ($requests as $request) {
-      $contractId = (int)($request['contract_id'] ?? 0);
+      $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
       if ($contractId > 0) {
         $contractIds[$contractId] = true;
       }
@@ -136,16 +137,23 @@ final class ContractReconcileService
       );
       $oldState = (string)($request['contract_lifecycle'] ?? $request['contract_state'] ?? '');
       $contractHash = $this->buildContractHash($contractId, $contractStatus, $acceptorId, $dateAccepted, $dateCompleted, $dateExpired);
-      $previousHash = (string)($request['last_contract_hash'] ?? '');
+      $previousHash = (string)($request['contract_hash'] ?? $request['last_contract_hash'] ?? '');
 
       $changes = [];
+      $currentEsiContractId = $request['esi_contract_id'] ?? null;
+      $currentEsiContractId = $currentEsiContractId !== null ? (int)$currentEsiContractId : null;
+      if ($currentEsiContractId !== $contractId) {
+        $changes['esi_contract_id'] = $contractId;
+      }
       if ($contractHash !== $previousHash) {
         $changes['contract_status_esi'] = $contractStatus;
-        $changes['acceptor_id'] = $acceptorId;
+        $changes['esi_status'] = $contractStatus;
+        $changes['esi_acceptor_id'] = $acceptorId;
         $changes['contract_lifecycle'] = $newState;
         $changes['date_accepted'] = $dateAccepted;
         $changes['date_completed'] = $dateCompleted;
         $changes['date_expired'] = $dateExpired;
+        $changes['contract_hash'] = $contractHash;
         $changes['last_contract_hash'] = $contractHash;
       }
 
@@ -159,6 +167,11 @@ final class ContractReconcileService
       if ($currentAcceptor !== $acceptorId) {
         $changes['acceptor_id'] = $acceptorId;
       }
+      $currentEsiAcceptor = $request['esi_acceptor_id'] ?? null;
+      $currentEsiAcceptor = $currentEsiAcceptor !== null ? (int)$currentEsiAcceptor : null;
+      if ($currentEsiAcceptor !== $acceptorId) {
+        $changes['esi_acceptor_id'] = $acceptorId;
+      }
 
       if ($acceptorId === null) {
         if (!empty($request['contract_acceptor_name'])) {
@@ -167,12 +180,18 @@ final class ContractReconcileService
         if (!empty($request['acceptor_name'])) {
           $changes['acceptor_name'] = null;
         }
+        if (!empty($request['esi_acceptor_name'])) {
+          $changes['esi_acceptor_name'] = null;
+        }
       } elseif ($acceptorName !== '') {
         if ((string)($request['contract_acceptor_name'] ?? '') !== $acceptorName) {
           $changes['contract_acceptor_name'] = $acceptorName;
         }
         if ((string)($request['acceptor_name'] ?? '') !== $acceptorName) {
           $changes['acceptor_name'] = $acceptorName;
+        }
+        if ((string)($request['esi_acceptor_name'] ?? '') !== $acceptorName) {
+          $changes['esi_acceptor_name'] = $acceptorName;
         }
       }
 

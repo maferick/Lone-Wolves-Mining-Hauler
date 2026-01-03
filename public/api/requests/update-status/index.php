@@ -80,6 +80,7 @@ $db->tx(function ($db) use ($requestId, $corpId, $status, $eventType, $authCtx, 
   $db->execute(
     "UPDATE haul_request
         SET status = :status,
+            ops_status = :status,
             delivered_at = {$deliveredAt},
             accepted_at = {$acceptedAt},
             updated_at = UTC_TIMESTAMP()

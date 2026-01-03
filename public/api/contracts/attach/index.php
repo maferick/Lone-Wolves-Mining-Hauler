@@ -214,8 +214,11 @@ $db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, 
   $db->execute(
     "UPDATE haul_request
         SET contract_id = :contract_id,
+            esi_contract_id = :contract_id,
             contract_type = :contract_type,
             contract_status = :contract_status,
+            contract_status_esi = :contract_status,
+            esi_status = :contract_status,
             status = 'in_queue',
             updated_at = CURRENT_TIMESTAMP
       WHERE request_id = :rid",

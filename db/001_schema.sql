@@ -387,11 +387,15 @@ CREATE TABLE IF NOT EXISTS haul_request (
 
   -- Linkage to in-game contract (optional)
   contract_id        BIGINT UNSIGNED NULL COMMENT 'ESI contract_id',
+  esi_contract_id    BIGINT UNSIGNED NULL COMMENT 'ESI contract_id (source of truth)',
   contract_type      ENUM('courier','item_exchange','auction','unknown') NULL,
   contract_status    VARCHAR(64) NULL,
   contract_status_esi VARCHAR(64) NULL,
+  esi_status         VARCHAR(64) NULL,
   acceptor_id        BIGINT UNSIGNED NULL,
   acceptor_name      VARCHAR(255) NULL,
+  esi_acceptor_id    BIGINT UNSIGNED NULL,
+  esi_acceptor_name  VARCHAR(255) NULL,
   contract_lifecycle ENUM('AWAITING_CONTRACT','AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL,
   contract_state     ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL,
   contract_acceptor_id BIGINT UNSIGNED NULL,
@@ -400,11 +404,17 @@ CREATE TABLE IF NOT EXISTS haul_request (
   date_completed     DATETIME NULL,
   date_expired       DATETIME NULL,
   last_contract_hash CHAR(64) NULL,
+  contract_hash      CHAR(64) NULL,
   last_reconciled_at DATETIME NULL,
   contract_matched_at DATETIME NULL,
   contract_linked_notified_at DATETIME NULL,
   contract_validation_json JSON NULL,
   mismatch_reason_json JSON NULL,
+
+  -- Ops tracking fields (website truth)
+  ops_assignee_id    BIGINT UNSIGNED NULL,
+  ops_assignee_name  VARCHAR(255) NULL,
+  ops_status         VARCHAR(64) NULL,
 
   status             ENUM('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','in_progress','completed','cancelled','draft','quoted','submitted','posted','accepted','in_transit','delivered','expired','rejected') NOT NULL DEFAULT 'requested',
   discord_webhook_id BIGINT UNSIGNED NULL,
@@ -435,9 +445,13 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS request_key VARCHAR(64) NOT NULL DEFAULT '' AFTER request_id,
   ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy,
   ADD COLUMN IF NOT EXISTS contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
+  ADD COLUMN IF NOT EXISTS esi_contract_id BIGINT UNSIGNED NULL AFTER contract_id,
   ADD COLUMN IF NOT EXISTS contract_status_esi VARCHAR(64) NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS esi_status VARCHAR(64) NULL AFTER contract_status_esi,
   ADD COLUMN IF NOT EXISTS acceptor_id BIGINT UNSIGNED NULL AFTER contract_status_esi,
   ADD COLUMN IF NOT EXISTS acceptor_name VARCHAR(255) NULL AFTER acceptor_id,
+  ADD COLUMN IF NOT EXISTS esi_acceptor_id BIGINT UNSIGNED NULL AFTER acceptor_name,
+  ADD COLUMN IF NOT EXISTS esi_acceptor_name VARCHAR(255) NULL AFTER esi_acceptor_id,
   ADD COLUMN IF NOT EXISTS contract_lifecycle ENUM('AWAITING_CONTRACT','AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL AFTER acceptor_name,
   ADD COLUMN IF NOT EXISTS contract_state ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL AFTER contract_lifecycle,
   ADD COLUMN IF NOT EXISTS contract_matched_at DATETIME NULL AFTER contract_status,
@@ -447,10 +461,14 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS date_completed DATETIME NULL AFTER date_accepted,
   ADD COLUMN IF NOT EXISTS date_expired DATETIME NULL AFTER date_completed,
   ADD COLUMN IF NOT EXISTS last_contract_hash CHAR(64) NULL AFTER date_expired,
+  ADD COLUMN IF NOT EXISTS contract_hash CHAR(64) NULL AFTER last_contract_hash,
   ADD COLUMN IF NOT EXISTS last_reconciled_at DATETIME NULL AFTER last_contract_hash,
   ADD COLUMN IF NOT EXISTS contract_linked_notified_at DATETIME NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS contract_validation_json JSON NULL AFTER contract_matched_at,
-  ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json;
+  ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json,
+  ADD COLUMN IF NOT EXISTS ops_assignee_id BIGINT UNSIGNED NULL AFTER mismatch_reason_json,
+  ADD COLUMN IF NOT EXISTS ops_assignee_name VARCHAR(255) NULL AFTER ops_assignee_id,
+  ADD COLUMN IF NOT EXISTS ops_status VARCHAR(64) NULL AFTER ops_assignee_name;
 
 CREATE TABLE IF NOT EXISTS haul_request_item (
   request_item_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -813,22 +831,30 @@ SELECT
   r.route_policy,
   r.route_profile,
   r.contract_id,
+  r.esi_contract_id,
   r.contract_status,
   r.contract_status_esi,
+  r.esi_status,
   r.contract_lifecycle,
   r.contract_state,
   r.acceptor_id,
   r.acceptor_name,
+  r.esi_acceptor_id,
+  r.esi_acceptor_name,
   r.contract_acceptor_id,
   r.contract_acceptor_name,
   r.date_accepted,
   r.date_completed,
   r.date_expired,
   r.last_contract_hash,
+  r.contract_hash,
   r.last_reconciled_at,
   r.contract_matched_at,
   r.contract_linked_notified_at,
   r.mismatch_reason_json,
+  r.ops_assignee_id,
+  r.ops_assignee_name,
+  r.ops_status,
   r.created_at,
   r.updated_at,
   r.from_location_id,
@@ -837,7 +863,7 @@ SELECT
   r.to_location_type,
   COALESCE(f_ent.name, CONCAT(r.from_location_type, ':', r.from_location_id)) AS from_name,
   COALESCE(t_ent.name, CONCAT(r.to_location_type, ':', r.to_location_id)) AS to_name,
-  COALESCE(r.contract_acceptor_name, a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name,
+  COALESCE(r.esi_acceptor_name, r.contract_acceptor_name, a_ent.name, CONCAT('Character:', r.esi_acceptor_id)) AS esi_acceptor_display_name,
   u.display_name AS requester_display_name,
   COALESCE(u.character_name, r.requester_character_name) AS requester_character_name
 FROM haul_request r
@@ -859,5 +885,5 @@ LEFT JOIN eve_entity t_ent
     WHEN 'structure' THEN 'structure'
     ELSE 'unknown' END
 LEFT JOIN eve_entity a_ent
-  ON a_ent.entity_id = r.contract_acceptor_id
+  ON a_ent.entity_id = COALESCE(r.esi_acceptor_id, r.contract_acceptor_id)
   AND a_ent.entity_type = 'character';
