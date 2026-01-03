@@ -10,6 +10,7 @@ $payload = api_read_json();
 $webhookId = (int)($payload['webhook_id'] ?? ($_GET['webhook_id'] ?? 0));
 $corpId = (int)($payload['corp_id'] ?? ($_GET['corp_id'] ?? ($config['corp']['id'] ?? 0)));
 $message = trim((string)($payload['message'] ?? ($_GET['message'] ?? 'Test notification from hauling.')));
+$eventKey = trim((string)($payload['event_key'] ?? ($_GET['event_key'] ?? 'webhook.test')));
 
 if ($corpId <= 0 && $webhookId > 0 && $db !== null) {
   $row = $db->one(
@@ -31,12 +32,11 @@ if ($corpId <= 0) {
 /** @var \App\Services\DiscordWebhookService $webhooks */
 $webhooks = $services['discord_webhook'];
 
-$discordPayload = [
-  'username' => (string)($config['app']['name'] ?? 'Lone Wolves Hauling'),
-  'content' => $message !== '' ? $message : 'Test notification from hauling.',
-];
+$discordPayload = $webhooks->buildTestPayloadForEvent($corpId, $eventKey, [
+  'message' => $message,
+]);
 
-$queued = $webhooks->enqueue($corpId, 'webhook.test', $discordPayload, $webhookId ?: null);
+$queued = $webhooks->enqueueTest($corpId, $eventKey, $discordPayload, $webhookId ?: null);
 
 api_send_json([
   'ok' => true,

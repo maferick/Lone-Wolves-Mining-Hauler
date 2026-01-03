@@ -242,6 +242,44 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </tbody>
     </table>
 
+    <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test-events<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:18px;">
+      <input type="hidden" name="corp_id" value="<?= (int)$corpId ?>" />
+      <div class="label">Send Test Events</div>
+      <div class="muted" style="margin-bottom:10px;">Choose which webhook should receive each event. Select “All enabled” to send to every active webhook.</div>
+      <table class="table" style="margin-bottom:12px;">
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>Webhook Target</th>
+          </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($eventOptions as $eventKey => $label): ?>
+          <tr>
+            <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
+            <td>
+              <select class="input" name="event_targets[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>]">
+                <option value="">Skip</option>
+                <option value="all">All enabled webhooks</option>
+                <?php foreach ($hooks as $h): ?>
+                  <option value="<?= (int)$h['webhook_id'] ?>">
+                    <?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+      <div style="margin-bottom:12px;">
+        <div class="label">Manual test message</div>
+        <input class="input" name="webhook_test_message" value="Test notification from hauling." />
+        <div class="muted" style="margin-top:6px;">Used for the “Manual test” event.</div>
+      </div>
+      <button class="btn" type="submit">Queue Test Events</button>
+    </form>
+
     <div style="margin-top:14px;">
       <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
     </div>
