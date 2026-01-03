@@ -235,9 +235,12 @@ final class ContractReconcileService
 
         $eventKey = $this->eventKeyForState($newState);
         if ($eventKey !== null && $this->webhooks) {
-          $payload = $newState === 'PICKED_UP'
-            ? $this->buildPickupWebhookPayload($request, $contractId, $acceptorId, $acceptorName)
-            : [
+          $payload = match ($newState) {
+            'PICKED_UP' => $this->buildPickupWebhookPayload($request, $contractId, $acceptorId, $acceptorName),
+            'DELIVERED' => $this->buildDeliveredWebhookPayload($request, $contractId, $acceptorId, $acceptorName),
+            'FAILED' => $this->buildFailedWebhookPayload($request, $contractId, $acceptorId, $acceptorName),
+            'EXPIRED' => $this->buildExpiredWebhookPayload($request, $contractId, $acceptorId, $acceptorName),
+            default => [
               'request_id' => $requestId,
               'contract_id' => $contractId,
               'previous_state' => $oldState,
@@ -245,7 +248,8 @@ final class ContractReconcileService
               'acceptor_id' => $acceptorId,
               'acceptor_name' => $acceptorName,
               'contract_status_esi' => $contractStatus,
-            ];
+            ],
+          };
           $summary['webhook_enqueued'] += $this->webhooks->enqueueUnique(
             $corpId,
             $eventKey,
@@ -358,6 +362,89 @@ final class ContractReconcileService
         'acceptor_id' => $acceptorId ?? 0,
         'acceptor_name' => $acceptorName,
       ])
+      : [];
+  }
+
+  private function buildDeliveredWebhookPayload(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName
+  ): array {
+    return $this->buildContractLifecycleWebhookPayload(
+      $request,
+      $contractId,
+      $acceptorId,
+      $acceptorName,
+      'delivered'
+    );
+  }
+
+  private function buildFailedWebhookPayload(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName
+  ): array {
+    return $this->buildContractLifecycleWebhookPayload(
+      $request,
+      $contractId,
+      $acceptorId,
+      $acceptorName,
+      'failed'
+    );
+  }
+
+  private function buildExpiredWebhookPayload(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName
+  ): array {
+    return $this->buildContractLifecycleWebhookPayload(
+      $request,
+      $contractId,
+      $acceptorId,
+      $acceptorName,
+      'expired'
+    );
+  }
+
+  private function buildContractLifecycleWebhookPayload(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName,
+    string $state
+  ): array {
+    $fromId = (int)($request['from_location_id'] ?? 0);
+    $toId = (int)($request['to_location_id'] ?? 0);
+    $fromName = $this->resolveSystemName($fromId, (string)($request['from_location_type'] ?? ''));
+    $toName = $this->resolveSystemName($toId, (string)($request['to_location_type'] ?? ''));
+    $routeLabel = trim(($fromName !== '' ? $fromName : ('Location #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('Location #' . $toId)));
+
+    $details = [
+      'request_id' => (int)($request['request_id'] ?? 0),
+      'request_key' => (string)($request['request_key'] ?? ''),
+      'route' => $routeLabel,
+      'pickup' => $fromName !== '' ? $fromName : ('Location #' . $fromId),
+      'dropoff' => $toName !== '' ? $toName : ('Location #' . $toId),
+      'ship_class' => (string)($request['ship_class'] ?? ''),
+      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
+      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
+      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
+      'contract_id' => $contractId,
+      'acceptor_id' => $acceptorId ?? 0,
+      'acceptor_name' => $acceptorName,
+    ];
+
+    return $this->webhooks
+      ? match ($state) {
+        'delivered' => $this->webhooks->buildContractDeliveredPayload($details),
+        'failed' => $this->webhooks->buildContractFailedPayload($details),
+        'expired' => $this->webhooks->buildContractExpiredPayload($details),
+        default => [],
+      }
       : [];
   }
 
