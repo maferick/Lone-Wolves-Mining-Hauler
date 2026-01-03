@@ -40,7 +40,7 @@ try {
   api_send_json(['ok' => false, 'error' => $e->getMessage()], 500);
 }
 
-$reconcileResult = $esi->contracts()->reconcileLinkedRequests($corpId, $charId);
+$reconcileResult = $esi->contractReconcile()->reconcile($corpId);
 $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
 $matchResult = $matcher->matchOpenRequests($corpId);
 

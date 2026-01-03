@@ -24,7 +24,7 @@ try {
   /** @var \App\Services\EsiService $esi */
   $esi = $services['esi'];
   $result = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
-  $reconcile = $esi->contracts()->reconcileLinkedRequests($corpId, $charId);
+  $reconcile = $esi->contractReconcile()->reconcile($corpId);
 
   if (!empty($services['discord_webhook'])) {
     try {

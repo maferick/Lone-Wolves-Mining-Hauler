@@ -1,5 +1,26 @@
 ALTER TABLE haul_request
-  ADD COLUMN IF NOT EXISTS contract_linked_notified_at DATETIME NULL AFTER contract_matched_at;
+  ADD COLUMN IF NOT EXISTS contract_status_esi VARCHAR(64) NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS contract_state ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL AFTER contract_status_esi,
+  ADD COLUMN IF NOT EXISTS contract_acceptor_name VARCHAR(255) NULL AFTER contract_acceptor_id,
+  ADD COLUMN IF NOT EXISTS date_accepted DATETIME NULL AFTER contract_acceptor_name,
+  ADD COLUMN IF NOT EXISTS date_completed DATETIME NULL AFTER date_accepted,
+  ADD COLUMN IF NOT EXISTS date_expired DATETIME NULL AFTER date_completed;
+
+CREATE TABLE IF NOT EXISTS ops_event (
+  ops_event_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NOT NULL,
+  request_id         BIGINT UNSIGNED NOT NULL,
+  contract_id        BIGINT UNSIGNED NOT NULL,
+  old_state          ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL,
+  new_state          ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NOT NULL,
+  acceptor_name      VARCHAR(255) NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ops_event_id),
+  KEY idx_ops_event_request (request_id, created_at),
+  KEY idx_ops_event_contract (corp_id, contract_id, created_at),
+  CONSTRAINT fk_ops_event_request FOREIGN KEY (request_id) REFERENCES haul_request(request_id) ON DELETE CASCADE,
+  CONSTRAINT fk_ops_event_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE OR REPLACE VIEW v_haul_request_display AS
 SELECT

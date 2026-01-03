@@ -271,7 +271,7 @@ final class CronSyncService
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
       $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
-      $results['contracts_reconcile'] = $this->esi->contracts()->reconcileLinkedRequests($corpId, $characterId);
+      $results['contracts_reconcile'] = $this->esi->contractReconcile()->reconcile($corpId);
       $stats['contracts'] = gmdate('c');
       if ($this->webhooks) {
         try {

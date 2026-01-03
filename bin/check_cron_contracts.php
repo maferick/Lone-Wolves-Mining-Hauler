@@ -57,6 +57,7 @@ try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
   $pullResult = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
+  $reconcileResult = $esi->contractReconcile()->reconcile($corpId);
 
   $latestContracts = $db->select(
     "SELECT contract_id, type, status, title, availability, date_issued, date_expired,
@@ -84,6 +85,7 @@ try {
     'pull' => $pullResult,
     'summary' => $summary,
     'latest_contracts' => $latestContracts,
+    'reconcile' => $reconcileResult,
   ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
   exit(0);
 } catch (Throwable $e) {

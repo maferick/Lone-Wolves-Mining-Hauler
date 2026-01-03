@@ -389,7 +389,13 @@ CREATE TABLE IF NOT EXISTS haul_request (
   contract_id        BIGINT UNSIGNED NULL COMMENT 'ESI contract_id',
   contract_type      ENUM('courier','item_exchange','auction','unknown') NULL,
   contract_status    VARCHAR(64) NULL,
+  contract_status_esi VARCHAR(64) NULL,
+  contract_state     ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL,
   contract_acceptor_id BIGINT UNSIGNED NULL,
+  contract_acceptor_name VARCHAR(255) NULL,
+  date_accepted      DATETIME NULL,
+  date_completed     DATETIME NULL,
+  date_expired       DATETIME NULL,
   contract_matched_at DATETIME NULL,
   contract_linked_notified_at DATETIME NULL,
   contract_validation_json JSON NULL,
@@ -424,8 +430,14 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS request_key VARCHAR(64) NOT NULL DEFAULT '' AFTER request_id,
   ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy,
   ADD COLUMN IF NOT EXISTS contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
+  ADD COLUMN IF NOT EXISTS contract_status_esi VARCHAR(64) NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS contract_state ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL AFTER contract_status_esi,
   ADD COLUMN IF NOT EXISTS contract_matched_at DATETIME NULL AFTER contract_status,
   ADD COLUMN IF NOT EXISTS contract_acceptor_id BIGINT UNSIGNED NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS contract_acceptor_name VARCHAR(255) NULL AFTER contract_acceptor_id,
+  ADD COLUMN IF NOT EXISTS date_accepted DATETIME NULL AFTER contract_acceptor_name,
+  ADD COLUMN IF NOT EXISTS date_completed DATETIME NULL AFTER date_accepted,
+  ADD COLUMN IF NOT EXISTS date_expired DATETIME NULL AFTER date_completed,
   ADD COLUMN IF NOT EXISTS contract_linked_notified_at DATETIME NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS contract_validation_json JSON NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json;
@@ -504,6 +516,22 @@ CREATE TABLE IF NOT EXISTS haul_event (
   KEY idx_event_type (event_type),
   CONSTRAINT fk_event_req FOREIGN KEY (request_id) REFERENCES haul_request(request_id) ON DELETE CASCADE,
   CONSTRAINT fk_event_user FOREIGN KEY (created_by_user_id) REFERENCES app_user(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ops_event (
+  ops_event_id       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id            BIGINT UNSIGNED NOT NULL,
+  request_id         BIGINT UNSIGNED NOT NULL,
+  contract_id        BIGINT UNSIGNED NOT NULL,
+  old_state          ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NULL,
+  new_state          ENUM('AVAILABLE','PICKED_UP','DELIVERED','FAILED','EXPIRED') NOT NULL,
+  acceptor_name      VARCHAR(255) NULL,
+  created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (ops_event_id),
+  KEY idx_ops_event_request (request_id, created_at),
+  KEY idx_ops_event_contract (corp_id, contract_id, created_at),
+  CONSTRAINT fk_ops_event_request FOREIGN KEY (request_id) REFERENCES haul_request(request_id) ON DELETE CASCADE,
+  CONSTRAINT fk_ops_event_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =========================
@@ -772,7 +800,13 @@ SELECT
   r.route_profile,
   r.contract_id,
   r.contract_status,
+  r.contract_status_esi,
+  r.contract_state,
   r.contract_acceptor_id,
+  r.contract_acceptor_name,
+  r.date_accepted,
+  r.date_completed,
+  r.date_expired,
   r.contract_matched_at,
   r.contract_linked_notified_at,
   r.mismatch_reason_json,
@@ -784,7 +818,7 @@ SELECT
   r.to_location_type,
   COALESCE(f_ent.name, CONCAT(r.from_location_type, ':', r.from_location_id)) AS from_name,
   COALESCE(t_ent.name, CONCAT(r.to_location_type, ':', r.to_location_id)) AS to_name,
-  COALESCE(a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name,
+  COALESCE(r.contract_acceptor_name, a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name,
   u.display_name AS requester_display_name,
   COALESCE(u.character_name, r.requester_character_name) AS requester_character_name
 FROM haul_request r

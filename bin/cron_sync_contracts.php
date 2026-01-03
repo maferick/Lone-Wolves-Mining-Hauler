@@ -42,6 +42,7 @@ try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
   $pullResult = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
+  $reconcileResult = $esi->contractReconcile()->reconcile($corpId);
 
   $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
   $matchResult = $matcher->matchOpenRequests($corpId);
@@ -49,6 +50,7 @@ try {
   echo json_encode([
     'ok' => true,
     'pull' => $pullResult,
+    'reconcile' => $reconcileResult,
     'match' => $matchResult,
   ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
   exit(0);
