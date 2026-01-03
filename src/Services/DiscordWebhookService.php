@@ -339,6 +339,18 @@ final class DiscordWebhookService
         'inline' => true,
       ],
     ];
+    $errorDetails = array_values(array_filter($summary['error_details'] ?? [], fn($detail) => $detail !== null && $detail !== ''));
+    if ($errorDetails !== []) {
+      $detailText = implode("\n", array_map(fn($detail) => '• ' . (string)$detail, $errorDetails));
+      if (strlen($detailText) > 1024) {
+        $detailText = substr($detailText, 0, 1021) . '...';
+      }
+      $fields[] = [
+        'name' => 'Error details',
+        'value' => $detailText,
+        'inline' => false,
+      ];
+    }
 
     return [
       'username' => $appName,
