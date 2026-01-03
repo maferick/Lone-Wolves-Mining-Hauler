@@ -115,12 +115,17 @@ final class ContractReconcileService
       $dateExpired = $contract['date_expired'] ?? null;
 
       $acceptorName = '';
+      $requestAcceptorName = trim((string)($request['contract_acceptor_name'] ?? ''));
       if ($acceptorId !== null) {
-        $acceptorName = (string)$this->db->fetchValue(
+        $acceptorName = trim((string)$this->db->fetchValue(
           "SELECT name FROM eve_entity WHERE entity_id = :id AND entity_type = 'character' LIMIT 1",
           ['id' => $acceptorId]
-        );
-        if ($acceptorName === '') {
+        ));
+        $fallbackName = $acceptorName;
+        $needsRefresh = $acceptorName === ''
+          || ($requestAcceptorName !== '' && $acceptorName !== $requestAcceptorName)
+          || ($requestAcceptorName !== '' && $this->needsNameNormalization($requestAcceptorName));
+        if ($needsRefresh) {
           try {
             $character = $publicData->character($acceptorId);
             $acceptorName = trim((string)($character['name'] ?? ''));
@@ -128,8 +133,11 @@ final class ContractReconcileService
             $summary['errors']++;
           }
         }
+        if ($acceptorName === '' && $fallbackName !== '') {
+          $acceptorName = $fallbackName;
+        }
         if ($acceptorName === '') {
-          $acceptorName = (string)($request['contract_acceptor_name'] ?? '');
+          $acceptorName = $requestAcceptorName;
         }
         if ($acceptorName === '') {
           $acceptorName = 'Character #' . $acceptorId;
@@ -172,11 +180,17 @@ final class ContractReconcileService
         $changes['contract_state'] = $newState;
       }
 
+      $reconciledAt = gmdate('Y-m-d H:i:s');
       if ($changes === []) {
+        $this->db->execute(
+          'UPDATE haul_request SET last_reconciled_at = :reconciled_at WHERE request_id = :rid',
+          ['reconciled_at' => $reconciledAt, 'rid' => $requestId]
+        );
         $summary['skipped_requests']++;
         $summary['skipped']++;
         continue;
       }
+      $changes['last_reconciled_at'] = $reconciledAt;
 
       $set = [];
       $params = ['rid' => $requestId];
@@ -272,5 +286,11 @@ final class ContractReconcileService
       'EXPIRED' => 'contract.expired',
       default => null,
     };
+  }
+
+  private function needsNameNormalization(string $name): bool
+  {
+    $normalized = ucwords(strtolower($name));
+    return $name !== $normalized;
   }
 }

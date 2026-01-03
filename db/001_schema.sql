@@ -396,6 +396,7 @@ CREATE TABLE IF NOT EXISTS haul_request (
   date_accepted      DATETIME NULL,
   date_completed     DATETIME NULL,
   date_expired       DATETIME NULL,
+  last_reconciled_at DATETIME NULL,
   contract_matched_at DATETIME NULL,
   contract_linked_notified_at DATETIME NULL,
   contract_validation_json JSON NULL,
@@ -438,6 +439,7 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS date_accepted DATETIME NULL AFTER contract_acceptor_name,
   ADD COLUMN IF NOT EXISTS date_completed DATETIME NULL AFTER date_accepted,
   ADD COLUMN IF NOT EXISTS date_expired DATETIME NULL AFTER date_completed,
+  ADD COLUMN IF NOT EXISTS last_reconciled_at DATETIME NULL AFTER date_expired,
   ADD COLUMN IF NOT EXISTS contract_linked_notified_at DATETIME NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS contract_validation_json JSON NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json;
@@ -807,6 +809,7 @@ SELECT
   r.date_accepted,
   r.date_completed,
   r.date_expired,
+  r.last_reconciled_at,
   r.contract_matched_at,
   r.contract_linked_notified_at,
   r.mismatch_reason_json,
