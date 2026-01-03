@@ -1,4 +1,4 @@
-# Corp Hauling (In-house PushX-style)
+# Corp Hauling
 
 Dark, modern 2026 UI skeleton + a strict include pattern:
 
