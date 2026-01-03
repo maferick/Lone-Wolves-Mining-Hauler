@@ -7,7 +7,24 @@ declare(strict_types=1);
  */
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
-$canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
+$adminPerms = [
+  'corp.manage',
+  'esi.manage',
+  'webhook.manage',
+  'pricing.manage',
+  'user.manage',
+  'haul.request.manage',
+  'haul.assign',
+];
+$canAdmin = false;
+if ($isLoggedIn) {
+  foreach ($adminPerms as $permKey) {
+    if (\App\Auth\Auth::can($authCtx, $permKey)) {
+      $canAdmin = true;
+      break;
+    }
+  }
+}
 $canRights = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'user.manage');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpId = (int)($config['corp']['id'] ?? 0);
