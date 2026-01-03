@@ -49,6 +49,56 @@ final class DiscordWebhookService
     return $count;
   }
 
+  public function enqueueUnique(
+    int $corpId,
+    string $eventKey,
+    array $payload,
+    string $entityType,
+    int $entityId,
+    string $transitionTo,
+    ?int $webhookId = null
+  ): int {
+    if (!$this->isEventEnabled($corpId, $eventKey)) {
+      return 0;
+    }
+
+    $params = ['cid' => $corpId];
+    $webhookClause = '';
+    if ($webhookId !== null) {
+      $webhookClause = ' AND webhook_id = :wid';
+      $params['wid'] = $webhookId;
+    }
+
+    $hooks = $this->db->select(
+      "SELECT webhook_id
+         FROM discord_webhook
+        WHERE corp_id = :cid AND is_enabled = 1{$webhookClause}",
+      $params
+    );
+
+    $count = 0;
+    $payloadJson = Db::jsonEncode($payload);
+    foreach ($hooks as $hook) {
+      $count += $this->db->execute(
+        "INSERT IGNORE INTO webhook_delivery
+          (corp_id, webhook_id, event_key, entity_type, entity_id, transition_to, status, payload_json)
+         VALUES
+          (:corp_id, :webhook_id, :event_key, :entity_type, :entity_id, :transition_to, 'pending', :payload_json)",
+        [
+          'corp_id' => $corpId,
+          'webhook_id' => (int)$hook['webhook_id'],
+          'event_key' => $eventKey,
+          'entity_type' => $entityType,
+          'entity_id' => $entityId,
+          'transition_to' => $transitionTo,
+          'payload_json' => $payloadJson,
+        ]
+      );
+    }
+
+    return $count;
+  }
+
   public function enqueueContractLinked(int $corpId, array $payload): int
   {
     $hooks = $this->db->select(

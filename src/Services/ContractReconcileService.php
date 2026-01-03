@@ -40,9 +40,11 @@ final class ContractReconcileService
     ];
 
     $requests = $this->db->select(
-      "SELECT request_id, contract_id, contract_status_esi, contract_state,
-              contract_acceptor_id, contract_acceptor_name,
-              date_accepted, date_completed, date_expired
+      "SELECT request_id, request_key, contract_id, contract_status_esi, contract_state, contract_lifecycle,
+              contract_acceptor_id, contract_acceptor_name, acceptor_id, acceptor_name,
+              last_contract_hash, date_accepted, date_completed, date_expired,
+              from_location_id, from_location_type, to_location_id, to_location_type,
+              ship_class, volume_m3, collateral_isk, reward_isk
          FROM haul_request
         WHERE corp_id = :cid
           AND contract_id IS NOT NULL",
@@ -89,7 +91,7 @@ final class ContractReconcileService
       $contractsById[(int)($contract['contract_id'] ?? 0)] = $contract;
     }
 
-    $publicData = new EvePublicDataService($this->db, $this->config, $this->esi);
+    $entityResolver = new EntityResolveService($this->db, $this->esi);
 
     foreach ($requests as $request) {
       $requestId = (int)($request['request_id'] ?? 0);
@@ -115,82 +117,75 @@ final class ContractReconcileService
       $dateExpired = $contract['date_expired'] ?? null;
 
       $acceptorName = '';
-      $requestAcceptorName = trim((string)($request['contract_acceptor_name'] ?? ''));
       if ($acceptorId !== null) {
-        $acceptorName = trim((string)$this->db->fetchValue(
-          "SELECT name FROM eve_entity WHERE entity_id = :id AND entity_type = 'character' LIMIT 1",
-          ['id' => $acceptorId]
-        ));
-        $fallbackName = $acceptorName;
-        $needsRefresh = $acceptorName === ''
-          || ($requestAcceptorName !== '' && $acceptorName !== $requestAcceptorName)
-          || ($requestAcceptorName !== '' && $this->needsNameNormalization($requestAcceptorName));
-        if ($needsRefresh) {
-          try {
-            $character = $publicData->character($acceptorId);
-            $acceptorName = trim((string)($character['name'] ?? ''));
-          } catch (\Throwable $e) {
-            $summary['errors']++;
-          }
-        }
-        if ($acceptorName === '' && $fallbackName !== '') {
-          $acceptorName = $fallbackName;
-        }
-        if ($acceptorName === '') {
-          $acceptorName = $requestAcceptorName;
-        }
-        if ($acceptorName === '') {
-          $acceptorName = 'Character #' . $acceptorId;
+        try {
+          $acceptorName = $entityResolver->resolveCharacterName($acceptorId);
+        } catch (\Throwable $e) {
+          $summary['errors']++;
+          $acceptorName = '';
         }
       }
 
-      $newState = $this->deriveContractState($contractStatus, $acceptorId, $dateAccepted, $dateCompleted, $dateExpired);
-      $oldState = (string)($request['contract_state'] ?? '');
+      $newState = $this->deriveContractLifecycle(
+        $contractId,
+        $contractStatus,
+        $acceptorId,
+        $dateAccepted,
+        $dateCompleted,
+        $dateExpired
+      );
+      $oldState = (string)($request['contract_lifecycle'] ?? $request['contract_state'] ?? '');
+      $contractHash = $this->buildContractHash($contractId, $contractStatus, $acceptorId, $dateAccepted, $dateCompleted, $dateExpired);
+      $previousHash = (string)($request['last_contract_hash'] ?? '');
 
       $changes = [];
-      if ((string)($request['contract_status_esi'] ?? '') !== $contractStatus) {
+      if ($contractHash !== $previousHash) {
         $changes['contract_status_esi'] = $contractStatus;
+        $changes['acceptor_id'] = $acceptorId;
+        $changes['contract_lifecycle'] = $newState;
+        $changes['date_accepted'] = $dateAccepted;
+        $changes['date_completed'] = $dateCompleted;
+        $changes['date_expired'] = $dateExpired;
+        $changes['last_contract_hash'] = $contractHash;
       }
 
-      $currentAcceptor = $request['contract_acceptor_id'] ?? null;
+      $currentAcceptorLegacy = $request['contract_acceptor_id'] ?? null;
+      $currentAcceptorLegacy = $currentAcceptorLegacy !== null ? (int)$currentAcceptorLegacy : null;
+      if ($currentAcceptorLegacy !== $acceptorId) {
+        $changes['contract_acceptor_id'] = $acceptorId;
+      }
+      $currentAcceptor = $request['acceptor_id'] ?? null;
       $currentAcceptor = $currentAcceptor !== null ? (int)$currentAcceptor : null;
       if ($currentAcceptor !== $acceptorId) {
-        $changes['contract_acceptor_id'] = $acceptorId;
+        $changes['acceptor_id'] = $acceptorId;
       }
 
       if ($acceptorId === null) {
         if (!empty($request['contract_acceptor_name'])) {
           $changes['contract_acceptor_name'] = null;
         }
-      } elseif ($acceptorName !== '' && (string)($request['contract_acceptor_name'] ?? '') !== $acceptorName) {
-        $changes['contract_acceptor_name'] = $acceptorName;
-      }
-
-      if ((string)($request['date_accepted'] ?? '') !== (string)($dateAccepted ?? '')) {
-        $changes['date_accepted'] = $dateAccepted;
-      }
-      if ((string)($request['date_completed'] ?? '') !== (string)($dateCompleted ?? '')) {
-        $changes['date_completed'] = $dateCompleted;
-      }
-      if ((string)($request['date_expired'] ?? '') !== (string)($dateExpired ?? '')) {
-        $changes['date_expired'] = $dateExpired;
+        if (!empty($request['acceptor_name'])) {
+          $changes['acceptor_name'] = null;
+        }
+      } elseif ($acceptorName !== '') {
+        if ((string)($request['contract_acceptor_name'] ?? '') !== $acceptorName) {
+          $changes['contract_acceptor_name'] = $acceptorName;
+        }
+        if ((string)($request['acceptor_name'] ?? '') !== $acceptorName) {
+          $changes['acceptor_name'] = $acceptorName;
+        }
       }
 
       if ($newState !== $oldState) {
         $changes['contract_state'] = $newState;
+        $changes['contract_lifecycle'] = $newState;
       }
 
-      $reconciledAt = gmdate('Y-m-d H:i:s');
       if ($changes === []) {
-        $this->db->execute(
-          'UPDATE haul_request SET last_reconciled_at = :reconciled_at WHERE request_id = :rid',
-          ['reconciled_at' => $reconciledAt, 'rid' => $requestId]
-        );
         $summary['skipped_requests']++;
         $summary['skipped']++;
         continue;
       }
-      $changes['last_reconciled_at'] = $reconciledAt;
 
       $set = [];
       $params = ['rid' => $requestId];
@@ -198,6 +193,7 @@ final class ContractReconcileService
         $set[] = "{$column} = :{$column}";
         $params[$column] = $value;
       }
+      $set[] = 'last_reconciled_at = UTC_TIMESTAMP()';
       $set[] = 'updated_at = UTC_TIMESTAMP()';
 
       $this->db->execute(
@@ -220,16 +216,25 @@ final class ContractReconcileService
 
         $eventKey = $this->eventKeyForState($newState);
         if ($eventKey !== null && $this->webhooks) {
-          $payload = [
-            'request_id' => $requestId,
-            'contract_id' => $contractId,
-            'previous_state' => $oldState,
-            'contract_state' => $newState,
-            'acceptor_id' => $acceptorId,
-            'acceptor_name' => $acceptorName,
-            'contract_status_esi' => $contractStatus,
-          ];
-          $summary['webhook_enqueued'] += $this->webhooks->enqueue($corpId, $eventKey, $payload);
+          $payload = $newState === 'PICKED_UP'
+            ? $this->buildPickupWebhookPayload($request, $contractId, $acceptorId, $acceptorName)
+            : [
+              'request_id' => $requestId,
+              'contract_id' => $contractId,
+              'previous_state' => $oldState,
+              'contract_state' => $newState,
+              'acceptor_id' => $acceptorId,
+              'acceptor_name' => $acceptorName,
+              'contract_status_esi' => $contractStatus,
+            ];
+          $summary['webhook_enqueued'] += $this->webhooks->enqueueUnique(
+            $corpId,
+            $eventKey,
+            $payload,
+            'haul_request',
+            $requestId,
+            $newState
+          );
         }
       }
     }
@@ -237,13 +242,18 @@ final class ContractReconcileService
     return $summary;
   }
 
-  private function deriveContractState(
+  private function deriveContractLifecycle(
+    int $contractId,
     string $status,
     ?int $acceptorId,
     ?string $dateAccepted,
     ?string $dateCompleted,
     ?string $dateExpired
   ): string {
+    if ($contractId <= 0) {
+      return 'AWAITING_CONTRACT';
+    }
+
     $normalized = strtolower(trim($status));
     $finished = in_array($normalized, ['finished', 'finished_issuer', 'finished_contractor', 'completed'], true);
     if ($finished) {
@@ -254,24 +264,19 @@ final class ContractReconcileService
       return 'FAILED';
     }
 
-    $expiredByStatus = $normalized === 'expired';
-    $expiredByTime = false;
     if ($dateExpired) {
       $expiredAt = strtotime($dateExpired);
       if ($expiredAt !== false && $expiredAt <= time()) {
-        $expiredByTime = true;
+        return 'EXPIRED';
       }
     }
-    if ($expiredByStatus || $expiredByTime) {
-      return 'EXPIRED';
-    }
 
-    if ($acceptorId !== null || $dateAccepted) {
-      return 'PICKED_UP';
-    }
-
-    if ($normalized === 'outstanding') {
+    if ($normalized === 'outstanding' && ($acceptorId === null || $acceptorId === 0)) {
       return 'AVAILABLE';
+    }
+
+    if ($acceptorId !== null || $dateAccepted || $normalized === 'in_progress') {
+      return 'PICKED_UP';
     }
 
     return 'AVAILABLE';
@@ -288,9 +293,68 @@ final class ContractReconcileService
     };
   }
 
-  private function needsNameNormalization(string $name): bool
+  private function buildContractHash(
+    int $contractId,
+    string $status,
+    ?int $acceptorId,
+    ?string $dateAccepted,
+    ?string $dateCompleted,
+    ?string $dateExpired
+  ): string {
+    $payload = [
+      'contract_id' => $contractId,
+      'status' => $status,
+      'acceptor_id' => $acceptorId,
+      'date_accepted' => $dateAccepted,
+      'date_completed' => $dateCompleted,
+      'date_expired' => $dateExpired,
+    ];
+    return hash('sha256', json_encode($payload, JSON_UNESCAPED_SLASHES));
+  }
+
+  private function buildPickupWebhookPayload(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName
+  ): array {
+    $fromId = (int)($request['from_location_id'] ?? 0);
+    $toId = (int)($request['to_location_id'] ?? 0);
+    $fromName = $this->resolveSystemName($fromId, (string)($request['from_location_type'] ?? ''));
+    $toName = $this->resolveSystemName($toId, (string)($request['to_location_type'] ?? ''));
+    $routeLabel = trim(($fromName !== '' ? $fromName : ('Location #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('Location #' . $toId)));
+
+    return $this->webhooks
+      ? $this->webhooks->buildContractPickedUpPayload([
+        'request_id' => (int)($request['request_id'] ?? 0),
+        'request_key' => (string)($request['request_key'] ?? ''),
+        'route' => $routeLabel,
+        'pickup' => $fromName !== '' ? $fromName : ('Location #' . $fromId),
+        'dropoff' => $toName !== '' ? $toName : ('Location #' . $toId),
+        'ship_class' => (string)($request['ship_class'] ?? ''),
+        'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
+        'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
+        'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
+        'contract_id' => $contractId,
+        'acceptor_id' => $acceptorId ?? 0,
+        'acceptor_name' => $acceptorName,
+      ])
+      : [];
+  }
+
+  private function resolveSystemName(int $locationId, string $locationType): string
   {
-    $normalized = ucwords(strtolower($name));
-    return $name !== $normalized;
+    if ($locationId <= 0) {
+      return '';
+    }
+
+    if ($locationType !== 'system') {
+      return '';
+    }
+
+    return trim((string)$this->db->fetchValue(
+      "SELECT system_name FROM map_system WHERE system_id = :id LIMIT 1",
+      ['id' => $locationId]
+    ));
   }
 }

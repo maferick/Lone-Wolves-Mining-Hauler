@@ -114,8 +114,9 @@ $buildContractDetails = static function (array $req): array {
 };
 
 $buildContractStateLabel = static function (array $req): string {
-  $state = strtoupper(trim((string)($req['contract_state'] ?? '')));
+  $state = strtoupper(trim((string)($req['contract_lifecycle'] ?? '')));
   return match ($state) {
+    'AWAITING_CONTRACT' => 'Awaiting contract',
     'PICKED_UP' => 'Picked up / En route',
     'DELIVERED' => 'Delivered',
     'FAILED' => 'Failed',
@@ -125,13 +126,9 @@ $buildContractStateLabel = static function (array $req): string {
 };
 
 $buildContractAssignee = static function (array $req): string {
-  $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
-  $acceptorId = (int)($req['contract_acceptor_id'] ?? 0);
+  $acceptorName = trim((string)($req['acceptor_name'] ?? ''));
   if ($acceptorName !== '') {
     return $acceptorName;
-  }
-  if ($acceptorId > 0) {
-    return 'Character #' . (string)$acceptorId;
   }
   return 'Unassigned';
 };
