@@ -114,7 +114,7 @@ final class SsoService
   public function refreshToken(int $tokenId): array
   {
     $token = $this->db->one(
-      "SELECT token_id, corp_id, owner_type, owner_id, owner_name, refresh_token
+      "SELECT token_id, corp_id, owner_type, owner_id, owner_name, refresh_token, scopes
          FROM sso_token WHERE token_id = :id LIMIT 1",
       ['id' => $tokenId]
     );
@@ -177,7 +177,10 @@ final class SsoService
     $accessToken = (string)($data['access_token'] ?? '');
     $refreshToken = (string)($data['refresh_token'] ?? $token['refresh_token']);
     $expiresIn = (int)($data['expires_in'] ?? 0);
-    $scope = (string)($data['scope'] ?? '');
+    $scope = trim((string)($data['scope'] ?? ''));
+    if ($scope === '') {
+      $scope = (string)($token['scopes'] ?? '');
+    }
 
     if ($accessToken === '' || $expiresIn <= 0) {
       throw new \RuntimeException("SSO refresh response missing access_token/expires_in.");
