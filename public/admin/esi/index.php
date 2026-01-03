@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $charId = (int)$_POST['character_id'];
     try {
       $result = $db->tx(fn(Db $db) => $services['esi']->contracts()->pull($corpId, $charId));
-      $reconcile = $services['esi']->contracts()->reconcileLinkedRequests($corpId, $charId);
+      $reconcile = $services['esi']->contractReconcile()->reconcile($corpId);
       $msg = "Pulled contracts: " . (int)($result['upserted_contracts'] ?? 0)
         . " (items: " . (int)($result['upserted_items'] ?? 0) . "). "
         . "Reconciled: " . (int)($reconcile['updated'] ?? 0) . " updated.";

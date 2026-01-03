@@ -47,7 +47,8 @@ switch ($path) {
       /** @var \App\Services\EsiService $esi */
       $esi = $services['esi'];
       $result = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
-      echo json_encode(['ok' => true, 'result' => $result], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+      $reconcile = $esi->contractReconcile()->reconcile($corpId);
+      echo json_encode(['ok' => true, 'result' => $result, 'reconcile' => $reconcile], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {
       http_response_code(500);
       echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

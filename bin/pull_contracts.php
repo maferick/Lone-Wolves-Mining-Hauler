@@ -29,7 +29,8 @@ try {
   /** @var EsiService $esi */
   $esi = $services['esi'];
   $result = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
-  echo json_encode(['ok' => true, 'result' => $result], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+  $reconcile = $esi->contractReconcile()->reconcile($corpId);
+  echo json_encode(['ok' => true, 'result' => $result, 'reconcile' => $reconcile], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;
   exit(0);
 } catch (Throwable $e) {
   echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . PHP_EOL;

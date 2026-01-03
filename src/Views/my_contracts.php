@@ -25,7 +25,7 @@ $buildRouteLabel = static function (array $req): string {
 $buildContractLabel = static function (array $req): string {
   $status = (string)($req['status'] ?? '');
   $contractId = (int)($req['contract_id'] ?? 0);
-  $contractStatus = trim((string)($req['contract_status'] ?? ''));
+  $contractStatus = trim((string)($req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
   $label = $contractId > 0 ? '#' . (string)$contractId : '—';
   if ($status === 'contract_mismatch') {
     $mismatch = [];
@@ -46,15 +46,15 @@ $buildContractLabel = static function (array $req): string {
 };
 
 $buildStatusLabel = static function (array $req): string {
-  $status = (string)($req['status'] ?? '');
-  if ($status === 'in_progress') {
-    $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
-    if ($acceptorName !== '') {
-      return 'Picked up by ' . $acceptorName;
-    }
-    return 'Picked up';
-  }
-  return $status;
+  $state = strtoupper(trim((string)($req['contract_state'] ?? '')));
+  $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
+  return match ($state) {
+    'PICKED_UP' => $acceptorName !== '' ? 'Picked up by ' . $acceptorName : 'Picked up / En route',
+    'DELIVERED' => 'Delivered',
+    'FAILED' => 'Failed',
+    'EXPIRED' => 'Expired',
+    default => (string)($req['status'] ?? ''),
+  };
 };
 
 $buildQueuePosition = static function (array $req) use ($queuePositions, $queueTotal): string {

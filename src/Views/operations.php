@@ -31,7 +31,7 @@ $buildRouteLabel = static function (array $req): string {
 $buildContractLabel = static function (array $req): string {
   $status = (string)($req['status'] ?? '');
   $contractId = (int)($req['contract_id'] ?? 0);
-  $contractStatus = trim((string)($req['contract_status'] ?? ''));
+  $contractStatus = trim((string)($req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
   $label = $contractId > 0 ? '#' . (string)$contractId : '—';
   if ($status === 'contract_mismatch') {
     $mismatch = [];
@@ -111,6 +111,25 @@ $buildContractDetails = static function (array $req): array {
     'checks' => $checks,
     'mismatches' => $mismatch,
   ];
+};
+
+$buildContractStateLabel = static function (array $req): string {
+  $state = strtoupper(trim((string)($req['contract_state'] ?? '')));
+  return match ($state) {
+    'PICKED_UP' => 'Picked up / En route',
+    'DELIVERED' => 'Delivered',
+    'FAILED' => 'Failed',
+    'EXPIRED' => 'Expired',
+    default => 'Unassigned',
+  };
+};
+
+$buildContractAssignee = static function (array $req): string {
+  $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
+  if ($acceptorName !== '') {
+    return $acceptorName;
+  }
+  return 'Unassigned';
 };
 
 ob_start();
@@ -232,6 +251,9 @@ ob_start();
               $contractState = $contractDetails['state'] ?? 'pending';
               $hasContractDetails = !empty($contractDetails['checks']) || !empty($contractDetails['mismatches']);
               $contractStateLabel = $contractState === 'linked' ? 'Matched' : ($contractState === 'mismatch' ? 'Mismatch' : 'Pending');
+              $contractLifecycleLabel = $buildContractStateLabel($req);
+              $contractAssignee = $buildContractAssignee($req);
+              $contractStatusEsi = trim((string)($req['contract_status_esi'] ?? ''));
             ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
@@ -244,12 +266,19 @@ ob_start();
                     <div><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></div>
                     <div class="contract-meta">
                       <span class="muted"><?= htmlspecialchars($contractStateLabel, ENT_QUOTES, 'UTF-8') ?></span>
+                      <span class="muted">• <?= htmlspecialchars($contractLifecycleLabel, ENT_QUOTES, 'UTF-8') ?></span>
                       <?php if ($hasContractDetails): ?>
                         <button class="btn ghost js-contract-details" type="button"
                           data-request-id="<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?>"
                           data-contract-details="<?= htmlspecialchars((string)$contractDetailsJson, ENT_QUOTES, 'UTF-8') ?>">
                           Checks
                         </button>
+                      <?php endif; ?>
+                    </div>
+                    <div class="contract-meta">
+                      <span class="muted">Assignee: <?= htmlspecialchars($contractAssignee, ENT_QUOTES, 'UTF-8') ?></span>
+                      <?php if ($contractStatusEsi !== ''): ?>
+                        <span class="muted">• ESI status: <?= htmlspecialchars($contractStatusEsi, ENT_QUOTES, 'UTF-8') ?></span>
                       <?php endif; ?>
                     </div>
                   </div>

@@ -49,6 +49,20 @@ ob_start();
           <div><?= !empty($request['contract_status']) ? htmlspecialchars((string)$request['contract_status'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
         </div>
       </div>
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <div class="label">Contract lifecycle</div>
+          <div><?= !empty($request['contract_state']) ? htmlspecialchars((string)$request['contract_state'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        </div>
+        <div>
+          <div class="label">ESI status</div>
+          <div><?= !empty($request['contract_status_esi']) ? htmlspecialchars((string)$request['contract_status_esi'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        </div>
+        <div>
+          <div class="label">Accepted by</div>
+          <div><?= !empty($request['contract_acceptor_name']) ? htmlspecialchars((string)$request['contract_acceptor_name'], ENT_QUOTES, 'UTF-8') : 'Unassigned' ?></div>
+        </div>
+      </div>
       <?php if (!empty($mismatchDetails)): ?>
         <div style="margin-top:12px;">
           <div class="label">Mismatch reason</div>

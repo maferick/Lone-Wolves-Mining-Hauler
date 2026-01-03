@@ -51,7 +51,8 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $hasMismatchJson = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'mismatch_reason_json'");
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
     $requests = $db->select(
-      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, {$validationSelect}, {$mismatchSelect},
+      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, r.contract_status_esi,
+              r.contract_state, r.contract_acceptor_name, {$validationSelect}, {$mismatchSelect},
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -75,7 +76,8 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $hasMismatchJson = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'mismatch_reason_json'");
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
     $requests = $db->select(
-      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, {$validationSelect}, {$mismatchSelect},
+      "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status,
+              r.contract_status_esi, r.contract_state, r.contract_acceptor_name, {$validationSelect}, {$mismatchSelect},
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
               u.display_name AS requester_display_name, a.hauler_user_id,
               h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name

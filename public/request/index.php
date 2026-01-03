@@ -30,7 +30,8 @@ if ($requestKey === '') {
   $request = $db->one(
     "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
             ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, contract_status,
-            contract_hint_text, mismatch_reason_json, contract_matched_at, request_key
+            contract_status_esi, contract_state, contract_acceptor_name, contract_hint_text, mismatch_reason_json,
+            contract_matched_at, date_accepted, date_completed, date_expired, request_key
        FROM haul_request
       WHERE request_key = :rkey
       LIMIT 1",

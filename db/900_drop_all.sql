@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS discord_webhook;
 DROP TABLE IF EXISTS esi_corp_contract_item;
 DROP TABLE IF EXISTS esi_corp_contract;
 
+DROP TABLE IF EXISTS ops_event;
 DROP TABLE IF EXISTS haul_event;
 DROP TABLE IF EXISTS haul_assignment;
 DROP TABLE IF EXISTS haul_offer;
