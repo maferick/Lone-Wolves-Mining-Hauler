@@ -141,6 +141,12 @@ function isIgnorableSqlError(PDOException $e): bool {
   return in_array($errorCode, [1060], true);
 }
 
+function executeSqlStatement(PDO $pdo, string $statement): void {
+  $stmt = $pdo->prepare($statement);
+  $stmt->execute();
+  $stmt->closeCursor();
+}
+
 loadDotEnv(__DIR__ . '/.env');
 
 $dbHost = (string)env('DB_HOST', '127.0.0.1');
@@ -230,7 +236,7 @@ try {
         $statements = splitSqlStatements($sql);
         foreach ($statements as $statement) {
           try {
-            $pdo->exec($statement);
+            executeSqlStatement($pdo, $statement);
           } catch (PDOException $e) {
             if (isIgnorableSqlError($e)) {
               echo "[WARN] Skipping duplicate column: {$e->getMessage()}\n";
