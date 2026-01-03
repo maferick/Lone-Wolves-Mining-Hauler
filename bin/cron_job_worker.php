@@ -14,6 +14,25 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
   $log = $logger ?? static function (string $message): void {
     fwrite(STDOUT, $message . "\n");
   };
+  $formatException = static function (Throwable $e): string {
+    $details = [];
+    while ($e) {
+      $details[] = sprintf(
+        "%s: %s (code %s) in %s:%d\n%s",
+        get_class($e),
+        $e->getMessage(),
+        $e->getCode(),
+        $e->getFile(),
+        $e->getLine(),
+        $e->getTraceAsString()
+      );
+      $e = $e->getPrevious();
+      if ($e) {
+        $details[] = "Caused by:";
+      }
+    }
+    return implode("\n", $details);
+  };
 
   $workerId = gethostname() . ':' . getmypid();
   $jobQueue = new JobQueueService($db);
@@ -186,12 +205,25 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         throw new RuntimeException("Unhandled job type: {$jobType}");
     }
   } catch (Throwable $e) {
+    $errorDetail = $formatException($e);
     switch ($jobType) {
       case JobQueueService::WEBHOOK_DELIVERY_JOB:
-        $jobQueue->markFailed($jobId, $e->getMessage(), [], 'cron.webhook_delivery.failed', "Webhook delivery failed: {$e->getMessage()}");
+        $jobQueue->markFailed(
+          $jobId,
+          $e->getMessage(),
+          ['error_detail' => $errorDetail],
+          'cron.webhook_delivery.failed',
+          "Webhook delivery failed: {$e->getMessage()}"
+        );
         break;
       case JobQueueService::CONTRACT_MATCH_JOB:
-        $jobQueue->markFailed($jobId, $e->getMessage(), [], 'cron.contract_match.failed', "Contract match failed: {$e->getMessage()}");
+        $jobQueue->markFailed(
+          $jobId,
+          $e->getMessage(),
+          ['error_detail' => $errorDetail],
+          'cron.contract_match.failed',
+          "Contract match failed: {$e->getMessage()}"
+        );
         break;
       case JobQueueService::CRON_SYNC_JOB:
       case JobQueueService::CRON_TOKEN_REFRESH_JOB:
@@ -202,16 +234,22 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $jobQueue->markFailed(
           $jobId,
           $e->getMessage(),
-          [],
+          ['error_detail' => $errorDetail],
           $meta['failed'],
           "{$meta['log_failed_prefix']}: {$e->getMessage()}"
         );
         break;
       default:
-        $jobQueue->markFailed($jobId, $e->getMessage(), [], 'cron.job.failed', "Job failed: {$e->getMessage()}");
+        $jobQueue->markFailed(
+          $jobId,
+          $e->getMessage(),
+          ['error_detail' => $errorDetail],
+          'cron.job.failed',
+          "Job failed: {$e->getMessage()}"
+        );
         break;
     }
-    $log("Cron job {$jobId} failed: {$e->getMessage()}");
+    $log("Cron job {$jobId} failed: {$errorDetail}");
     return 2;
   }
 }

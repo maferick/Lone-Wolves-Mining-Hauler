@@ -38,36 +38,31 @@ final class Db {
   }
 
   public function fetchValue(string $sql, array $params = []) {
-    $st = $this->pdo->prepare($sql);
-    $st->execute($params);
+    $st = $this->runStatement($sql, $params);
     return $st->fetchColumn();
   }
 
   public function insert(string $table, array $data): int {
     if (str_starts_with(ltrim($table), 'INSERT') || str_contains($table, ' ')) {
-      $st = $this->pdo->prepare($table);
-      $st->execute($data);
+      $this->runStatement($table, $data);
       return (int)$this->pdo->lastInsertId();
     }
 
     $cols = array_keys($data);
     $sql = "INSERT INTO {$table} (`" . implode('`,`',$cols) . "`) VALUES (:" . implode(',:',$cols) . ")";
-    $st = $this->pdo->prepare($sql);
-    $st->execute($data);
+    $this->runStatement($sql, $data);
     return (int)$this->pdo->lastInsertId();
   }
 
   public function select(string $sql, array $params = []): array
   {
-    $st = $this->pdo->prepare($sql);
-    $st->execute($params);
+    $st = $this->runStatement($sql, $params);
     return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
   }
 
   public function one(string $sql, array $params = []): ?array
   {
-    $st = $this->pdo->prepare($sql);
-    $st->execute($params);
+    $st = $this->runStatement($sql, $params);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     return $row !== false ? $row : null;
   }
@@ -79,9 +74,42 @@ final class Db {
 
   public function execute(string $sql, array $params = []): int
   {
-    $st = $this->pdo->prepare($sql);
-    $st->execute($params);
+    $st = $this->runStatement($sql, $params);
     return $st->rowCount();
+  }
+
+  private function runStatement(string $sql, array $params = []): \PDOStatement
+  {
+    $st = $this->pdo->prepare($sql);
+    try {
+      if ($params === []) {
+        $st->execute();
+      } else {
+        $st->execute($params);
+      }
+    } catch (\PDOException $e) {
+      $message = $this->formatPdoException($e, $sql, $params);
+      throw new \PDOException($message, (int)$e->getCode(), $e);
+    }
+    return $st;
+  }
+
+  private function formatPdoException(\PDOException $e, string $sql, array $params): string
+  {
+    $errorInfo = '';
+    if (isset($e->errorInfo) && is_array($e->errorInfo)) {
+      $errorInfo = implode(' | ', array_map('strval', $e->errorInfo));
+    }
+    $paramsJson = json_encode($params, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+    $message = $e->getMessage();
+    if ($errorInfo !== '') {
+      $message .= " | ErrorInfo: {$errorInfo}";
+    }
+    $message .= " | SQL: {$sql}";
+    if ($params !== []) {
+      $message .= " | Params: {$paramsJson}";
+    }
+    return $message;
   }
 
   public function tx(callable $fn)
