@@ -221,8 +221,10 @@ ob_start();
     const breakdownCard = document.getElementById('quote-breakdown');
     const breakdownContent = document.getElementById('quote-breakdown-content');
     const createRequestBtn = document.getElementById('quote-create-request');
+    const canCreateRequest = createRequestBtn ? !createRequestBtn.hasAttribute('disabled') : false;
     const requestLink = document.getElementById('quote-request-link');
     const requestStatus = document.getElementById('quote-request-status');
+    const buybackBtn = document.getElementById('buyback-haulage-btn');
     let currentQuoteId = null;
 
     pickupInput?.addEventListener('input', () => {
@@ -335,6 +337,10 @@ ob_start();
       resultEl.style.display = 'none';
       requestStatus.style.display = 'none';
       requestLink.style.display = 'none';
+      if (createRequestBtn) {
+        createRequestBtn.disabled = !canCreateRequest;
+        createRequestBtn.textContent = 'Create Request';
+      }
 
       const pickup = pickupInput?.value.trim();
       const destination = destinationInput?.value.trim();
@@ -427,6 +433,76 @@ ob_start();
         requestStatus.textContent = 'Request creation failed.';
       } finally {
         createRequestBtn.disabled = false;
+      }
+    });
+
+    buybackBtn?.addEventListener('click', async () => {
+      errorEl.style.display = 'none';
+      resultEl.style.display = 'none';
+      requestStatus.style.display = 'none';
+      requestLink.style.display = 'none';
+
+      const pickup = pickupInput?.value.trim();
+      const destination = destinationInput?.value.trim();
+      const volume = parseFloat(volumeInput?.value || '0');
+      const collateral = parseIsk(collateralInput?.value || '');
+      const priority = priorityInput?.value || 'normal';
+
+      if (!pickup || !destination) {
+        showError('Pickup and destination systems are required.');
+        return;
+      }
+      if (!volume || volume <= 0) {
+        showError('Volume must be greater than zero.');
+        return;
+      }
+      if (collateral === null || collateral <= 0) {
+        showError('Collateral must be a valid ISK amount.');
+        return;
+      }
+
+      buybackBtn.disabled = true;
+      const originalText = buybackBtn.textContent;
+      buybackBtn.textContent = 'Creating...';
+      try {
+        const resp = await fetch(`${basePath}/api/requests/buyback/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
+          body: JSON.stringify({
+            pickup,
+            destination,
+            volume_m3: volume,
+            collateral_isk: collateral,
+            priority,
+          }),
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+          showError(data.error || 'Buyback request failed.');
+          return;
+        }
+        currentQuoteId = null;
+        const totalPrice = data.reward_isk ?? data.total_price_isk ?? data.price_total_isk ?? 0;
+        resultEl.textContent = `Buyback request #${data.request_id} created for ${fmtIsk(totalPrice)} ISK.`;
+        resultEl.style.display = 'block';
+        breakdownCard.style.display = 'block';
+        renderBreakdown(data);
+        requestLink.href = data.request_url || '#';
+        requestLink.style.display = data.request_url ? 'inline-flex' : 'none';
+        requestStatus.textContent = `Buyback request #${data.request_id} created.`;
+        requestStatus.style.display = 'inline';
+        if (createRequestBtn) {
+          createRequestBtn.disabled = true;
+          createRequestBtn.textContent = 'Request Created';
+        }
+      } catch (err) {
+        showError('Buyback request failed.');
+      } finally {
+        buybackBtn.disabled = false;
+        buybackBtn.textContent = originalText;
       }
     });
   })();
