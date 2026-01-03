@@ -10,6 +10,7 @@ $queueStats = [
   'outstanding' => 0,
   'in_progress' => 0,
   'delivered' => 0,
+  'failed' => 0,
 ];
 $requests = [];
 $haulers = [];
@@ -26,11 +27,29 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
   $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
 
   if ($hasHaulRequest) {
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+    $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+    $contractLifecycleColumn = null;
+    if ($hasContractLifecycle) {
+      $contractLifecycleColumn = 'contract_lifecycle';
+    } elseif ($hasContractState) {
+      $contractLifecycleColumn = 'contract_state';
+    }
+    $activeLifecycleFilter = $contractLifecycleColumn
+      ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
+      : '';
+    $deliveredCase = $contractLifecycleColumn
+      ? "SUM(CASE WHEN {$contractLifecycleColumn} = 'DELIVERED' THEN 1 ELSE 0 END) AS delivered"
+      : "SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered";
+    $failedCase = $contractLifecycleColumn
+      ? "SUM(CASE WHEN {$contractLifecycleColumn} IN ('FAILED','EXPIRED') THEN 1 ELSE 0 END) AS failed"
+      : "SUM(CASE WHEN status IN ('cancelled','expired','rejected','failed') THEN 1 ELSE 0 END) AS failed";
     $statsRow = $db->one(
       "SELECT
-          SUM(CASE WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 1 ELSE 0 END) AS outstanding,
-          SUM(CASE WHEN status IN ('in_progress','accepted','in_transit') THEN 1 ELSE 0 END) AS in_progress,
-          SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered
+          SUM(CASE WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS outstanding,
+          SUM(CASE WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS in_progress,
+          {$deliveredCase},
+          {$failedCase}
         FROM haul_request
        WHERE corp_id = :cid",
       ['cid' => $corpId]
@@ -39,6 +58,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
       $queueStats['outstanding'] = (int)($statsRow['outstanding'] ?? 0);
       $queueStats['in_progress'] = (int)($statsRow['in_progress'] ?? 0);
       $queueStats['delivered'] = (int)($statsRow['delivered'] ?? 0);
+      $queueStats['failed'] = (int)($statsRow['failed'] ?? 0);
     }
   }
 
@@ -58,12 +78,22 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
     $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_lifecycle'");
     $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'NULL AS contract_lifecycle';
+    $hasContractState = false;
     if (!$hasContractLifecycle) {
       $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_state'");
       if ($hasContractState) {
         $contractLifecycleSelect = 'r.contract_state AS contract_lifecycle';
       }
     }
+    $contractLifecycleColumn = null;
+    if ($hasContractLifecycle) {
+      $contractLifecycleColumn = 'r.contract_lifecycle';
+    } elseif (!empty($hasContractState)) {
+      $contractLifecycleColumn = 'r.contract_state';
+    }
+    $contractLifecycleFilter = $contractLifecycleColumn
+      ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
+      : " AND r.status NOT IN ('completed','delivered','cancelled','expired','rejected','failed')";
     $hasEsiAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'esi_acceptor_id'");
     $esiAcceptorIdSelect = $hasEsiAcceptorId ? 'r.esi_acceptor_id' : 'r.contract_acceptor_id AS esi_acceptor_id';
     $hasEsiAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'esi_acceptor_name'");
@@ -90,7 +120,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
          {$requestKeyJoin}
          LEFT JOIN haul_assignment a ON a.request_id = r.request_id
          LEFT JOIN app_user u ON u.user_id = a.hauler_user_id
-        WHERE r.corp_id = :cid
+        WHERE r.corp_id = :cid{$contractLifecycleFilter}
         ORDER BY r.created_at DESC
         LIMIT 25",
       ['cid' => $corpId]
@@ -110,12 +140,22 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
     $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
     $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'NULL AS contract_lifecycle';
+    $hasContractState = false;
     if (!$hasContractLifecycle) {
       $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
       if ($hasContractState) {
         $contractLifecycleSelect = 'r.contract_state AS contract_lifecycle';
       }
     }
+    $contractLifecycleColumn = null;
+    if ($hasContractLifecycle) {
+      $contractLifecycleColumn = 'r.contract_lifecycle';
+    } elseif (!empty($hasContractState)) {
+      $contractLifecycleColumn = 'r.contract_state';
+    }
+    $contractLifecycleFilter = $contractLifecycleColumn
+      ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
+      : " AND r.status NOT IN ('completed','delivered','cancelled','expired','rejected','failed')";
     $hasEsiAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'esi_acceptor_id'");
     $esiAcceptorIdSelect = $hasEsiAcceptorId ? 'r.esi_acceptor_id' : 'r.contract_acceptor_id AS esi_acceptor_id';
     $hasEsiAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'esi_acceptor_name'");
@@ -141,7 +181,7 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
          LEFT JOIN app_user h ON h.user_id = a.hauler_user_id
          LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
          LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
-        WHERE r.corp_id = :cid
+        WHERE r.corp_id = :cid{$contractLifecycleFilter}
         ORDER BY r.created_at DESC
         LIMIT 25",
       ['cid' => $corpId]
