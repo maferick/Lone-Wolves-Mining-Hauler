@@ -8,5 +8,5 @@ UPDATE haul_request
   SET request_key = LOWER(REPLACE(UUID(), '-', ''))
   WHERE request_key = '' OR request_key IS NULL;
 
-ALTER TABLE haul_request
-  ADD UNIQUE KEY uq_request_key (request_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_request_key
+  ON haul_request (request_key);
