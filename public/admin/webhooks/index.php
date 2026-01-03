@@ -23,6 +23,7 @@ $eventOptions = [
   'haul.assignment.created' => 'Haul assigned',
   'haul.assignment.picked_up' => 'Haul picked up',
   'esi.contracts.pulled' => 'Contracts pulled (ESI)',
+  'esi.contracts.reconciled' => 'Contracts reconciled (ESI)',
   'webhook.test' => 'Manual test',
 ];
 $eventDefaults = array_fill_keys(array_keys($eventOptions), true);
