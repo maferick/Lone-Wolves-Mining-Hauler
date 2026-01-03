@@ -58,6 +58,89 @@ function arg(string $name): ?string {
   return null;
 }
 
+function splitSqlStatements(string $sql): array {
+  $statements = [];
+  $current = '';
+  $len = strlen($sql);
+  $inSingle = false;
+  $inDouble = false;
+  $inLineComment = false;
+  $inBlockComment = false;
+
+  for ($i = 0; $i < $len; $i++) {
+    $char = $sql[$i];
+    $next = $i + 1 < $len ? $sql[$i + 1] : '';
+
+    if ($inLineComment) {
+      if ($char === "\n") {
+        $inLineComment = false;
+      }
+      continue;
+    }
+
+    if ($inBlockComment) {
+      if ($char === '*' && $next === '/') {
+        $inBlockComment = false;
+        $i++;
+      }
+      continue;
+    }
+
+    if (!$inSingle && !$inDouble) {
+      if ($char === '-' && $next === '-') {
+        $inLineComment = true;
+        $i++;
+        continue;
+      }
+      if ($char === '#') {
+        $inLineComment = true;
+        continue;
+      }
+      if ($char === '/' && $next === '*') {
+        $inBlockComment = true;
+        $i++;
+        continue;
+      }
+    }
+
+    if ($char === "'" && !$inDouble) {
+      $escaped = $i > 0 && $sql[$i - 1] === '\\';
+      if (!$escaped) {
+        $inSingle = !$inSingle;
+      }
+    } elseif ($char === '"' && !$inSingle) {
+      $escaped = $i > 0 && $sql[$i - 1] === '\\';
+      if (!$escaped) {
+        $inDouble = !$inDouble;
+      }
+    }
+
+    if ($char === ';' && !$inSingle && !$inDouble) {
+      $trimmed = trim($current);
+      if ($trimmed !== '') {
+        $statements[] = $trimmed;
+      }
+      $current = '';
+      continue;
+    }
+
+    $current .= $char;
+  }
+
+  $trimmed = trim($current);
+  if ($trimmed !== '') {
+    $statements[] = $trimmed;
+  }
+
+  return $statements;
+}
+
+function isIgnorableSqlError(PDOException $e): bool {
+  $errorInfo = $e->errorInfo;
+  $errorCode = $errorInfo[1] ?? null;
+  return in_array($errorCode, [1060], true);
+}
+
 loadDotEnv(__DIR__ . '/.env');
 
 $dbHost = (string)env('DB_HOST', '127.0.0.1');
@@ -143,9 +226,18 @@ try {
         echo "Import: {$file}\n";
         $sql = file_get_contents($file);
         if ($sql === false) throw new RuntimeException("Failed reading: {$file}");
-        // Simple splitter: execute as one batch (works for typical schema files).
-        // If your host restricts multi statements, split further.
-        $pdo->exec($sql);
+        $statements = splitSqlStatements($sql);
+        foreach ($statements as $statement) {
+          try {
+            $pdo->exec($statement);
+          } catch (PDOException $e) {
+            if (isIgnorableSqlError($e)) {
+              echo "[WARN] Skipping duplicate column: {$e->getMessage()}\n";
+              continue;
+            }
+            throw $e;
+          }
+        }
       }
       echo "[OK] Import complete\n";
     }
