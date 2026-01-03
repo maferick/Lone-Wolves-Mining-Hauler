@@ -510,35 +510,60 @@ final class DiscordWebhookService
     $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
     $requestId = (int)($details['request_id'] ?? 0);
     $route = trim((string)($details['route'] ?? ''));
+    $pickup = trim((string)($details['pickup'] ?? ''));
+    $dropoff = trim((string)($details['dropoff'] ?? ''));
     $shipClass = trim((string)($details['ship_class'] ?? ''));
     $volume = (float)($details['volume_m3'] ?? 0.0);
     $collateral = (float)($details['collateral_isk'] ?? 0.0);
     $price = (float)($details['price_isk'] ?? 0.0);
     $contractId = (int)($details['contract_id'] ?? 0);
-    $requestUrl = $this->buildRequestUrl($details['request_key'] ?? null);
+    $issuerId = (int)($details['issuer_id'] ?? 0);
+    $issuerName = trim((string)($details['issuer_name'] ?? ''));
 
-    $lines = [
-      sprintf('Contract linked for request #%s', $requestId > 0 ? (string)$requestId : 'N/A'),
-    ];
+    $shipLabel = $this->formatShipClassLabel($shipClass);
+    $fields = [];
+    if ($pickup !== '') {
+      $fields[] = ['name' => 'Pickup', 'value' => $pickup, 'inline' => true];
+    }
+    if ($dropoff !== '') {
+      $fields[] = ['name' => 'Dropoff', 'value' => $dropoff, 'inline' => true];
+    }
+    if ($shipLabel !== '') {
+      $fields[] = ['name' => 'Ship', 'value' => $shipLabel, 'inline' => true];
+    }
+    $fields[] = ['name' => 'Reward', 'value' => number_format($price, 2) . ' ISK', 'inline' => true];
+    $fields[] = ['name' => 'Collateral', 'value' => number_format($collateral, 2) . ' ISK', 'inline' => true];
+    $fields[] = ['name' => 'Volume', 'value' => number_format($volume, 0) . ' m³', 'inline' => true];
     if ($route !== '') {
-      $lines[] = 'Route: ' . $route;
+      $fields[] = ['name' => 'Route', 'value' => str_replace('→', '-', $route), 'inline' => false];
     }
-    if ($shipClass !== '') {
-      $lines[] = 'Ship class: ' . $shipClass;
-    }
-    $lines[] = 'Volume: ' . number_format($volume, 0) . ' m³';
-    $lines[] = 'Collateral: ' . number_format($collateral, 2) . ' ISK';
-    $lines[] = 'Price: ' . number_format($price, 2) . ' ISK';
     if ($contractId > 0) {
-      $lines[] = 'Contract ID: ' . (string)$contractId;
+      $fields[] = ['name' => 'Contract ID', 'value' => (string)$contractId, 'inline' => true];
     }
-    if ($requestUrl !== '') {
-      $lines[] = $requestUrl;
+
+    $embed = [
+      'title' => 'Contract ready for pickup and delivery',
+      'description' => 'This contract has been checked and is OK.',
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    if ($issuerName !== '') {
+      $author = ['name' => $issuerName];
+      $issuerAvatarUrl = $this->buildCharacterPortraitUrl($issuerId);
+      if ($issuerAvatarUrl !== '') {
+        $author['icon_url'] = $issuerAvatarUrl;
+      }
+      $embed['author'] = $author;
+    } elseif ($requestId > 0) {
+      $embed['footer'] = ['text' => 'Request #' . $requestId];
     }
 
     return [
       'username' => $appName,
-      'content' => implode("\n", $lines),
+      'embeds' => [
+        $embed,
+      ],
     ];
   }
 
