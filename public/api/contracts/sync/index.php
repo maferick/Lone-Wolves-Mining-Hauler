@@ -40,11 +40,13 @@ try {
   api_send_json(['ok' => false, 'error' => $e->getMessage()], 500);
 }
 
+$reconcileResult = $esi->contracts()->reconcileLinkedRequests($corpId, $charId);
 $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
 $matchResult = $matcher->matchOpenRequests($corpId);
 
 api_send_json([
   'ok' => true,
   'pull' => $pullResult,
+  'reconcile' => $reconcileResult,
   'match' => $matchResult,
 ]);

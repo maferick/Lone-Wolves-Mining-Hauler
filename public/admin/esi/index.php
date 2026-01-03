@@ -26,7 +26,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $charId = (int)$_POST['character_id'];
     try {
       $result = $db->tx(fn(Db $db) => $services['esi']->contracts()->pull($corpId, $charId));
-      $msg = "Pulled contracts: " . (int)($result['upserted_contracts'] ?? 0) . " (items: " . (int)($result['upserted_items'] ?? 0) . ")";
+      $reconcile = $services['esi']->contracts()->reconcileLinkedRequests($corpId, $charId);
+      $msg = "Pulled contracts: " . (int)($result['upserted_contracts'] ?? 0)
+        . " (items: " . (int)($result['upserted_items'] ?? 0) . "). "
+        . "Reconciled: " . (int)($reconcile['updated'] ?? 0) . " updated.";
     } catch (Throwable $e) {
       $msg = "Pull failed: " . $e->getMessage();
     }

@@ -24,6 +24,7 @@ try {
   /** @var \App\Services\EsiService $esi */
   $esi = $services['esi'];
   $result = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
+  $reconcile = $esi->contracts()->reconcileLinkedRequests($corpId, $charId);
 
   if (!empty($services['discord_webhook'])) {
     try {
@@ -34,8 +35,14 @@ try {
     } catch (\Throwable $e) {
       // Ignore webhook enqueue failures.
     }
+    try {
+      $discordPayload = $webhooks->buildContractsReconciledPayload($reconcile);
+      $webhooks->enqueue($corpId, 'esi.contracts.reconciled', $discordPayload);
+    } catch (\Throwable $e) {
+      // Ignore webhook enqueue failures.
+    }
   }
-  api_send_json(['ok' => true, 'result' => $result]);
+  api_send_json(['ok' => true, 'result' => $result, 'reconcile' => $reconcile]);
 } catch (Throwable $e) {
   api_send_json(['ok' => false, 'error' => $e->getMessage()], 500);
 }
