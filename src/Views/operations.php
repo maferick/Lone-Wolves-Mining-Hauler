@@ -120,14 +120,18 @@ $buildContractStateLabel = static function (array $req): string {
     'DELIVERED' => 'Delivered',
     'FAILED' => 'Failed',
     'EXPIRED' => 'Expired',
-    default => 'Unassigned',
+    default => 'Available / Awaiting pickup',
   };
 };
 
 $buildContractAssignee = static function (array $req): string {
   $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
+  $acceptorId = (int)($req['contract_acceptor_id'] ?? 0);
   if ($acceptorName !== '') {
     return $acceptorName;
+  }
+  if ($acceptorId > 0) {
+    return 'Character #' . (string)$acceptorId;
   }
   return 'Unassigned';
 };
@@ -258,7 +262,7 @@ ob_start();
             <tr>
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($contractLifecycleLabel, ENT_QUOTES, 'UTF-8') ?></td>
               <td>
                 <div class="contract-cell">
                   <span class="contract-bar contract-bar--<?= htmlspecialchars($contractState, ENT_QUOTES, 'UTF-8') ?>"></span>
@@ -287,7 +291,7 @@ ob_start();
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)($req['hauler_name'] ?? 'Unassigned'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($contractAssignee, ENT_QUOTES, 'UTF-8') ?></td>
             </tr>
           <?php endforeach; ?>
         </tbody>
