@@ -7,7 +7,27 @@ use App\Auth\Auth;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'corp.manage');
+$adminPerms = [
+  'corp.manage',
+  'esi.manage',
+  'webhook.manage',
+  'pricing.manage',
+  'user.manage',
+  'haul.request.manage',
+  'haul.assign',
+];
+$hasAnyAdmin = false;
+foreach ($adminPerms as $permKey) {
+  if (Auth::can($authCtx, $permKey)) {
+    $hasAnyAdmin = true;
+    break;
+  }
+}
+if (!$hasAnyAdmin) {
+  http_response_code(403);
+  echo "Forbidden";
+  exit;
+}
 
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Admin';
@@ -24,30 +44,40 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
     </div>
     <div class="content">
       <div class="row">
-        <div>
-          <div class="label">Corp</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings/">Manage corp & alliance</a>
-        </div>
-        <div>
-          <div class="label">Defaults</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/defaults/">Pricing & routing</a>
-        </div>
-        <div>
-          <div class="label">Users</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/users/">Roles & sub-admins</a>
-        </div>
-        <div>
-          <div class="label">ESI</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/esi/">Tokens & contract sync</a>
-        </div>
-        <div>
-          <div class="label">Cron</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/cron/">Scheduler command</a>
-        </div>
-        <div>
-          <div class="label">Webhooks</div>
-          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Discord webhooks</a>
-        </div>
+        <?php if (Auth::can($authCtx, 'corp.manage')): ?>
+          <div>
+            <div class="label">Corp</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings/">Manage corp & alliance</a>
+          </div>
+        <?php endif; ?>
+        <?php if (Auth::can($authCtx, 'pricing.manage')): ?>
+          <div>
+            <div class="label">Defaults</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/defaults/">Pricing & routing</a>
+          </div>
+        <?php endif; ?>
+        <?php if (Auth::can($authCtx, 'user.manage')): ?>
+          <div>
+            <div class="label">Users</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/users/">Roles & sub-admins</a>
+          </div>
+        <?php endif; ?>
+        <?php if (Auth::can($authCtx, 'esi.manage')): ?>
+          <div>
+            <div class="label">ESI</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/esi/">Tokens & contract sync</a>
+          </div>
+          <div>
+            <div class="label">Cron</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/cron/">Scheduler command</a>
+          </div>
+        <?php endif; ?>
+        <?php if (Auth::can($authCtx, 'webhook.manage')): ?>
+          <div>
+            <div class="label">Webhooks</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Discord webhooks</a>
+          </div>
+        <?php endif; ?>
       </div>
     </div>
   </div>

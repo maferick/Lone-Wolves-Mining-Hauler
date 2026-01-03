@@ -7,18 +7,43 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $me = $authCtx['display_name'] ?? 'User';
 $apiKey = (string)($config['security']['api_key'] ?? '');
 $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
+$adminPerms = [
+  'corp.manage',
+  'esi.manage',
+  'webhook.manage',
+  'pricing.manage',
+  'user.manage',
+  'haul.request.manage',
+  'haul.assign',
+];
+$hasAnyAdmin = false;
+if (!empty($authCtx['user_id'])) {
+  foreach ($adminPerms as $permKey) {
+    if (Auth::can($authCtx, $permKey)) {
+      $hasAnyAdmin = true;
+      break;
+    }
+  }
+}
+$navItems = [
+  ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
+  ['label' => 'Corp', 'path' => '/admin/settings/', 'perm' => 'corp.manage'],
+  ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
+  ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
+  ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
+  ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+  ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
+  ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
+];
 ?>
 <div class="adminbar">
   <div class="adminbar-left">
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/settings/">Corp</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/defaults/">Defaults</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/hauling/">Hauling</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/users/">Users</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/esi/">ESI</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/cron/">Cron</a>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Webhooks</a>
+    <?php foreach ($navItems as $item): ?>
+      <?php if (($item['perm'] === null && $hasAnyAdmin) || ($item['perm'] !== null && Auth::can($authCtx, $item['perm']))): ?>
+        <a class="nav-link" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
+      <?php endif; ?>
+    <?php endforeach; ?>
     <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>">API</a>
     <?php if ($canRights): ?>
       <a class="nav-link" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
