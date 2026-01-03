@@ -723,7 +723,6 @@ final class DiscordWebhookService
   {
     $params = [
       'cid' => $corpId,
-      'event_key' => $eventKey,
     ];
     $webhookClause = '';
     if ($webhookId !== null) {
@@ -732,6 +731,7 @@ final class DiscordWebhookService
     }
 
     if ($respectSubscriptions) {
+      $params['event_key'] = $eventKey;
       return $this->db->select(
         "SELECT w.webhook_id
            FROM discord_webhook w
