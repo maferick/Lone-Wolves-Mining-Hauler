@@ -389,6 +389,7 @@ CREATE TABLE IF NOT EXISTS haul_request (
   contract_id        BIGINT UNSIGNED NULL COMMENT 'ESI contract_id',
   contract_type      ENUM('courier','item_exchange','auction','unknown') NULL,
   contract_status    VARCHAR(64) NULL,
+  contract_acceptor_id BIGINT UNSIGNED NULL,
   contract_matched_at DATETIME NULL,
   contract_validation_json JSON NULL,
   mismatch_reason_json JSON NULL,
@@ -423,6 +424,7 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS route_profile VARCHAR(32) NULL AFTER route_policy,
   ADD COLUMN IF NOT EXISTS contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
   ADD COLUMN IF NOT EXISTS contract_matched_at DATETIME NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS contract_acceptor_id BIGINT UNSIGNED NULL AFTER contract_status,
   ADD COLUMN IF NOT EXISTS contract_validation_json JSON NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json;
 
@@ -768,6 +770,7 @@ SELECT
   r.route_profile,
   r.contract_id,
   r.contract_status,
+  r.contract_acceptor_id,
   r.contract_matched_at,
   r.mismatch_reason_json,
   r.created_at,
