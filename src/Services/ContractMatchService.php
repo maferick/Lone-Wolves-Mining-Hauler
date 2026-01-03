@@ -266,17 +266,18 @@ final class ContractMatchService
 
     $this->db->execute(
       "UPDATE haul_request
-          SET contract_id = :contract_id,
+          SET contract_id = :new_contract_id,
               contract_status = :contract_status,
               status = :status,
               contract_matched_at = UTC_TIMESTAMP(),
-              contract_linked_notified_at = IF(contract_id = :contract_id, contract_linked_notified_at, NULL),
+              contract_linked_notified_at = IF(contract_id = :existing_contract_id, contract_linked_notified_at, NULL),
               contract_validation_json = :validation_json,
               mismatch_reason_json = NULL,
               updated_at = UTC_TIMESTAMP()
         WHERE request_id = :rid",
       [
-        'contract_id' => (int)($contract['contract_id'] ?? 0),
+        'new_contract_id' => (int)($contract['contract_id'] ?? 0),
+        'existing_contract_id' => (int)($contract['contract_id'] ?? 0),
         'contract_status' => $contractStatus,
         'status' => $newStatus,
         'validation_json' => Db::jsonEncode($validation['flags'] ?? []),
