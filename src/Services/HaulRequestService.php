@@ -86,6 +86,7 @@ final class HaulRequestService
       'route_system_ids' => $routeIds ? Db::jsonEncode($routeIds) : null,
       'price_breakdown_json' => Db::jsonEncode($breakdown),
       'contract_hint_text' => $contractHintText,
+      'contract_lifecycle' => 'AWAITING_CONTRACT',
       'status' => 'requested',
     ]);
 

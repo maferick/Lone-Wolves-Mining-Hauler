@@ -52,15 +52,33 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
     $hasContractStatusEsi = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_status_esi'");
     $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
-    $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_state'");
-    $contractStateSelect = $hasContractState ? 'r.contract_state' : 'NULL AS contract_state';
-    $hasContractAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_acceptor_id'");
-    $acceptorIdSelect = $hasContractAcceptorId ? 'r.contract_acceptor_id' : 'NULL AS contract_acceptor_id';
-    $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_acceptor_name'");
-    $acceptorNameSelect = $hasContractAcceptorName ? 'r.contract_acceptor_name' : 'NULL AS contract_acceptor_name';
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_lifecycle'");
+    $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'NULL AS contract_lifecycle';
+    if (!$hasContractLifecycle) {
+      $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_state'");
+      if ($hasContractState) {
+        $contractLifecycleSelect = 'r.contract_state AS contract_lifecycle';
+      }
+    }
+    $hasAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'acceptor_id'");
+    $acceptorIdSelect = $hasAcceptorId ? 'r.acceptor_id' : 'NULL AS acceptor_id';
+    if (!$hasAcceptorId) {
+      $hasContractAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_acceptor_id'");
+      if ($hasContractAcceptorId) {
+        $acceptorIdSelect = 'r.contract_acceptor_id AS acceptor_id';
+      }
+    }
+    $hasAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'acceptor_name'");
+    $acceptorNameSelect = $hasAcceptorName ? 'r.acceptor_name' : 'NULL AS acceptor_name';
+    if (!$hasAcceptorName) {
+      $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM v_haul_request_display LIKE 'contract_acceptor_name'");
+      if ($hasContractAcceptorName) {
+        $acceptorNameSelect = 'r.contract_acceptor_name AS acceptor_name';
+      }
+    }
     $requests = $db->select(
       "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status, {$contractStatusEsiSelect},
-              {$contractStateSelect}, {$acceptorIdSelect}, {$acceptorNameSelect}, {$validationSelect}, {$mismatchSelect},
+              {$contractLifecycleSelect}, {$acceptorIdSelect}, {$acceptorNameSelect}, {$validationSelect}, {$mismatchSelect},
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -85,15 +103,33 @@ if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
     $mismatchSelect = $hasMismatchJson ? 'r.mismatch_reason_json' : 'NULL AS mismatch_reason_json';
     $hasContractStatusEsi = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_status_esi'");
     $contractStatusEsiSelect = $hasContractStatusEsi ? 'r.contract_status_esi' : 'NULL AS contract_status_esi';
-    $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
-    $contractStateSelect = $hasContractState ? 'r.contract_state' : 'NULL AS contract_state';
-    $hasContractAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_id'");
-    $acceptorIdSelect = $hasContractAcceptorId ? 'r.contract_acceptor_id' : 'NULL AS contract_acceptor_id';
-    $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_name'");
-    $acceptorNameSelect = $hasContractAcceptorName ? 'r.contract_acceptor_name' : 'NULL AS contract_acceptor_name';
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+    $contractLifecycleSelect = $hasContractLifecycle ? 'r.contract_lifecycle' : 'NULL AS contract_lifecycle';
+    if (!$hasContractLifecycle) {
+      $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+      if ($hasContractState) {
+        $contractLifecycleSelect = 'r.contract_state AS contract_lifecycle';
+      }
+    }
+    $hasAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'acceptor_id'");
+    $acceptorIdSelect = $hasAcceptorId ? 'r.acceptor_id' : 'NULL AS acceptor_id';
+    if (!$hasAcceptorId) {
+      $hasContractAcceptorId = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_id'");
+      if ($hasContractAcceptorId) {
+        $acceptorIdSelect = 'r.contract_acceptor_id AS acceptor_id';
+      }
+    }
+    $hasAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'acceptor_name'");
+    $acceptorNameSelect = $hasAcceptorName ? 'r.acceptor_name' : 'NULL AS acceptor_name';
+    if (!$hasAcceptorName) {
+      $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_name'");
+      if ($hasContractAcceptorName) {
+        $acceptorNameSelect = 'r.contract_acceptor_name AS acceptor_name';
+      }
+    }
     $requests = $db->select(
       "SELECT r.request_id, {$requestKeySelect}, r.status, r.contract_id, r.contract_status,
-              {$contractStatusEsiSelect}, {$contractStateSelect}, {$acceptorIdSelect}, {$acceptorNameSelect}, {$validationSelect}, {$mismatchSelect},
+              {$contractStatusEsiSelect}, {$contractLifecycleSelect}, {$acceptorIdSelect}, {$acceptorNameSelect}, {$validationSelect}, {$mismatchSelect},
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
               u.display_name AS requester_display_name, a.hauler_user_id,
               h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
