@@ -24,8 +24,8 @@ $buildRouteLabel = static function (array $req): string {
 
 $buildContractLabel = static function (array $req): string {
   $status = (string)($req['status'] ?? '');
-  $contractId = (int)($req['contract_id'] ?? 0);
-  $contractStatus = trim((string)($req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
+  $contractId = (int)($req['esi_contract_id'] ?? $req['contract_id'] ?? 0);
+  $contractStatus = trim((string)($req['esi_status'] ?? $req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
   $label = $contractId > 0 ? '#' . (string)$contractId : '—';
   if ($status === 'contract_mismatch') {
     $mismatch = [];
@@ -46,8 +46,8 @@ $buildContractLabel = static function (array $req): string {
 };
 
 $buildStatusLabel = static function (array $req): string {
-  $state = strtoupper(trim((string)($req['contract_state'] ?? '')));
-  $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
+  $state = strtoupper(trim((string)($req['contract_lifecycle'] ?? $req['contract_state'] ?? '')));
+  $acceptorName = trim((string)($req['esi_acceptor_name'] ?? ''));
   return match ($state) {
     'PICKED_UP' => $acceptorName !== '' ? 'Picked up by ' . $acceptorName : 'Picked up / En route',
     'DELIVERED' => 'Delivered',

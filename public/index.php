@@ -379,7 +379,9 @@ switch ($path) {
 
       if ($hasRequestView) {
         $requests = $db->select(
-          "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+          "SELECT r.request_id, r.status, r.contract_id, r.esi_contract_id, r.contract_status, r.contract_status_esi, r.esi_status,
+                  r.contract_lifecycle, r.contract_state, r.esi_acceptor_id, r.esi_acceptor_name, r.ops_assignee_id, r.ops_assignee_name,
+                  r.mismatch_reason_json,
                   COALESCE(fs.system_name, r.from_name) AS from_name,
                   COALESCE(ts.system_name, r.to_name) AS to_name,
                   r.volume_m3, r.reward_isk, r.created_at, r.requester_display_name,
@@ -396,7 +398,9 @@ switch ($path) {
         );
       } elseif ($hasHaulRequest) {
         $requests = $db->select(
-          "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+          "SELECT r.request_id, r.status, r.contract_id, r.esi_contract_id, r.contract_status, r.contract_status_esi, r.esi_status,
+                  r.contract_lifecycle, r.contract_state, r.esi_acceptor_id, r.esi_acceptor_name, r.ops_assignee_id, r.ops_assignee_name,
+                  r.mismatch_reason_json,
                   r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
                   u.display_name AS requester_display_name, a.hauler_user_id,
                   h.display_name AS hauler_name, fs.system_name AS from_name, ts.system_name AS to_name
@@ -473,7 +477,8 @@ switch ($path) {
 
       if ($hasRequestView) {
         $requests = $db->select(
-          "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+          "SELECT r.request_id, r.status, r.contract_id, r.esi_contract_id, r.contract_status, r.contract_status_esi, r.esi_status,
+                  r.contract_lifecycle, r.contract_state, r.esi_acceptor_name, r.mismatch_reason_json,
                   COALESCE(fs.system_name, r.from_name) AS from_name,
                   COALESCE(ts.system_name, r.to_name) AS to_name,
                   r.volume_m3, r.reward_isk, r.created_at, hr.request_key
@@ -489,7 +494,8 @@ switch ($path) {
         );
       } elseif ($hasHaulRequest) {
         $requests = $db->select(
-          "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+          "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.esi_contract_id, r.contract_status, r.contract_status_esi,
+                  r.esi_status, r.contract_lifecycle, r.contract_state, r.esi_acceptor_name, r.mismatch_reason_json,
                   r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
                   fs.system_name AS from_name, ts.system_name AS to_name
              FROM haul_request r
@@ -534,7 +540,9 @@ switch ($path) {
     } else {
       $request = $db->one(
         "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
-                ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, contract_status,
+                ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, esi_contract_id,
+                contract_status, contract_status_esi, esi_status, contract_lifecycle, contract_state,
+                contract_acceptor_name, esi_acceptor_name, ops_assignee_name,
                 contract_hint_text, mismatch_reason_json, contract_matched_at, request_key
            FROM haul_request
           WHERE request_key = :rkey

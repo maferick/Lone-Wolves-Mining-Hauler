@@ -29,7 +29,7 @@ final class ContractMatchService
   {
     $requests = $this->db->select(
       "SELECT request_id, request_key, corp_id, from_location_id, to_location_id, volume_m3, collateral_isk, reward_isk,
-              ship_class, route_policy, route_profile, contract_hint_text, contract_id, contract_status, status,
+              ship_class, route_policy, route_profile, contract_hint_text, contract_id, esi_contract_id, contract_status, status,
               contract_linked_notified_at
          FROM haul_request
         WHERE corp_id = :cid
@@ -55,7 +55,7 @@ final class ContractMatchService
         continue;
       }
 
-      $contractId = (int)($request['contract_id'] ?? 0);
+      $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
       if ($contractId > 0) {
         $result = $this->validateLinkedRequest($request, $rewardTolerance);
         $summary['matched'] += (int)($result['matched'] ?? 0);
@@ -85,7 +85,7 @@ final class ContractMatchService
   private function validateLinkedRequest(array $request, array $rewardTolerance): array
   {
     $corpId = (int)($request['corp_id'] ?? 0);
-    $contractId = (int)($request['contract_id'] ?? 0);
+    $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
     $result = [
       'matched' => 0,
       'mismatched' => 0,
@@ -267,7 +267,10 @@ final class ContractMatchService
     $this->db->execute(
       "UPDATE haul_request
           SET contract_id = :new_contract_id,
+              esi_contract_id = :new_contract_id,
               contract_status = :contract_status,
+              contract_status_esi = :contract_status,
+              esi_status = :contract_status,
               status = :status,
               contract_matched_at = UTC_TIMESTAMP(),
               contract_linked_notified_at = IF(contract_id = :existing_contract_id, contract_linked_notified_at, NULL),
@@ -309,6 +312,8 @@ final class ContractMatchService
       "UPDATE haul_request
           SET status = 'contract_mismatch',
               contract_status = :contract_status,
+              contract_status_esi = :contract_status,
+              esi_status = :contract_status,
               contract_validation_json = :validation_json,
               mismatch_reason_json = :mismatch_json,
               updated_at = UTC_TIMESTAMP()
@@ -329,6 +334,8 @@ final class ContractMatchService
       "UPDATE haul_request
           SET status = 'completed',
               contract_status = :contract_status,
+              contract_status_esi = :contract_status,
+              esi_status = :contract_status,
               contract_validation_json = :validation_json,
               mismatch_reason_json = NULL,
               updated_at = UTC_TIMESTAMP()

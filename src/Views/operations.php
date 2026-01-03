@@ -30,8 +30,8 @@ $buildRouteLabel = static function (array $req): string {
 
 $buildContractLabel = static function (array $req): string {
   $status = (string)($req['status'] ?? '');
-  $contractId = (int)($req['contract_id'] ?? 0);
-  $contractStatus = trim((string)($req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
+  $contractId = (int)($req['esi_contract_id'] ?? $req['contract_id'] ?? 0);
+  $contractStatus = trim((string)($req['esi_status'] ?? $req['contract_status_esi'] ?? $req['contract_status'] ?? ''));
   $label = $contractId > 0 ? '#' . (string)$contractId : '—';
   if ($status === 'contract_mismatch') {
     $mismatch = [];
@@ -125,10 +125,22 @@ $buildContractStateLabel = static function (array $req): string {
   };
 };
 
-$buildContractAssignee = static function (array $req): string {
-  $acceptorName = trim((string)($req['acceptor_name'] ?? ''));
+$buildInGameAcceptor = static function (array $req): string {
+  $acceptorName = trim((string)($req['esi_acceptor_name'] ?? $req['esi_acceptor_display_name'] ?? ''));
   if ($acceptorName !== '') {
     return $acceptorName;
+  }
+  $acceptorId = (int)($req['esi_acceptor_id'] ?? 0);
+  if ($acceptorId > 0) {
+    return 'Character #' . $acceptorId;
+  }
+  return 'Unaccepted';
+};
+
+$buildOpsAssignee = static function (array $req): string {
+  $assigneeName = trim((string)($req['ops_assignee_name'] ?? ''));
+  if ($assigneeName !== '') {
+    return $assigneeName;
   }
   return 'Unassigned';
 };
@@ -241,7 +253,8 @@ ob_start();
             <th>Volume</th>
             <th>Reward</th>
             <th>Requester</th>
-            <th>Assigned</th>
+            <th>In-game acceptor</th>
+            <th>Ops assigned</th>
           </tr>
         </thead>
         <tbody>
@@ -253,13 +266,19 @@ ob_start();
               $hasContractDetails = !empty($contractDetails['checks']) || !empty($contractDetails['mismatches']);
               $contractStateLabel = $contractState === 'linked' ? 'Matched' : ($contractState === 'mismatch' ? 'Mismatch' : 'Pending');
               $contractLifecycleLabel = $buildContractStateLabel($req);
-              $contractAssignee = $buildContractAssignee($req);
-              $contractStatusEsi = trim((string)($req['contract_status_esi'] ?? ''));
+              $inGameAcceptor = $buildInGameAcceptor($req);
+              $opsAssignee = $buildOpsAssignee($req);
+              $contractStatusEsi = trim((string)($req['esi_status'] ?? $req['contract_status_esi'] ?? ''));
             ?>
             <tr>
               <td>#<?= htmlspecialchars((string)$req['request_id'], ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($contractLifecycleLabel, ENT_QUOTES, 'UTF-8') ?></td>
+              <td>
+                <div><?= htmlspecialchars($contractLifecycleLabel, ENT_QUOTES, 'UTF-8') ?></div>
+                <?php if ($contractStatusEsi !== ''): ?>
+                  <div class="muted">ESI: <?= htmlspecialchars($contractStatusEsi, ENT_QUOTES, 'UTF-8') ?></div>
+                <?php endif; ?>
+              </td>
               <td>
                 <div class="contract-cell">
                   <span class="contract-bar contract-bar--<?= htmlspecialchars($contractState, ENT_QUOTES, 'UTF-8') ?>"></span>
@@ -276,19 +295,19 @@ ob_start();
                         </button>
                       <?php endif; ?>
                     </div>
-                    <div class="contract-meta">
-                      <span class="muted">Assignee: <?= htmlspecialchars($contractAssignee, ENT_QUOTES, 'UTF-8') ?></span>
-                      <?php if ($contractStatusEsi !== ''): ?>
-                        <span class="muted">• ESI status: <?= htmlspecialchars($contractStatusEsi, ENT_QUOTES, 'UTF-8') ?></span>
-                      <?php endif; ?>
-                    </div>
+                    <?php if ($contractStatusEsi !== ''): ?>
+                      <div class="contract-meta">
+                        <span class="muted">ESI status: <?= htmlspecialchars($contractStatusEsi, ENT_QUOTES, 'UTF-8') ?></span>
+                      </div>
+                    <?php endif; ?>
                   </div>
                 </div>
               </td>
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($contractAssignee, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($inGameAcceptor, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($opsAssignee, ENT_QUOTES, 'UTF-8') ?></td>
             </tr>
           <?php endforeach; ?>
         </tbody>
@@ -383,8 +402,8 @@ ob_start();
           <?php foreach ($requests as $req): ?>
             <?php
               $requestId = (int)($req['request_id'] ?? 0);
-              $haulerUserId = (int)($req['hauler_user_id'] ?? 0);
-              $assignedLabel = (string)($req['hauler_name'] ?? 'Unassigned');
+              $haulerUserId = (int)($req['ops_assignee_id'] ?? $req['hauler_user_id'] ?? 0);
+              $assignedLabel = (string)($req['ops_assignee_name'] ?? $req['hauler_name'] ?? 'Unassigned');
               $isAssignedToSelf = $haulerUserId > 0 && $haulerUserId === $userId;
             ?>
             <tr>

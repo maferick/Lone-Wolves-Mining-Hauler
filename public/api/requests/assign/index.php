@@ -64,7 +64,7 @@ if (!$request) {
 }
 
 $hauler = $db->one(
-  "SELECT user_id, display_name, character_id FROM app_user WHERE user_id = :uid AND corp_id = :cid LIMIT 1",
+  "SELECT user_id, display_name, character_id, character_name FROM app_user WHERE user_id = :uid AND corp_id = :cid LIMIT 1",
   ['uid' => $haulerUserId, 'cid' => $corpId]
 );
 
@@ -72,7 +72,11 @@ if (!$hauler) {
   api_send_json(['ok' => false, 'error' => 'hauler not found'], 404);
 }
 
-$db->tx(function ($db) use ($requestId, $haulerUserId, $corpId, $authCtx, $request): void {
+$db->tx(function ($db) use ($requestId, $haulerUserId, $corpId, $authCtx, $request, $hauler): void {
+  $haulerName = (string)($hauler['display_name'] ?? '');
+  $haulerCharacter = trim((string)($hauler['character_name'] ?? ''));
+  $opsAssigneeName = $haulerCharacter !== '' ? $haulerName . ' (' . $haulerCharacter . ')' : $haulerName;
+
   $db->execute(
     "INSERT INTO haul_assignment
       (request_id, hauler_user_id, assigned_by_user_id, status, started_at, created_at, updated_at)
@@ -93,13 +97,16 @@ $db->tx(function ($db) use ($requestId, $haulerUserId, $corpId, $authCtx, $reque
 
   $db->execute(
     "UPDATE haul_request
-        SET status = CASE
-          WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted','accepted') THEN 'in_progress'
-          ELSE status
-        END,
-        updated_at = UTC_TIMESTAMP()
+        SET ops_assignee_id = :ops_assignee_id,
+            ops_assignee_name = :ops_assignee_name,
+            updated_at = UTC_TIMESTAMP()
       WHERE request_id = :rid AND corp_id = :cid",
-    ['rid' => $requestId, 'cid' => $corpId]
+    [
+      'rid' => $requestId,
+      'cid' => $corpId,
+      'ops_assignee_id' => $haulerUserId,
+      'ops_assignee_name' => $opsAssigneeName,
+    ]
   );
 
   $db->execute(

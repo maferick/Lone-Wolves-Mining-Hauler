@@ -244,12 +244,12 @@ final class CorpContractsService
     }
 
     $requests = $this->db->select(
-      "SELECT request_id, request_key, corp_id, status, contract_id, contract_status, contract_type, contract_acceptor_id,
+      "SELECT request_id, request_key, corp_id, status, contract_id, esi_contract_id, contract_status, contract_type, contract_acceptor_id,
               from_location_id, to_location_id, ship_class,
               accepted_at, delivered_at, cancelled_at, volume_m3, collateral_isk, reward_isk, updated_at
          FROM haul_request
         WHERE corp_id = :cid
-          AND contract_id IS NOT NULL
+          AND (esi_contract_id IS NOT NULL OR contract_id IS NOT NULL)
           AND (
             status IN (" . implode(',', $activePlaceholders) . ")
             OR (status IN (" . implode(',', $terminalPlaceholders) . ") AND updated_at >= :cutoff)
@@ -283,7 +283,7 @@ final class CorpContractsService
     $targetIds = [];
     $activeIds = [];
     foreach ($requests as $request) {
-      $contractId = (int)($request['contract_id'] ?? 0);
+      $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
       if ($contractId <= 0) {
         continue;
       }
@@ -361,7 +361,7 @@ final class CorpContractsService
     }
 
     foreach ($requests as $request) {
-      $contractId = (int)($request['contract_id'] ?? 0);
+      $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
       if ($contractId <= 0 || !isset($contractsById[$contractId])) {
         $summary['not_found']++;
         continue;
@@ -647,12 +647,21 @@ final class CorpContractsService
     if ((string)($request['contract_status'] ?? '') !== $contractStatus) {
       $changes['contract_status'] = $contractStatus;
     }
+    if ((string)($request['contract_status_esi'] ?? '') !== $contractStatus) {
+      $changes['contract_status_esi'] = $contractStatus;
+    }
+    if ((string)($request['esi_status'] ?? '') !== $contractStatus) {
+      $changes['esi_status'] = $contractStatus;
+    }
     if ((string)($request['contract_type'] ?? '') !== $contractType) {
       $changes['contract_type'] = $contractType;
     }
     $acceptorChanged = $currentAcceptor !== $acceptorId;
     if ($acceptorChanged) {
       $changes['contract_acceptor_id'] = $acceptorId;
+    }
+    if ((int)($request['esi_acceptor_id'] ?? 0) !== (int)($acceptorId ?? 0)) {
+      $changes['esi_acceptor_id'] = $acceptorId;
     }
 
     if ($volume !== null && $this->differsFloat($request['volume_m3'] ?? null, $volume)) {
@@ -708,10 +717,6 @@ final class CorpContractsService
       $params
     );
 
-    if ($acceptorChanged && $acceptorId !== null) {
-      $this->notifyContractPickedUp($request, $contract, $acceptorId);
-    }
-
     return true;
   }
 
@@ -754,46 +759,4 @@ final class CorpContractsService
     return abs($aVal - $bVal) > $epsilon;
   }
 
-  private function notifyContractPickedUp(array $request, array $contract, int $acceptorId): void
-  {
-    if (!$this->webhooks) {
-      return;
-    }
-
-    $fromId = (int)($request['from_location_id'] ?? 0);
-    $toId = (int)($request['to_location_id'] ?? 0);
-    $fromName = (string)$this->db->fetchValue(
-      "SELECT system_name FROM map_system WHERE system_id = :id LIMIT 1",
-      ['id' => $fromId]
-    );
-    $toName = (string)$this->db->fetchValue(
-      "SELECT system_name FROM map_system WHERE system_id = :id LIMIT 1",
-      ['id' => $toId]
-    );
-    $acceptorName = (string)$this->db->fetchValue(
-      "SELECT name FROM eve_entity WHERE entity_id = :id AND entity_type = 'character' LIMIT 1",
-      ['id' => $acceptorId]
-    );
-    if ($acceptorName === '') {
-      $acceptorName = 'Character #' . $acceptorId;
-    }
-
-    $routeLabel = trim(($fromName !== '' ? $fromName : ('System #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('System #' . $toId)));
-    $payload = $this->webhooks->buildContractPickedUpPayload([
-      'request_id' => (int)($request['request_id'] ?? 0),
-      'request_key' => (string)($request['request_key'] ?? ''),
-      'route' => $routeLabel,
-      'pickup' => $fromName !== '' ? $fromName : ('System #' . $fromId),
-      'dropoff' => $toName !== '' ? $toName : ('System #' . $toId),
-      'ship_class' => (string)($request['ship_class'] ?? ''),
-      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
-      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
-      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
-      'contract_id' => (int)($contract['contract_id'] ?? 0),
-      'acceptor_id' => $acceptorId,
-      'acceptor_name' => $acceptorName,
-    ]);
-
-    $this->webhooks->enqueue((int)($request['corp_id'] ?? 0), 'haul.contract.picked_up', $payload);
-  }
 }
