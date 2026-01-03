@@ -31,7 +31,6 @@ $eventOptions = [
   'esi.contracts.reconciled' => 'Contracts reconciled (ESI)',
   'webhook.test' => 'Manual test',
 ];
-$eventDefaults = array_fill_keys(array_keys($eventOptions), true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -40,11 +39,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $url = trim((string)($_POST['url'] ?? ''));
     if ($url === '') $msg = "Webhook URL required.";
     else {
-      $db->execute(
+      $webhookId = $db->insert(
         "INSERT INTO discord_webhook (corp_id, webhook_name, webhook_url, is_enabled)
          VALUES (:cid, :n, :u, 1)",
         ['cid'=>$corpId,'n'=>$name,'u'=>$url]
       );
+      foreach ($eventOptions as $eventKey => $label) {
+        $db->insert('discord_webhook_event', [
+          'webhook_id' => $webhookId,
+          'event_key' => $eventKey,
+          'is_enabled' => 1,
+        ]);
+      }
       $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.create', 'discord_webhook', null, null, [
         'webhook_name' => $name,
         'webhook_url' => $url,
@@ -72,38 +78,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.delete', 'discord_webhook', (string)$id, null, null, $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
     $msg = "Deleted.";
   } elseif ($action === 'events') {
-    $updates = [];
-    foreach ($eventOptions as $eventKey => $label) {
-      $updates[$eventKey] = isset($_POST['events'][$eventKey]);
-    }
-    $db->execute(
-      "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
-       VALUES (:cid, :key, :json, :uid)
-       ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_by_user_id = VALUES(updated_by_user_id)",
-      [
-        'cid' => $corpId,
-        'key' => 'discord.webhook_events',
-        'json' => Db::jsonEncode($updates),
-        'uid' => $authCtx['user_id'],
-      ]
+    $selections = $_POST['subscriptions'] ?? [];
+    $webhookRows = $db->select(
+      "SELECT webhook_id FROM discord_webhook WHERE corp_id = :cid",
+      ['cid' => $corpId]
     );
-    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.events.update', 'app_setting', 'discord.webhook_events', null, [
-      'events' => $updates,
+    $rows = [];
+    foreach ($eventOptions as $eventKey => $label) {
+      foreach ($webhookRows as $hook) {
+        $webhookId = (int)$hook['webhook_id'];
+        $rows[] = [
+          'webhook_id' => $webhookId,
+          'event_key' => $eventKey,
+          'is_enabled' => !empty($selections[$eventKey][$webhookId]) ? 1 : 0,
+        ];
+      }
+    }
+    $db->tx(function (Db $db) use ($corpId, $rows): void {
+      $db->execute(
+        "DELETE e FROM discord_webhook_event e
+          JOIN discord_webhook w ON w.webhook_id = e.webhook_id
+         WHERE w.corp_id = :cid",
+        ['cid' => $corpId]
+      );
+      foreach ($rows as $row) {
+        $db->insert('discord_webhook_event', $row);
+      }
+    });
+    $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.events.update', 'discord_webhook_event', null, null, [
+      'subscriptions' => $selections,
     ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
-    $eventDefaults = array_replace($eventDefaults, $updates);
-    $msg = "Event settings updated.";
-  }
-}
-
-$eventSettingRow = $db->one(
-  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = :key LIMIT 1",
-  ['cid' => $corpId, 'key' => 'discord.webhook_events']
-);
-$eventSettings = $eventDefaults;
-if ($eventSettingRow && !empty($eventSettingRow['setting_json'])) {
-  $decoded = Db::jsonDecode((string)$eventSettingRow['setting_json'], []);
-  if (is_array($decoded)) {
-    $eventSettings = array_replace($eventSettings, $decoded);
+    $msg = "Event subscriptions updated.";
   }
 }
 
@@ -132,6 +137,20 @@ $hooks = $db->select(
     ORDER BY w.webhook_id DESC",
   ['cid' => $corpId]
 );
+
+$subscriptionRows = $db->select(
+  "SELECT e.webhook_id, e.event_key, e.is_enabled
+     FROM discord_webhook_event e
+     JOIN discord_webhook w ON w.webhook_id = e.webhook_id
+    WHERE w.corp_id = :cid",
+  ['cid' => $corpId]
+);
+$subscriptions = [];
+foreach ($subscriptionRows as $row) {
+  $webhookId = (int)$row['webhook_id'];
+  $eventKey = (string)$row['event_key'];
+  $subscriptions[$webhookId][$eventKey] = (int)$row['is_enabled'];
+}
 
 $apiKey = (string)($config['security']['api_key'] ?? '');
 
@@ -166,19 +185,44 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <form method="post" style="margin-bottom:18px;">
       <input type="hidden" name="action" value="events" />
-      <div class="label">Event Triggers</div>
-      <div class="muted" style="margin-bottom:10px;">Toggle which events enqueue Discord webhook deliveries.</div>
-      <div class="row" style="gap:16px; flex-wrap:wrap;">
-        <?php foreach ($eventOptions as $eventKey => $label): ?>
-          <label style="display:flex; align-items:center; gap:6px;">
-            <input type="checkbox" name="events[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>]" <?= !empty($eventSettings[$eventKey]) ? 'checked' : '' ?> />
-            <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-          </label>
-        <?php endforeach; ?>
-      </div>
-      <div style="margin-top:12px;">
-        <button class="btn" type="submit">Save Event Settings</button>
-      </div>
+      <div class="label">Event Subscriptions</div>
+      <div class="muted" style="margin-bottom:10px;">Choose which webhooks receive each event.</div>
+      <?php if ($hooks === []): ?>
+        <div class="muted">Create a webhook to enable event subscriptions.</div>
+      <?php else: ?>
+        <table class="table" style="margin-bottom:12px;">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <?php foreach ($hooks as $h): ?>
+                <th><?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?></th>
+              <?php endforeach; ?>
+            </tr>
+          </thead>
+          <tbody>
+          <?php foreach ($eventOptions as $eventKey => $label): ?>
+            <tr>
+              <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
+              <?php foreach ($hooks as $h): ?>
+                <?php
+                  $hookId = (int)$h['webhook_id'];
+                  $checked = !isset($subscriptions[$hookId][$eventKey]) || (int)$subscriptions[$hookId][$eventKey] === 1;
+                ?>
+                <td>
+                  <label style="display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" name="subscriptions[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>][<?= $hookId ?>]" <?= $checked ? 'checked' : '' ?> />
+                    <span class="muted" style="font-size:12px;">Enable</span>
+                  </label>
+                </td>
+              <?php endforeach; ?>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <div style="margin-top:12px;">
+          <button class="btn" type="submit">Save Event Subscriptions</button>
+        </div>
+      <?php endif; ?>
     </form>
 
     <table class="table">
@@ -245,12 +289,12 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test-events<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:18px;">
       <input type="hidden" name="corp_id" value="<?= (int)$corpId ?>" />
       <div class="label">Send Test Events</div>
-      <div class="muted" style="margin-bottom:10px;">Choose which webhook should receive each event. Select “All enabled” to send to every active webhook.</div>
+      <div class="muted" style="margin-bottom:10px;">Choose which webhooks should receive each event.</div>
       <table class="table" style="margin-bottom:12px;">
         <thead>
           <tr>
             <th>Event</th>
-            <th>Webhook Target</th>
+            <th>Webhook Targets</th>
           </tr>
         </thead>
         <tbody>
@@ -258,15 +302,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <tr>
             <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
             <td>
-              <select class="input" name="event_targets[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>]">
-                <option value="">Skip</option>
-                <option value="all">All enabled webhooks</option>
-                <?php foreach ($hooks as $h): ?>
-                  <option value="<?= (int)$h['webhook_id'] ?>">
-                    <?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>
-                  </option>
-                <?php endforeach; ?>
-              </select>
+              <?php if ($hooks === []): ?>
+                <span class="muted">No webhooks available.</span>
+              <?php else: ?>
+                <div style="display:flex; flex-wrap:wrap; gap:12px;">
+                  <?php foreach ($hooks as $h): ?>
+                    <label style="display:flex; align-items:center; gap:6px;">
+                      <input type="checkbox" name="event_targets[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>][]" value="<?= (int)$h['webhook_id'] ?>" />
+                      <?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>
+                    </label>
+                  <?php endforeach; ?>
+                </div>
+              <?php endif; ?>
             </td>
           </tr>
         <?php endforeach; ?>

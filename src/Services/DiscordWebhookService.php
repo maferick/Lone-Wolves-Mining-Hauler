@@ -7,9 +7,6 @@ use App\Db\Db;
 
 final class DiscordWebhookService
 {
-  private const EVENT_SETTING_KEY = 'discord.webhook_events';
-  private array $eventSettingsCache = [];
-
   public function __construct(private Db $db, private array $config = [])
   {
   }
@@ -33,23 +30,7 @@ final class DiscordWebhookService
     string $transitionTo,
     ?int $webhookId = null
   ): int {
-    if (!$this->isEventEnabled($corpId, $eventKey)) {
-      return 0;
-    }
-
-    $params = ['cid' => $corpId];
-    $webhookClause = '';
-    if ($webhookId !== null) {
-      $webhookClause = ' AND webhook_id = :wid';
-      $params['wid'] = $webhookId;
-    }
-
-    $hooks = $this->db->select(
-      "SELECT webhook_id
-         FROM discord_webhook
-        WHERE corp_id = :cid AND is_enabled = 1{$webhookClause}",
-      $params
-    );
+    $hooks = $this->selectWebhookTargets($corpId, $eventKey, $webhookId, true);
 
     $count = 0;
     $payloadJson = Db::jsonEncode($payload);
@@ -716,23 +697,7 @@ final class DiscordWebhookService
     ?int $webhookId,
     bool $respectSettings
   ): int {
-    if ($respectSettings && !$this->isEventEnabled($corpId, $eventKey)) {
-      return 0;
-    }
-
-    $params = ['cid' => $corpId];
-    $webhookClause = '';
-    if ($webhookId !== null) {
-      $webhookClause = ' AND webhook_id = :wid';
-      $params['wid'] = $webhookId;
-    }
-
-    $hooks = $this->db->select(
-      "SELECT webhook_id
-         FROM discord_webhook
-        WHERE corp_id = :cid AND is_enabled = 1{$webhookClause}",
-      $params
-    );
+    $hooks = $this->selectWebhookTargets($corpId, $eventKey, $webhookId, $respectSettings);
 
     $count = 0;
     foreach ($hooks as $hook) {
@@ -749,61 +714,42 @@ final class DiscordWebhookService
     return $count;
   }
 
-
-  private function isEventEnabled(int $corpId, string $eventKey): bool
+  private function selectWebhookTargets(
+    int $corpId,
+    string $eventKey,
+    ?int $webhookId,
+    bool $respectSubscriptions
+  ): array
   {
-    $settings = $this->getEventSettings($corpId);
-    if (!array_key_exists($eventKey, $settings)) {
-      return true;
-    }
-
-    return !empty($settings[$eventKey]);
-  }
-
-  private function getEventSettings(int $corpId): array
-  {
-    if (isset($this->eventSettingsCache[$corpId])) {
-      return $this->eventSettingsCache[$corpId];
-    }
-
-    $defaults = $this->defaultEventSettings();
-    $row = $this->db->one(
-      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = :key LIMIT 1",
-      ['cid' => $corpId, 'key' => self::EVENT_SETTING_KEY]
-    );
-
-    if (!$row || empty($row['setting_json'])) {
-      $this->eventSettingsCache[$corpId] = $defaults;
-      return $defaults;
-    }
-
-    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
-    if (!is_array($decoded)) {
-      $this->eventSettingsCache[$corpId] = $defaults;
-      return $defaults;
-    }
-
-    $this->eventSettingsCache[$corpId] = array_replace($defaults, $decoded);
-    return $this->eventSettingsCache[$corpId];
-  }
-
-  private function defaultEventSettings(): array
-  {
-    return [
-      'haul.request.created' => true,
-      'haul.quote.created' => true,
-      'haul.contract.attached' => true,
-      'haul.contract.picked_up' => true,
-      'contract.picked_up' => true,
-      'contract.delivered' => true,
-      'contract.failed' => true,
-      'contract.expired' => true,
-      'haul.assignment.created' => true,
-      'haul.assignment.picked_up' => true,
-      'esi.contracts.pulled' => true,
-      'esi.contracts.reconciled' => true,
-      'webhook.test' => true,
+    $params = [
+      'cid' => $corpId,
+      'event_key' => $eventKey,
     ];
+    $webhookClause = '';
+    if ($webhookId !== null) {
+      $webhookClause = ' AND w.webhook_id = :wid';
+      $params['wid'] = $webhookId;
+    }
+
+    if ($respectSubscriptions) {
+      return $this->db->select(
+        "SELECT w.webhook_id
+           FROM discord_webhook w
+           LEFT JOIN discord_webhook_event e
+             ON e.webhook_id = w.webhook_id AND e.event_key = :event_key
+          WHERE w.corp_id = :cid
+            AND w.is_enabled = 1{$webhookClause}
+            AND (e.event_key IS NULL OR e.is_enabled = 1)",
+        $params
+      );
+    }
+
+    return $this->db->select(
+      "SELECT w.webhook_id
+         FROM discord_webhook w
+        WHERE w.corp_id = :cid AND w.is_enabled = 1{$webhookClause}",
+      $params
+    );
   }
 
   private function buildContractLifecyclePayload(array $details, string $title, string $description): array

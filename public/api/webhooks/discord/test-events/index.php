@@ -30,13 +30,20 @@ if (!is_array($targets) || $targets === []) {
 $webhooks = $services['discord_webhook'];
 
 $results = [];
+$hasTargets = false;
 foreach ($targets as $eventKey => $targetId) {
   $eventKey = trim((string)$eventKey);
   if ($eventKey === '') {
     continue;
   }
-  $target = is_scalar($targetId) ? trim((string)$targetId) : '';
-  if ($target === '') {
+  $targetList = [];
+  if (is_array($targetId)) {
+    $targetList = $targetId;
+  } elseif (is_scalar($targetId)) {
+    $targetList = [$targetId];
+  }
+
+  if ($targetList === []) {
     $results[$eventKey] = [
       'queued' => 0,
       'skipped' => true,
@@ -44,26 +51,53 @@ foreach ($targets as $eventKey => $targetId) {
     continue;
   }
 
-  $webhookId = null;
-  if ($target !== 'all') {
-    $webhookId = (int)$target;
-    if ($webhookId <= 0) {
-      $results[$eventKey] = [
-        'queued' => 0,
-        'skipped' => true,
-      ];
+  $queuedTotal = 0;
+  $targetIds = [];
+  foreach ($targetList as $targetValue) {
+    $target = is_scalar($targetValue) ? trim((string)$targetValue) : '';
+    if ($target === '') {
       continue;
     }
+    $hasTargets = true;
+    if ($target === 'all') {
+      $payload = $webhooks->buildTestPayloadForEvent($corpId, $eventKey, [
+        'message' => $message,
+      ]);
+      $queuedTotal += $webhooks->enqueueTest($corpId, $eventKey, $payload, null);
+      $targetIds[] = 'all';
+      continue;
+    }
+
+    $webhookId = (int)$target;
+    if ($webhookId <= 0) {
+      continue;
+    }
+    $payload = $webhooks->buildTestPayloadForEvent($corpId, $eventKey, [
+      'message' => $message,
+    ]);
+    $queuedTotal += $webhooks->enqueueTest($corpId, $eventKey, $payload, $webhookId);
+    $targetIds[] = $webhookId;
   }
 
-  $payload = $webhooks->buildTestPayloadForEvent($corpId, $eventKey, [
-    'message' => $message,
-  ]);
-  $queued = $webhooks->enqueueTest($corpId, $eventKey, $payload, $webhookId);
+  if ($queuedTotal === 0 && $targetIds === []) {
+    $results[$eventKey] = [
+      'queued' => 0,
+      'skipped' => true,
+    ];
+    continue;
+  }
+
   $results[$eventKey] = [
-    'queued' => $queued,
-    'webhook_id' => $webhookId,
+    'queued' => $queuedTotal,
+    'targets' => $targetIds,
   ];
+}
+
+if (!$hasTargets) {
+  api_send_json([
+    'ok' => false,
+    'error' => 'event_targets required',
+  ], 400);
 }
 
 api_send_json([
