@@ -267,10 +267,10 @@ final class ContractMatchService
     $this->db->execute(
       "UPDATE haul_request
           SET contract_id = :new_contract_id,
-              esi_contract_id = :new_contract_id,
+              esi_contract_id = :new_contract_id_esi,
               contract_status = :contract_status,
-              contract_status_esi = :contract_status,
-              esi_status = :contract_status,
+              contract_status_esi = :contract_status_esi,
+              esi_status = :esi_status,
               status = :status,
               contract_matched_at = UTC_TIMESTAMP(),
               contract_linked_notified_at = IF(contract_id = :existing_contract_id, contract_linked_notified_at, NULL),
@@ -280,8 +280,11 @@ final class ContractMatchService
         WHERE request_id = :rid",
       [
         'new_contract_id' => (int)($contract['contract_id'] ?? 0),
+        'new_contract_id_esi' => (int)($contract['contract_id'] ?? 0),
         'existing_contract_id' => (int)($contract['contract_id'] ?? 0),
         'contract_status' => $contractStatus,
+        'contract_status_esi' => $contractStatus,
+        'esi_status' => $contractStatus,
         'status' => $newStatus,
         'validation_json' => Db::jsonEncode($validation['flags'] ?? []),
         'rid' => $requestId,
@@ -312,14 +315,16 @@ final class ContractMatchService
       "UPDATE haul_request
           SET status = 'contract_mismatch',
               contract_status = :contract_status,
-              contract_status_esi = :contract_status,
-              esi_status = :contract_status,
+              contract_status_esi = :contract_status_esi,
+              esi_status = :esi_status,
               contract_validation_json = :validation_json,
               mismatch_reason_json = :mismatch_json,
               updated_at = UTC_TIMESTAMP()
         WHERE request_id = :rid",
       [
         'contract_status' => $contractStatus,
+        'contract_status_esi' => $contractStatus,
+        'esi_status' => $contractStatus,
         'validation_json' => Db::jsonEncode($flags),
         'mismatch_json' => Db::jsonEncode($mismatch),
         'rid' => $requestId,
@@ -334,14 +339,16 @@ final class ContractMatchService
       "UPDATE haul_request
           SET status = 'completed',
               contract_status = :contract_status,
-              contract_status_esi = :contract_status,
-              esi_status = :contract_status,
+              contract_status_esi = :contract_status_esi,
+              esi_status = :esi_status,
               contract_validation_json = :validation_json,
               mismatch_reason_json = NULL,
               updated_at = UTC_TIMESTAMP()
         WHERE request_id = :rid",
       [
         'contract_status' => (string)($contract['status'] ?? 'unknown'),
+        'contract_status_esi' => (string)($contract['status'] ?? 'unknown'),
+        'esi_status' => (string)($contract['status'] ?? 'unknown'),
         'validation_json' => Db::jsonEncode($validation['flags'] ?? []),
         'rid' => (int)($request['request_id'] ?? 0),
       ]
