@@ -43,6 +43,7 @@ SELECT
   r.route_profile,
   r.contract_id,
   r.contract_status,
+  r.contract_acceptor_id,
   r.contract_matched_at,
   r.mismatch_reason_json,
   r.created_at,

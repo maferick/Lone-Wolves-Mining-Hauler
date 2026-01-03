@@ -304,6 +304,55 @@ final class DiscordWebhookService
     ];
   }
 
+  public function buildContractsReconciledPayload(array $summary): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $fields = [
+      [
+        'name' => 'Scanned',
+        'value' => (string)($summary['scanned'] ?? 0),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Updated',
+        'value' => (string)($summary['updated'] ?? 0),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Skipped',
+        'value' => (string)($summary['skipped'] ?? 0),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Not found',
+        'value' => (string)($summary['not_found'] ?? 0),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Errors',
+        'value' => (string)($summary['errors'] ?? 0),
+        'inline' => true,
+      ],
+      [
+        'name' => 'Pages',
+        'value' => (string)($summary['pages'] ?? 0),
+        'inline' => true,
+      ],
+    ];
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        [
+          'title' => 'ESI Contracts Reconciled',
+          'description' => 'Linked contract status reconciliation completed.',
+          'fields' => $fields,
+          'timestamp' => gmdate('c'),
+        ],
+      ],
+    ];
+  }
+
   public function buildHaulAssignmentPayload(array $details): array
   {
     $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
@@ -527,6 +576,7 @@ final class DiscordWebhookService
       'haul.assignment.created' => true,
       'haul.assignment.picked_up' => true,
       'esi.contracts.pulled' => true,
+      'esi.contracts.reconciled' => true,
       'webhook.test' => true,
     ];
   }

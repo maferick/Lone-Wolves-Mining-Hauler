@@ -271,11 +271,18 @@ final class CronSyncService
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
       $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
+      $results['contracts_reconcile'] = $this->esi->contracts()->reconcileLinkedRequests($corpId, $characterId);
       $stats['contracts'] = gmdate('c');
       if ($this->webhooks) {
         try {
           $payload = $this->webhooks->buildContractsPulledPayload($results['contracts']);
           $this->webhooks->enqueue($corpId, 'esi.contracts.pulled', $payload);
+        } catch (\Throwable $e) {
+          // Ignore webhook enqueue failures.
+        }
+        try {
+          $payload = $this->webhooks->buildContractsReconciledPayload($results['contracts_reconcile']);
+          $this->webhooks->enqueue($corpId, 'esi.contracts.reconciled', $payload);
         } catch (\Throwable $e) {
           // Ignore webhook enqueue failures.
         }

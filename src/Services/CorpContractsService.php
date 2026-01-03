@@ -22,6 +22,27 @@ use App\Db\Db;
  */
 final class CorpContractsService
 {
+  private const REQUIRED_SCOPE = 'esi-contracts.read_corporation_contracts.v1';
+  private const ACTIVE_REQUEST_STATUSES = [
+    'requested',
+    'awaiting_contract',
+    'contract_linked',
+    'contract_mismatch',
+    'in_queue',
+    'in_progress',
+    'accepted',
+    'in_transit',
+    'posted',
+    'submitted',
+  ];
+  private const TERMINAL_REQUEST_STATUSES = [
+    'completed',
+    'cancelled',
+    'expired',
+    'rejected',
+    'delivered',
+  ];
+
   public function __construct(
     private Db $db,
     private array $config,
@@ -177,6 +198,181 @@ final class CorpContractsService
     }
 
     return null;
+  }
+
+  /**
+   * Reconcile linked/requested contract status from ESI for active + recent hauling requests.
+   * Returns summary array for logging.
+   */
+  public function reconcileLinkedRequests(int $corpId, int $characterOwnerId, array $options = []): array
+  {
+    $options = array_merge([
+      'page_limit' => 30,
+      'finished_lookback_days' => 60,
+    ], $options);
+
+    $summary = [
+      'corp_id' => $corpId,
+      'character_id' => $characterOwnerId,
+      'scanned' => 0,
+      'updated' => 0,
+      'skipped' => 0,
+      'not_found' => 0,
+      'errors' => 0,
+      'pages' => 0,
+      'timestamp' => gmdate('c'),
+      'error_details' => [],
+    ];
+
+    $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
+    if (!$token) {
+      $summary['errors'] = 1;
+      $summary['error_details'][] = 'No sso_token found for corp contracts reconciliation.';
+      return $summary;
+    }
+
+    $scopes = array_filter(preg_split('/\s+/', (string)($token['scopes'] ?? '')) ?: []);
+    if (!in_array(self::REQUIRED_SCOPE, $scopes, true)) {
+      $summary['errors'] = 1;
+      $summary['error_details'][] = 'Missing scope: ' . self::REQUIRED_SCOPE . '. Re-auth a director character.';
+      return $summary;
+    }
+
+    $token = $this->sso->ensureAccessToken($token);
+    $tokenId = (int)$token['token_id'];
+    $bearer = $token['access_token'];
+
+    $finishedCutoff = gmdate('Y-m-d H:i:s', time() - ((int)$options['finished_lookback_days'] * 86400));
+    $activeStatuses = self::ACTIVE_REQUEST_STATUSES;
+    $terminalStatuses = self::TERMINAL_REQUEST_STATUSES;
+
+    $activePlaceholders = [];
+    $terminalPlaceholders = [];
+    $params = ['cid' => $corpId, 'cutoff' => $finishedCutoff];
+    foreach ($activeStatuses as $i => $status) {
+      $key = "active_{$i}";
+      $activePlaceholders[] = ':' . $key;
+      $params[$key] = $status;
+    }
+    foreach ($terminalStatuses as $i => $status) {
+      $key = "terminal_{$i}";
+      $terminalPlaceholders[] = ':' . $key;
+      $params[$key] = $status;
+    }
+
+    $requests = $this->db->select(
+      "SELECT request_id, request_key, status, contract_id, contract_status, contract_type, contract_acceptor_id,
+              accepted_at, delivered_at, cancelled_at, volume_m3, collateral_isk, reward_isk, updated_at
+         FROM haul_request
+        WHERE corp_id = :cid
+          AND contract_id IS NOT NULL
+          AND (
+            status IN (" . implode(',', $activePlaceholders) . ")
+            OR (status IN (" . implode(',', $terminalPlaceholders) . ") AND updated_at >= :cutoff)
+          )",
+      $params
+    );
+
+    $summary['scanned'] = count($requests);
+    if ($requests === []) {
+      return $summary;
+    }
+
+    $targetIds = [];
+    $activeIds = [];
+    foreach ($requests as $request) {
+      $contractId = (int)($request['contract_id'] ?? 0);
+      if ($contractId <= 0) {
+        continue;
+      }
+      $targetIds[$contractId] = true;
+      if (!in_array((string)($request['status'] ?? ''), $terminalStatuses, true)) {
+        $activeIds[$contractId] = true;
+      }
+    }
+
+    if ($targetIds === []) {
+      return $summary;
+    }
+
+    $remaining = $targetIds;
+    $remainingActive = $activeIds;
+    $contractsById = [];
+    $page = 1;
+    $pageLimit = (int)$options['page_limit'];
+    $cutoffTs = time() - ((int)$options['finished_lookback_days'] * 86400);
+
+    while ($page <= $pageLimit) {
+      $resp = $this->esiAuthedGetWithRefresh(
+        $bearer,
+        $tokenId,
+        "/v1/corporations/{$corpId}/contracts/",
+        ['page' => $page],
+        $corpId,
+        60
+      );
+
+      if (!$resp['ok']) {
+        if ($resp['status'] === 404 && $page > 1) {
+          break;
+        }
+        $summary['errors']++;
+        $summary['error_details'][] = "ESI contracts reconcile failed (page {$page}): HTTP {$resp['status']}";
+        if ($resp['status'] === 403 || $resp['status'] === 404) {
+          break;
+        }
+        return $summary;
+      }
+
+      $contracts = is_array($resp['json']) ? $resp['json'] : [];
+      if ($contracts === []) {
+        break;
+      }
+
+      $summary['pages']++;
+      foreach ($contracts as $contract) {
+        $contractId = (int)($contract['contract_id'] ?? 0);
+        if ($contractId <= 0 || !isset($remaining[$contractId])) {
+          continue;
+        }
+        $contractsById[$contractId] = $contract;
+        unset($remaining[$contractId]);
+        unset($remainingActive[$contractId]);
+        $this->upsertContract($corpId, $contract, $resp['raw']);
+      }
+
+      if ($remaining === []) {
+        break;
+      }
+
+      $lastIssued = $contracts[count($contracts) - 1]['date_issued'] ?? null;
+      $lastIssuedTs = $lastIssued ? strtotime((string)$lastIssued) : false;
+      if ($lastIssuedTs !== false && $lastIssuedTs < $cutoffTs && $remainingActive === []) {
+        break;
+      }
+
+      $totalPages = (int)($resp['headers']['x-pages'] ?? 0);
+      if ($totalPages > 0 && $page >= $totalPages) {
+        break;
+      }
+      $page++;
+    }
+
+    foreach ($requests as $request) {
+      $contractId = (int)($request['contract_id'] ?? 0);
+      if ($contractId <= 0 || !isset($contractsById[$contractId])) {
+        $summary['not_found']++;
+        continue;
+      }
+      $updated = $this->reconcileRequestFromContract($request, $contractsById[$contractId]);
+      if ($updated) {
+        $summary['updated']++;
+      } else {
+        $summary['skipped']++;
+      }
+    }
+
+    return $summary;
   }
 
   private function esiAuthedGet(
@@ -426,5 +622,128 @@ final class CorpContractsService
     $ts = strtotime((string)$iso);
     if ($ts === false) return null;
     return gmdate('Y-m-d H:i:s', $ts);
+  }
+
+  private function reconcileRequestFromContract(array $request, array $contract): bool
+  {
+    $requestId = (int)($request['request_id'] ?? 0);
+    if ($requestId <= 0) {
+      return false;
+    }
+
+    $changes = [];
+    $contractStatus = (string)($contract['status'] ?? 'unknown');
+    $contractType = (string)($contract['type'] ?? 'unknown');
+    $contractType = in_array($contractType, ['courier', 'item_exchange', 'auction'], true) ? $contractType : 'unknown';
+    $acceptorId = isset($contract['acceptor_id']) ? (int)$contract['acceptor_id'] : null;
+    $currentAcceptor = $request['contract_acceptor_id'] ?? null;
+    $currentAcceptor = $currentAcceptor !== null ? (int)$currentAcceptor : null;
+    $volume = $contract['volume'] ?? null;
+    $collateral = $contract['collateral'] ?? null;
+    $reward = $contract['reward'] ?? null;
+
+    if ((string)($request['contract_status'] ?? '') !== $contractStatus) {
+      $changes['contract_status'] = $contractStatus;
+    }
+    if ((string)($request['contract_type'] ?? '') !== $contractType) {
+      $changes['contract_type'] = $contractType;
+    }
+    if ($currentAcceptor !== $acceptorId) {
+      $changes['contract_acceptor_id'] = $acceptorId;
+    }
+
+    if ($volume !== null && $this->differsFloat($request['volume_m3'] ?? null, $volume)) {
+      $changes['volume_m3'] = $volume;
+    }
+    if ($collateral !== null && $this->differsFloat($request['collateral_isk'] ?? null, $collateral)) {
+      $changes['collateral_isk'] = $collateral;
+    }
+    if ($reward !== null && $this->differsFloat($request['reward_isk'] ?? null, $reward)) {
+      $changes['reward_isk'] = $reward;
+    }
+
+    $currentStatus = (string)($request['status'] ?? '');
+    $newStatus = $this->mapContractStatusToRequestStatus($contractStatus);
+    if ($newStatus !== null && $this->shouldUpdateRequestStatus($currentStatus, $newStatus)) {
+      $changes['status'] = $newStatus;
+    }
+
+    $acceptedAt = $this->dt($contract['date_accepted'] ?? null);
+    $completedAt = $this->dt($contract['date_completed'] ?? null);
+    $expiredAt = $this->dt($contract['date_expired'] ?? null);
+    if (in_array($newStatus ?? $currentStatus, ['accepted', 'in_progress', 'in_transit'], true) && $acceptedAt !== null) {
+      if ((string)($request['accepted_at'] ?? '') !== $acceptedAt) {
+        $changes['accepted_at'] = $acceptedAt;
+      }
+    }
+    if (in_array($newStatus ?? $currentStatus, ['completed', 'delivered'], true) && $completedAt !== null) {
+      if ((string)($request['delivered_at'] ?? '') !== $completedAt) {
+        $changes['delivered_at'] = $completedAt;
+      }
+    }
+    if (in_array($newStatus ?? $currentStatus, ['cancelled', 'expired', 'rejected'], true)) {
+      $cancelAt = $completedAt ?? $expiredAt;
+      if ($cancelAt !== null && (string)($request['cancelled_at'] ?? '') !== $cancelAt) {
+        $changes['cancelled_at'] = $cancelAt;
+      }
+    }
+
+    if ($changes === []) {
+      return false;
+    }
+
+    $set = [];
+    $params = ['rid' => $requestId];
+    foreach ($changes as $column => $value) {
+      $set[] = "{$column} = :{$column}";
+      $params[$column] = $value;
+    }
+    $set[] = "updated_at = UTC_TIMESTAMP()";
+
+    $this->db->execute(
+      "UPDATE haul_request SET " . implode(', ', $set) . " WHERE request_id = :rid",
+      $params
+    );
+
+    return true;
+  }
+
+  private function mapContractStatusToRequestStatus(string $contractStatus): ?string
+  {
+    return match ($contractStatus) {
+      'outstanding' => 'in_queue',
+      'in_progress' => 'in_progress',
+      'finished', 'finished_issuer', 'finished_contractor', 'completed' => 'completed',
+      'rejected' => 'rejected',
+      'expired' => 'expired',
+      'failed', 'deleted', 'reversed', 'cancelled' => 'cancelled',
+      default => null,
+    };
+  }
+
+  private function shouldUpdateRequestStatus(string $currentStatus, string $newStatus): bool
+  {
+    if ($newStatus === '' || $newStatus === $currentStatus) {
+      return false;
+    }
+    $currentTerminal = in_array($currentStatus, self::TERMINAL_REQUEST_STATUSES, true);
+    $newTerminal = in_array($newStatus, self::TERMINAL_REQUEST_STATUSES, true);
+    if ($currentTerminal && !$newTerminal) {
+      return false;
+    }
+    return true;
+  }
+
+  private function differsFloat($a, $b, float $epsilon = 0.01): bool
+  {
+    if ($a === null && $b === null) {
+      return false;
+    }
+    $aVal = $a === null ? null : (float)$a;
+    $bVal = $b === null ? null : (float)$b;
+    if ($aVal === null || $bVal === null) {
+      return $aVal !== $bVal;
+    }
+    return abs($aVal - $bVal) > $epsilon;
   }
 }
