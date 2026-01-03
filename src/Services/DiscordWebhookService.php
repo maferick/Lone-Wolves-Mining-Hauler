@@ -149,6 +149,7 @@ final class DiscordWebhookService
       $attempt = (int)($row['attempts'] ?? 0);
       $attemptNext = $attempt + 1;
       $payload = Db::jsonDecode((string)$row['payload_json'], []);
+      $payload = $this->ensurePayload((string)($row['event_key'] ?? ''), $payload);
 
       try {
         $resp = $this->postWebhook((string)$row['webhook_url'], $payload);
@@ -682,6 +683,33 @@ final class DiscordWebhookService
     ];
   }
 
+  public function buildContractDeliveredPayload(array $details): array
+  {
+    return $this->buildContractLifecyclePayload(
+      $details,
+      'Contract delivered',
+      'This contract has been delivered and marked as complete.'
+    );
+  }
+
+  public function buildContractFailedPayload(array $details): array
+  {
+    return $this->buildContractLifecyclePayload(
+      $details,
+      'Contract failed',
+      'This contract has failed and is no longer active.'
+    );
+  }
+
+  public function buildContractExpiredPayload(array $details): array
+  {
+    return $this->buildContractLifecyclePayload(
+      $details,
+      'Contract expired',
+      'This contract expired before it could be completed.'
+    );
+  }
+
   private function isEventEnabled(int $corpId, string $eventKey): bool
   {
     $settings = $this->getEventSettings($corpId);
@@ -738,6 +766,82 @@ final class DiscordWebhookService
     ];
   }
 
+  private function buildContractLifecyclePayload(array $details, string $title, string $description): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $requestId = (int)($details['request_id'] ?? 0);
+    $requestKey = (string)($details['request_key'] ?? '');
+    $route = trim((string)($details['route'] ?? ''));
+    $pickup = trim((string)($details['pickup'] ?? ''));
+    $dropoff = trim((string)($details['dropoff'] ?? ''));
+    $shipClass = trim((string)($details['ship_class'] ?? ''));
+    $volume = (float)($details['volume_m3'] ?? 0.0);
+    $collateral = (float)($details['collateral_isk'] ?? 0.0);
+    $reward = (float)($details['reward_isk'] ?? 0.0);
+    $contractId = (int)($details['contract_id'] ?? 0);
+    $acceptorId = (int)($details['acceptor_id'] ?? 0);
+    $acceptorName = trim((string)($details['acceptor_name'] ?? ''));
+    $requestUrl = $this->buildRequestUrl($requestKey !== '' ? $requestKey : null);
+
+    $shipLabel = $this->formatShipClassLabel($shipClass);
+    $fields = [];
+    if ($pickup !== '') {
+      $fields[] = ['name' => 'Pickup', 'value' => $pickup, 'inline' => true];
+    }
+    if ($dropoff !== '') {
+      $fields[] = ['name' => 'Dropoff', 'value' => $dropoff, 'inline' => true];
+    }
+    if ($shipLabel !== '') {
+      $fields[] = ['name' => 'Ship', 'value' => $shipLabel, 'inline' => true];
+    }
+    if ($acceptorName !== '') {
+      $fields[] = ['name' => 'Hauler', 'value' => $acceptorName, 'inline' => true];
+    }
+    if ($reward > 0) {
+      $fields[] = ['name' => 'Reward', 'value' => number_format($reward, 2) . ' ISK', 'inline' => true];
+    }
+    if ($collateral > 0) {
+      $fields[] = ['name' => 'Collateral', 'value' => number_format($collateral, 2) . ' ISK', 'inline' => true];
+    }
+    if ($volume > 0) {
+      $fields[] = ['name' => 'Volume', 'value' => number_format($volume, 0) . ' m³', 'inline' => true];
+    }
+    if ($route !== '') {
+      $fields[] = ['name' => 'Route', 'value' => str_replace('→', '-', $route), 'inline' => false];
+    }
+    if ($contractId > 0) {
+      $fields[] = ['name' => 'Contract ID', 'value' => (string)$contractId, 'inline' => true];
+    }
+    if ($requestUrl !== '') {
+      $fields[] = ['name' => 'Request', 'value' => '[Request #' . $requestId . '](' . $requestUrl . ')', 'inline' => false];
+    }
+
+    $embed = [
+      'title' => $title,
+      'description' => $description,
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    if ($acceptorName !== '') {
+      $author = ['name' => $acceptorName];
+      $acceptorAvatarUrl = $this->buildCharacterPortraitUrl($acceptorId);
+      if ($acceptorAvatarUrl !== '') {
+        $author['icon_url'] = $acceptorAvatarUrl;
+      }
+      $embed['author'] = $author;
+    } elseif ($requestId > 0) {
+      $embed['footer'] = ['text' => 'Request #' . $requestId];
+    }
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        $embed,
+      ],
+    ];
+  }
+
   private function postWebhook(string $url, array $payload): array
   {
     $payloadJson = Db::jsonEncode($payload);
@@ -772,6 +876,101 @@ final class DiscordWebhookService
       'error' => null,
       'body' => $body,
     ];
+  }
+
+  private function ensurePayload(string $eventKey, array $payload): array
+  {
+    if ($this->hasPayloadContent($payload)) {
+      return $payload;
+    }
+
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $title = match ($eventKey) {
+      'contract.delivered' => 'Contract delivered',
+      'contract.failed' => 'Contract failed',
+      'contract.expired' => 'Contract expired',
+      'contract.picked_up' => 'Contract picked up',
+      default => 'Webhook notification',
+    };
+    $description = match ($eventKey) {
+      'contract.delivered' => 'This contract has been delivered and marked as complete.',
+      'contract.failed' => 'This contract has failed and is no longer active.',
+      'contract.expired' => 'This contract expired before it could be completed.',
+      'contract.picked_up' => 'This contract has been accepted in-game and is now in progress.',
+      default => 'A webhook notification was generated.',
+    };
+
+    $fields = [];
+    if (!empty($payload['request_id'])) {
+      $fields[] = ['name' => 'Request ID', 'value' => (string)$payload['request_id'], 'inline' => true];
+    }
+    if (!empty($payload['contract_id'])) {
+      $fields[] = ['name' => 'Contract ID', 'value' => (string)$payload['contract_id'], 'inline' => true];
+    }
+    if (!empty($payload['acceptor_name'])) {
+      $fields[] = ['name' => 'Hauler', 'value' => (string)$payload['acceptor_name'], 'inline' => true];
+    }
+    if (!empty($payload['previous_state'])) {
+      $fields[] = ['name' => 'Previous state', 'value' => (string)$payload['previous_state'], 'inline' => true];
+    }
+    if (!empty($payload['contract_state'])) {
+      $fields[] = ['name' => 'Current state', 'value' => (string)$payload['contract_state'], 'inline' => true];
+    }
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        [
+          'title' => $title,
+          'description' => $description,
+          'fields' => $fields,
+          'timestamp' => gmdate('c'),
+        ],
+      ],
+    ];
+  }
+
+  private function hasPayloadContent(array $payload): bool
+  {
+    if (!empty($payload['content']) && trim((string)$payload['content']) !== '') {
+      return true;
+    }
+
+    if (!empty($payload['embeds']) && is_array($payload['embeds'])) {
+      foreach ($payload['embeds'] as $embed) {
+        if (!is_array($embed)) {
+          continue;
+        }
+        if ($this->hasEmbedContent($embed)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private function hasEmbedContent(array $embed): bool
+  {
+    $textFields = ['title', 'description', 'url'];
+    foreach ($textFields as $field) {
+      if (!empty($embed[$field]) && trim((string)$embed[$field]) !== '') {
+        return true;
+      }
+    }
+
+    if (!empty($embed['fields']) && is_array($embed['fields'])) {
+      return true;
+    }
+
+    $nestedFields = ['author', 'footer', 'image', 'thumbnail', 'video', 'provider'];
+    foreach ($nestedFields as $field) {
+      if (!empty($embed[$field]) && is_array($embed[$field])) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private function extractRouteEndpoint(array $route, string $type): string
