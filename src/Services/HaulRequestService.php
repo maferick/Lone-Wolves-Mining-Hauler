@@ -15,7 +15,13 @@ final class HaulRequestService
   {
   }
 
-  public function createFromQuote(int $quoteId, array $authCtx, int $corpId): array
+  public function createFromQuote(
+    int $quoteId,
+    array $authCtx,
+    int $corpId,
+    ?float $rewardOverride = null,
+    ?string $titleOverride = null
+  ): array
   {
     $quote = $this->db->one(
       "SELECT quote_id, corp_id, from_system_id, to_system_id, profile, route_json, breakdown_json, volume_m3, collateral_isk, price_total
@@ -61,6 +67,8 @@ final class HaulRequestService
     $routePolicy = $this->normalizeRoutePolicy($routeProfile);
     $requestKey = $this->generateRequestKey();
     $contractHintText = 'Quote ' . $requestKey;
+    $reward = $rewardOverride !== null ? max(0.0, $rewardOverride) : (float)$quote['price_total'];
+    $title = $titleOverride !== null && $titleOverride !== '' ? $titleOverride : 'Quote #' . (string)$quoteId;
 
     $requestId = $this->db->insert('haul_request', [
       'request_key' => $requestKey,
@@ -69,7 +77,7 @@ final class HaulRequestService
       'requester_user_id' => (int)($authCtx['user_id'] ?? 0),
       'requester_character_id' => $authCtx['character_id'] ?? null,
       'requester_character_name' => $authCtx['character_name'] ?? null,
-      'title' => 'Quote #' . (string)$quoteId,
+      'title' => $title,
       'notes' => null,
       'from_location_id' => (int)$quote['from_system_id'],
       'from_location_type' => 'system',
@@ -77,7 +85,7 @@ final class HaulRequestService
       'to_location_type' => 'system',
       'volume_m3' => (float)$quote['volume_m3'],
       'collateral_isk' => (float)$quote['collateral_isk'],
-      'reward_isk' => (float)$quote['price_total'],
+      'reward_isk' => $reward,
       'quote_id' => (int)$quote['quote_id'],
       'ship_class' => $shipClass !== '' ? $shipClass : null,
       'expected_jumps' => (int)($route['jumps'] ?? 0),
@@ -110,7 +118,7 @@ final class HaulRequestService
           'route' => $route,
           'volume_m3' => (float)$quote['volume_m3'],
           'collateral_isk' => (float)$quote['collateral_isk'],
-          'price_isk' => (float)$quote['price_total'],
+        'price_isk' => $reward,
           'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
           'requester_character_id' => (int)($authCtx['character_id'] ?? 0),
           'ship_class' => $shipClass,
