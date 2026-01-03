@@ -27,11 +27,29 @@ if ($requestKey === '') {
 } elseif ($db === null || !($health['db'] ?? false)) {
   $error = 'Database unavailable.';
 } else {
+  $hasContractStatusEsi = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_status_esi'");
+  $contractStatusEsiSelect = $hasContractStatusEsi ? 'contract_status_esi' : 'NULL AS contract_status_esi';
+  $hasContractState = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+  $contractStateSelect = $hasContractState ? 'contract_state' : 'NULL AS contract_state';
+  $hasContractAcceptorName = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_acceptor_name'");
+  $contractAcceptorNameSelect = $hasContractAcceptorName ? 'contract_acceptor_name' : 'NULL AS contract_acceptor_name';
+  $hasContractHintText = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_hint_text'");
+  $contractHintTextSelect = $hasContractHintText ? 'contract_hint_text' : 'NULL AS contract_hint_text';
+  $hasMismatchJson = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'mismatch_reason_json'");
+  $mismatchSelect = $hasMismatchJson ? 'mismatch_reason_json' : 'NULL AS mismatch_reason_json';
+  $hasContractMatchedAt = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_matched_at'");
+  $contractMatchedAtSelect = $hasContractMatchedAt ? 'contract_matched_at' : 'NULL AS contract_matched_at';
+  $hasDateAccepted = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'date_accepted'");
+  $dateAcceptedSelect = $hasDateAccepted ? 'date_accepted' : 'NULL AS date_accepted';
+  $hasDateCompleted = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'date_completed'");
+  $dateCompletedSelect = $hasDateCompleted ? 'date_completed' : 'NULL AS date_completed';
+  $hasDateExpired = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'date_expired'");
+  $dateExpiredSelect = $hasDateExpired ? 'date_expired' : 'NULL AS date_expired';
   $request = $db->one(
     "SELECT request_id, corp_id, requester_user_id, from_location_id, to_location_id, reward_isk, collateral_isk, volume_m3,
             ship_class, route_policy, route_profile, price_breakdown_json, quote_id, status, contract_id, contract_status,
-            contract_status_esi, contract_state, contract_acceptor_name, contract_hint_text, mismatch_reason_json,
-            contract_matched_at, date_accepted, date_completed, date_expired, request_key
+            {$contractStatusEsiSelect}, {$contractStateSelect}, {$contractAcceptorNameSelect}, {$contractHintTextSelect}, {$mismatchSelect},
+            {$contractMatchedAtSelect}, {$dateAcceptedSelect}, {$dateCompletedSelect}, {$dateExpiredSelect}, request_key
        FROM haul_request
       WHERE request_key = :rkey
       LIMIT 1",
