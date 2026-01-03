@@ -567,6 +567,71 @@ final class DiscordWebhookService
     ];
   }
 
+  public function buildContractPickedUpPayload(array $details): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $requestId = (int)($details['request_id'] ?? 0);
+    $route = trim((string)($details['route'] ?? ''));
+    $pickup = trim((string)($details['pickup'] ?? ''));
+    $dropoff = trim((string)($details['dropoff'] ?? ''));
+    $shipClass = trim((string)($details['ship_class'] ?? ''));
+    $volume = (float)($details['volume_m3'] ?? 0.0);
+    $collateral = (float)($details['collateral_isk'] ?? 0.0);
+    $reward = (float)($details['reward_isk'] ?? 0.0);
+    $contractId = (int)($details['contract_id'] ?? 0);
+    $acceptorId = (int)($details['acceptor_id'] ?? 0);
+    $acceptorName = trim((string)($details['acceptor_name'] ?? ''));
+
+    $shipLabel = $this->formatShipClassLabel($shipClass);
+    $fields = [];
+    if ($pickup !== '') {
+      $fields[] = ['name' => 'Pickup', 'value' => $pickup, 'inline' => true];
+    }
+    if ($dropoff !== '') {
+      $fields[] = ['name' => 'Dropoff', 'value' => $dropoff, 'inline' => true];
+    }
+    if ($shipLabel !== '') {
+      $fields[] = ['name' => 'Ship', 'value' => $shipLabel, 'inline' => true];
+    }
+    if ($acceptorName !== '') {
+      $fields[] = ['name' => 'Hauler', 'value' => $acceptorName, 'inline' => true];
+    }
+    $fields[] = ['name' => 'Reward', 'value' => number_format($reward, 2) . ' ISK', 'inline' => true];
+    $fields[] = ['name' => 'Collateral', 'value' => number_format($collateral, 2) . ' ISK', 'inline' => true];
+    $fields[] = ['name' => 'Volume', 'value' => number_format($volume, 0) . ' m³', 'inline' => true];
+    if ($route !== '') {
+      $fields[] = ['name' => 'Route', 'value' => str_replace('→', '-', $route), 'inline' => false];
+    }
+    if ($contractId > 0) {
+      $fields[] = ['name' => 'Contract ID', 'value' => (string)$contractId, 'inline' => true];
+    }
+
+    $embed = [
+      'title' => 'Contract picked up',
+      'description' => 'This contract has been accepted in-game and is now in progress.',
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    if ($acceptorName !== '') {
+      $author = ['name' => $acceptorName];
+      $acceptorAvatarUrl = $this->buildCharacterPortraitUrl($acceptorId);
+      if ($acceptorAvatarUrl !== '') {
+        $author['icon_url'] = $acceptorAvatarUrl;
+      }
+      $embed['author'] = $author;
+    } elseif ($requestId > 0) {
+      $embed['footer'] = ['text' => 'Request #' . $requestId];
+    }
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        $embed,
+      ],
+    ];
+  }
+
   private function isEventEnabled(int $corpId, string $eventKey): bool
   {
     $settings = $this->getEventSettings($corpId);
@@ -610,6 +675,7 @@ final class DiscordWebhookService
       'haul.request.created' => true,
       'haul.quote.created' => true,
       'haul.contract.attached' => true,
+      'haul.contract.picked_up' => true,
       'haul.assignment.created' => true,
       'haul.assignment.picked_up' => true,
       'esi.contracts.pulled' => true,

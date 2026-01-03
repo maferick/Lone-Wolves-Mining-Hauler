@@ -20,6 +20,7 @@ $eventOptions = [
   'haul.request.created' => 'Haul request created',
   'haul.quote.created' => 'Quote created',
   'haul.contract.attached' => 'Contract attached',
+  'haul.contract.picked_up' => 'Contract picked up',
   'haul.assignment.created' => 'Haul assigned',
   'haul.assignment.picked_up' => 'Haul picked up',
   'esi.contracts.pulled' => 'Contracts pulled (ESI)',

@@ -56,6 +56,7 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
   if ($hasRequestView) {
     $requests = $db->select(
       "SELECT r.request_id, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+              r.contract_acceptor_id, r.contract_acceptor_name,
               COALESCE(fs.system_name, r.from_name) AS from_name,
               COALESCE(ts.system_name, r.to_name) AS to_name,
               r.volume_m3, r.reward_isk, r.created_at, hr.request_key
@@ -72,11 +73,14 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
   } elseif ($hasHaulRequest) {
     $requests = $db->select(
       "SELECT r.request_id, r.request_key, r.status, r.contract_id, r.contract_status, r.mismatch_reason_json,
+              r.contract_acceptor_id,
               r.from_location_id, r.to_location_id, r.volume_m3, r.reward_isk, r.created_at,
-              fs.system_name AS from_name, ts.system_name AS to_name
+              fs.system_name AS from_name, ts.system_name AS to_name,
+              ce.name AS contract_acceptor_name
          FROM haul_request r
          LEFT JOIN eve_system fs ON fs.system_id = r.from_location_id AND r.from_location_type = 'system'
          LEFT JOIN eve_system ts ON ts.system_id = r.to_location_id AND r.to_location_type = 'system'
+         LEFT JOIN eve_entity ce ON ce.entity_id = r.contract_acceptor_id AND ce.entity_type = 'character'
         WHERE r.corp_id = ?
           AND r.requester_user_id = ?
         ORDER BY r.created_at DESC

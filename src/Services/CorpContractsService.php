@@ -47,7 +47,8 @@ final class CorpContractsService
     private Db $db,
     private array $config,
     private EsiClient $esi,
-    private SsoService $sso
+    private SsoService $sso,
+    private ?DiscordWebhookService $webhooks = null
   ) {}
 
   /**
@@ -243,7 +244,8 @@ final class CorpContractsService
     }
 
     $requests = $this->db->select(
-      "SELECT request_id, request_key, status, contract_id, contract_status, contract_type, contract_acceptor_id,
+      "SELECT request_id, request_key, corp_id, status, contract_id, contract_status, contract_type, contract_acceptor_id,
+              from_location_id, to_location_id, ship_class,
               accepted_at, delivered_at, cancelled_at, volume_m3, collateral_isk, reward_isk, updated_at
          FROM haul_request
         WHERE corp_id = :cid
@@ -648,7 +650,8 @@ final class CorpContractsService
     if ((string)($request['contract_type'] ?? '') !== $contractType) {
       $changes['contract_type'] = $contractType;
     }
-    if ($currentAcceptor !== $acceptorId) {
+    $acceptorChanged = $currentAcceptor !== $acceptorId;
+    if ($acceptorChanged) {
       $changes['contract_acceptor_id'] = $acceptorId;
     }
 
@@ -705,6 +708,10 @@ final class CorpContractsService
       $params
     );
 
+    if ($acceptorChanged && $acceptorId !== null) {
+      $this->notifyContractPickedUp($request, $contract, $acceptorId);
+    }
+
     return true;
   }
 
@@ -745,5 +752,48 @@ final class CorpContractsService
       return $aVal !== $bVal;
     }
     return abs($aVal - $bVal) > $epsilon;
+  }
+
+  private function notifyContractPickedUp(array $request, array $contract, int $acceptorId): void
+  {
+    if (!$this->webhooks) {
+      return;
+    }
+
+    $fromId = (int)($request['from_location_id'] ?? 0);
+    $toId = (int)($request['to_location_id'] ?? 0);
+    $fromName = (string)$this->db->fetchValue(
+      "SELECT system_name FROM map_system WHERE system_id = :id LIMIT 1",
+      ['id' => $fromId]
+    );
+    $toName = (string)$this->db->fetchValue(
+      "SELECT system_name FROM map_system WHERE system_id = :id LIMIT 1",
+      ['id' => $toId]
+    );
+    $acceptorName = (string)$this->db->fetchValue(
+      "SELECT name FROM eve_entity WHERE entity_id = :id AND entity_type = 'character' LIMIT 1",
+      ['id' => $acceptorId]
+    );
+    if ($acceptorName === '') {
+      $acceptorName = 'Character #' . $acceptorId;
+    }
+
+    $routeLabel = trim(($fromName !== '' ? $fromName : ('System #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('System #' . $toId)));
+    $payload = $this->webhooks->buildContractPickedUpPayload([
+      'request_id' => (int)($request['request_id'] ?? 0),
+      'request_key' => (string)($request['request_key'] ?? ''),
+      'route' => $routeLabel,
+      'pickup' => $fromName !== '' ? $fromName : ('System #' . $fromId),
+      'dropoff' => $toName !== '' ? $toName : ('System #' . $toId),
+      'ship_class' => (string)($request['ship_class'] ?? ''),
+      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
+      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
+      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
+      'contract_id' => (int)($contract['contract_id'] ?? 0),
+      'acceptor_id' => $acceptorId,
+      'acceptor_name' => $acceptorName,
+    ]);
+
+    $this->webhooks->enqueue((int)($request['corp_id'] ?? 0), 'haul.contract.picked_up', $payload);
   }
 }

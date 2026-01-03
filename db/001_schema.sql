@@ -391,6 +391,7 @@ CREATE TABLE IF NOT EXISTS haul_request (
   contract_status    VARCHAR(64) NULL,
   contract_acceptor_id BIGINT UNSIGNED NULL,
   contract_matched_at DATETIME NULL,
+  contract_linked_notified_at DATETIME NULL,
   contract_validation_json JSON NULL,
   mismatch_reason_json JSON NULL,
 
@@ -425,6 +426,7 @@ ALTER TABLE haul_request
   ADD COLUMN IF NOT EXISTS contract_hint_text VARCHAR(255) NOT NULL DEFAULT '' AFTER price_breakdown_json,
   ADD COLUMN IF NOT EXISTS contract_matched_at DATETIME NULL AFTER contract_status,
   ADD COLUMN IF NOT EXISTS contract_acceptor_id BIGINT UNSIGNED NULL AFTER contract_status,
+  ADD COLUMN IF NOT EXISTS contract_linked_notified_at DATETIME NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS contract_validation_json JSON NULL AFTER contract_matched_at,
   ADD COLUMN IF NOT EXISTS mismatch_reason_json JSON NULL AFTER contract_validation_json;
 
@@ -772,6 +774,7 @@ SELECT
   r.contract_status,
   r.contract_acceptor_id,
   r.contract_matched_at,
+  r.contract_linked_notified_at,
   r.mismatch_reason_json,
   r.created_at,
   r.updated_at,
@@ -781,6 +784,7 @@ SELECT
   r.to_location_type,
   COALESCE(f_ent.name, CONCAT(r.from_location_type, ':', r.from_location_id)) AS from_name,
   COALESCE(t_ent.name, CONCAT(r.to_location_type, ':', r.to_location_id)) AS to_name,
+  COALESCE(a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name,
   u.display_name AS requester_display_name,
   COALESCE(u.character_name, r.requester_character_name) AS requester_character_name
 FROM haul_request r
@@ -800,4 +804,7 @@ LEFT JOIN eve_entity t_ent
     WHEN 'system' THEN 'system'
     WHEN 'station' THEN 'station'
     WHEN 'structure' THEN 'structure'
-    ELSE 'unknown' END;
+    ELSE 'unknown' END
+LEFT JOIN eve_entity a_ent
+  ON a_ent.entity_id = r.contract_acceptor_id
+  AND a_ent.entity_type = 'character';

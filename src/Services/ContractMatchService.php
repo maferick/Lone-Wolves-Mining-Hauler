@@ -29,7 +29,8 @@ final class ContractMatchService
   {
     $requests = $this->db->select(
       "SELECT request_id, request_key, corp_id, from_location_id, to_location_id, volume_m3, collateral_isk, reward_isk,
-              ship_class, route_policy, route_profile, contract_hint_text, contract_id, contract_status, status
+              ship_class, route_policy, route_profile, contract_hint_text, contract_id, contract_status, status,
+              contract_linked_notified_at
          FROM haul_request
         WHERE corp_id = :cid
           AND status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','in_progress')",
@@ -261,6 +262,7 @@ final class ContractMatchService
     $previousStatus = (string)($request['status'] ?? '');
     $contractStatus = (string)($contract['status'] ?? 'unknown');
     $newStatus = $this->isContractCompleted($contractStatus) ? 'completed' : 'contract_linked';
+    $notifiedAt = $request['contract_linked_notified_at'] ?? null;
 
     $this->db->execute(
       "UPDATE haul_request
@@ -268,6 +270,7 @@ final class ContractMatchService
               contract_status = :contract_status,
               status = :status,
               contract_matched_at = UTC_TIMESTAMP(),
+              contract_linked_notified_at = IF(contract_id = :contract_id, contract_linked_notified_at, NULL),
               contract_validation_json = :validation_json,
               mismatch_reason_json = NULL,
               updated_at = UTC_TIMESTAMP()
@@ -282,8 +285,14 @@ final class ContractMatchService
     );
 
     $notifications = 0;
-    if ($newStatus === 'contract_linked' && $previousStatus !== 'contract_linked') {
+    if ($newStatus === 'contract_linked' && $previousStatus !== 'contract_linked' && empty($notifiedAt)) {
       $notifications = $this->notifyContractLinked($request, $contract);
+      if ($notifications > 0) {
+        $this->db->execute(
+          "UPDATE haul_request SET contract_linked_notified_at = UTC_TIMESTAMP() WHERE request_id = :rid",
+          ['rid' => $requestId]
+        );
+      }
     }
 
     return [

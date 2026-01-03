@@ -45,6 +45,18 @@ $buildContractLabel = static function (array $req): string {
   return '—';
 };
 
+$buildStatusLabel = static function (array $req): string {
+  $status = (string)($req['status'] ?? '');
+  if ($status === 'in_progress') {
+    $acceptorName = trim((string)($req['contract_acceptor_name'] ?? ''));
+    if ($acceptorName !== '') {
+      return 'Picked up by ' . $acceptorName;
+    }
+    return 'Picked up';
+  }
+  return $status;
+};
+
 $buildQueuePosition = static function (array $req) use ($queuePositions, $queueTotal): string {
   $requestId = (int)($req['request_id'] ?? 0);
   if ($requestId <= 0 || !isset($queuePositions[$requestId])) {
@@ -95,7 +107,7 @@ ob_start();
             <tr>
               <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($buildStatusLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildContractLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= htmlspecialchars($buildQueuePosition($req), ENT_QUOTES, 'UTF-8') ?></td>
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>

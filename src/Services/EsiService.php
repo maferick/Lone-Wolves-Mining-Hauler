@@ -16,11 +16,11 @@ final class EsiService
   private SsoService $sso;
   private CorpContractsService $contracts;
 
-  public function __construct(private Db $db, private array $config)
+  public function __construct(private Db $db, private array $config, ?DiscordWebhookService $webhooks = null)
   {
     $this->client = new EsiClient($db, $config);
     $this->sso = new SsoService($db, $config);
-    $this->contracts = new CorpContractsService($db, $config, $this->client, $this->sso);
+    $this->contracts = new CorpContractsService($db, $config, $this->client, $this->sso, $webhooks);
   }
 
   public function ping(): array
