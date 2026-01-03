@@ -454,16 +454,27 @@ final class ContractMatchService
       ['id' => $toId]
     );
     $routeLabel = trim(($fromName !== '' ? $fromName : ('System #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('System #' . $toId)));
+    $issuerId = (int)($contract['issuer_id'] ?? 0);
+    $issuerName = $issuerId > 0
+      ? (string)$this->db->fetchValue(
+        "SELECT name FROM eve_entity WHERE entity_id = :id AND entity_type = 'character' LIMIT 1",
+        ['id' => $issuerId]
+      )
+      : '';
 
     $payload = $this->webhooks->buildContractLinkedPayload([
       'request_id' => (int)($request['request_id'] ?? 0),
       'request_key' => (string)($request['request_key'] ?? ''),
       'route' => $routeLabel,
+      'pickup' => $fromName !== '' ? $fromName : ('System #' . $fromId),
+      'dropoff' => $toName !== '' ? $toName : ('System #' . $toId),
       'ship_class' => (string)($request['ship_class'] ?? ''),
       'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
       'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
       'price_isk' => (float)($request['reward_isk'] ?? 0.0),
       'contract_id' => (int)($contract['contract_id'] ?? 0),
+      'issuer_id' => $issuerId,
+      'issuer_name' => $issuerName,
     ]);
 
     return $this->webhooks->enqueueContractLinked((int)($request['corp_id'] ?? 0), $payload);
