@@ -8,7 +8,7 @@ $canViewOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $canManageOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
 $canAssignOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.assign');
 $canExecuteOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.execute');
-$queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'delivered' => 0];
+$queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'delivered' => 0, 'failed' => 0];
 $requests = $requests ?? [];
 $haulers = $haulers ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
@@ -182,6 +182,10 @@ ob_start();
             <div class="kpi">
               <div class="kpi-label">Delivered</div>
               <div class="kpi-value"><?= number_format((int)$queueStats['delivered']) ?></div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">Failed</div>
+              <div class="kpi-value"><?= number_format((int)$queueStats['failed']) ?></div>
             </div>
           </div>
         </div>
