@@ -224,24 +224,6 @@ final class CorpContractsService
       'error_details' => [],
     ];
 
-    $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
-    if (!$token) {
-      $summary['errors'] = 1;
-      $summary['error_details'][] = 'No sso_token found for corp contracts reconciliation.';
-      return $summary;
-    }
-
-    $scopes = array_filter(preg_split('/\s+/', (string)($token['scopes'] ?? '')) ?: []);
-    if (!in_array(self::REQUIRED_SCOPE, $scopes, true)) {
-      $summary['errors'] = 1;
-      $summary['error_details'][] = 'Missing scope: ' . self::REQUIRED_SCOPE . '. Re-auth a director character.';
-      return $summary;
-    }
-
-    $token = $this->sso->ensureAccessToken($token);
-    $tokenId = (int)$token['token_id'];
-    $bearer = $token['access_token'];
-
     $finishedCutoff = gmdate('Y-m-d H:i:s', time() - ((int)$options['finished_lookback_days'] * 86400));
     $activeStatuses = self::ACTIVE_REQUEST_STATUSES;
     $terminalStatuses = self::TERMINAL_REQUEST_STATUSES;
@@ -277,6 +259,24 @@ final class CorpContractsService
     if ($requests === []) {
       return $summary;
     }
+
+    $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
+    if (!$token) {
+      $summary['errors'] = 1;
+      $summary['error_details'][] = 'No sso_token found for corp contracts reconciliation.';
+      return $summary;
+    }
+
+    $scopes = array_filter(preg_split('/\s+/', (string)($token['scopes'] ?? '')) ?: []);
+    if (!in_array(self::REQUIRED_SCOPE, $scopes, true)) {
+      $summary['errors'] = 1;
+      $summary['error_details'][] = 'Missing scope: ' . self::REQUIRED_SCOPE . '. Re-auth a director character.';
+      return $summary;
+    }
+
+    $token = $this->sso->ensureAccessToken($token);
+    $tokenId = (int)$token['token_id'];
+    $bearer = $token['access_token'];
 
     $targetIds = [];
     $activeIds = [];
