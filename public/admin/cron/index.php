@@ -264,6 +264,12 @@ $taskDefinitions = [
 
 $taskSettingsCorp = $loadTaskSettings($db, $corpId);
 $taskSettingsGlobal = $loadTaskSettings($db, null);
+$globalTaskKeys = [];
+foreach ($taskDefinitions as $taskKey => $taskDefinition) {
+  if (($taskDefinition['scope'] ?? '') === 'global') {
+    $globalTaskKeys[] = $taskKey;
+  }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -334,15 +340,23 @@ $cmdUniverseSde = sprintf('php bin/cron_sync.php %d --scope=universe --sde', $co
 
 $recentJobPage = max(1, (int)($_GET['page'] ?? 1));
 $recentJobPerPage = 10;
+$recentJobParams = ['cid' => $corpId];
+$recentJobGlobalClause = '';
+if ($globalTaskKeys !== []) {
+  $placeholders = [];
+  foreach ($globalTaskKeys as $index => $taskKey) {
+    $param = 'global_' . $index;
+    $placeholders[] = ':' . $param;
+    $recentJobParams[$param] = $taskKey;
+  }
+  $recentJobGlobalClause = ' OR (corp_id IS NULL AND job_type IN (' . implode(', ', $placeholders) . '))';
+}
+
 $recentJobTotalRow = $db->one(
   "SELECT COUNT(*) AS total
      FROM job_queue
-    WHERE corp_id = :cid
-       OR (corp_id IS NULL AND job_type = :webhook)",
-  [
-    'cid' => $corpId,
-    'webhook' => JobQueueService::WEBHOOK_DELIVERY_JOB,
-  ]
+    WHERE corp_id = :cid{$recentJobGlobalClause}",
+  $recentJobParams
 );
 $recentJobTotal = (int)($recentJobTotalRow['total'] ?? 0);
 $recentJobTotalPages = max(1, (int)ceil($recentJobTotal / $recentJobPerPage));
@@ -351,19 +365,15 @@ if ($recentJobPage > $recentJobTotalPages) {
 }
 $recentJobOffset = ($recentJobPage - 1) * $recentJobPerPage;
 
+$recentJobParams['limit'] = $recentJobPerPage;
+$recentJobParams['offset'] = $recentJobOffset;
 $recentJobs = $db->select(
   "SELECT job_id, corp_id, job_type, status, run_at, started_at, finished_at, created_at, payload_json, last_error
      FROM job_queue
-    WHERE corp_id = :cid
-       OR (corp_id IS NULL AND job_type = :webhook)
+    WHERE corp_id = :cid{$recentJobGlobalClause}
     ORDER BY created_at DESC
     LIMIT :limit OFFSET :offset",
-  [
-    'cid' => $corpId,
-    'webhook' => JobQueueService::WEBHOOK_DELIVERY_JOB,
-    'limit' => $recentJobPerPage,
-    'offset' => $recentJobOffset,
-  ]
+  $recentJobParams
 );
 
 $statusClassMap = [
