@@ -18,6 +18,7 @@ if (!Auth::can($authCtx, 'haul.buyback')) {
 }
 
 $payload = api_read_json();
+$quoteId = (int)($payload['quote_id'] ?? 0);
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 if ($corpId <= 0) {
   api_send_json(['ok' => false, 'error' => 'corp context missing'], 400);
@@ -43,30 +44,33 @@ if ($buybackPrice <= 0) {
 }
 
 try {
-  /** @var \App\Services\PricingService $pricingService */
-  $pricingService = $services['pricing'];
-  $quote = $pricingService->quote([
-    'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
-    'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
-    'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
-    'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
-    'priority' => $payload['priority'] ?? $payload['profile'] ?? null,
-  ], $corpId, [
-    'corp_id' => $authCtx['corp_id'] ?? null,
-    'actor_user_id' => $authCtx['user_id'] ?? null,
-    'actor_character_id' => $authCtx['character_id'] ?? null,
-    'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
-    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
-  ]);
-
   /** @var \App\Services\HaulRequestService $haulRequest */
   $haulRequest = $services['haul_request'];
+  if ($quoteId <= 0) {
+    /** @var \App\Services\PricingService $pricingService */
+    $pricingService = $services['pricing'];
+    $quote = $pricingService->quote([
+      'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
+      'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
+      'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
+      'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
+      'priority' => $payload['priority'] ?? $payload['profile'] ?? null,
+    ], $corpId, [
+      'corp_id' => $authCtx['corp_id'] ?? null,
+      'actor_user_id' => $authCtx['user_id'] ?? null,
+      'actor_character_id' => $authCtx['character_id'] ?? null,
+      'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+      'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+    ]);
+    $quoteId = (int)$quote['quote_id'];
+  }
+
   $result = $db->tx(fn($db) => $haulRequest->createFromQuote(
-    (int)$quote['quote_id'],
+    $quoteId,
     $authCtx,
     $corpId,
     $buybackPrice,
-    'Buyback haulage #' . (string)$quote['quote_id']
+    'Buyback haulage #' . (string)$quoteId
   ));
 
   $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
@@ -85,7 +89,7 @@ try {
     'request_id' => $result['request_id'],
     'request_key' => $requestKey,
     'request_url' => $requestUrl,
-    'quote_id' => (int)$quote['quote_id'],
+    'quote_id' => $quoteId,
     'reward_isk' => $buybackPrice,
     'total_price_isk' => $buybackPrice,
     'price_total_isk' => $buybackPrice,

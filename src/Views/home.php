@@ -236,6 +236,7 @@ ob_start();
     const requestStatus = document.getElementById('quote-request-status');
     const buybackBtn = document.getElementById('buyback-haulage-btn');
     let currentQuoteId = null;
+    let currentRequestMode = 'standard';
     const locationQueryIds = { pickup: 0, destination: 0 };
     const locationTimers = { pickup: null, destination: null };
 
@@ -434,6 +435,7 @@ ob_start();
           return;
         }
         currentQuoteId = data.quote_id;
+        currentRequestMode = 'standard';
         const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
         resultEl.textContent = `Total price: ${fmtIsk(totalPrice)} ISK`;
         resultEl.style.display = 'block';
@@ -450,10 +452,14 @@ ob_start();
     createRequestBtn?.addEventListener('click', async () => {
       if (!currentQuoteId) return;
       createRequestBtn.disabled = true;
-      requestStatus.textContent = 'Creating request...';
+      const requestLabel = currentRequestMode === 'buyback' ? 'buyback request' : 'request';
+      requestStatus.textContent = `Creating ${requestLabel}...`;
       requestStatus.style.display = 'inline';
       try {
-        const resp = await fetch(`${basePath}/api/requests/create/`, {
+        const endpoint = currentRequestMode === 'buyback'
+          ? `${basePath}/api/requests/buyback/`
+          : `${basePath}/api/requests/create/`;
+        const resp = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -462,14 +468,15 @@ ob_start();
         });
         const data = await resp.json();
         if (!data.ok) {
-          requestStatus.textContent = data.error || 'Request creation failed.';
+          requestStatus.textContent = data.error || `${requestLabel} creation failed.`;
           return;
         }
-        requestStatus.textContent = `Request #${data.request_id} created.`;
+        const requestPrefix = currentRequestMode === 'buyback' ? 'Buyback request' : 'Request';
+        requestStatus.textContent = `${requestPrefix} #${data.request_id} created.`;
         requestLink.href = data.request_url || '#';
         requestLink.style.display = 'inline-flex';
       } catch (err) {
-        requestStatus.textContent = 'Request creation failed.';
+        requestStatus.textContent = `${requestLabel} creation failed.`;
       } finally {
         createRequestBtn.disabled = false;
       }
@@ -480,6 +487,10 @@ ob_start();
       resultEl.style.display = 'none';
       requestStatus.style.display = 'none';
       requestLink.style.display = 'none';
+      if (createRequestBtn) {
+        createRequestBtn.disabled = !canCreateRequest;
+        createRequestBtn.textContent = 'Create Buyback Request';
+      }
 
       const pickup = pickupInput?.value.trim();
       const destination = destinationInput?.value.trim();
@@ -502,9 +513,9 @@ ob_start();
 
       buybackBtn.disabled = true;
       const originalText = buybackBtn.textContent;
-      buybackBtn.textContent = 'Creating...';
+      buybackBtn.textContent = 'Quoting...';
       try {
-        const resp = await fetch(`${basePath}/api/requests/buyback/`, {
+        const resp = await fetch(`${basePath}/api/quote/buyback/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -519,25 +530,18 @@ ob_start();
         });
         const data = await resp.json();
         if (!data.ok) {
-          showError(data.error || 'Buyback request failed.');
+          showError(data.error || 'Buyback quote failed.');
           return;
         }
-        currentQuoteId = null;
+        currentQuoteId = data.quote_id;
+        currentRequestMode = 'buyback';
         const totalPrice = data.reward_isk ?? data.total_price_isk ?? data.price_total_isk ?? 0;
-        resultEl.textContent = `Buyback request #${data.request_id} created for ${fmtIsk(totalPrice)} ISK.`;
+        resultEl.textContent = `Buyback haulage price: ${fmtIsk(totalPrice)} ISK.`;
         resultEl.style.display = 'block';
         breakdownCard.style.display = 'block';
         renderBreakdown(data);
-        requestLink.href = data.request_url || '#';
-        requestLink.style.display = data.request_url ? 'inline-flex' : 'none';
-        requestStatus.textContent = `Buyback request #${data.request_id} created.`;
-        requestStatus.style.display = 'inline';
-        if (createRequestBtn) {
-          createRequestBtn.disabled = true;
-          createRequestBtn.textContent = 'Request Created';
-        }
       } catch (err) {
-        showError('Buyback request failed.');
+        showError('Buyback quote failed.');
       } finally {
         buybackBtn.disabled = false;
         buybackBtn.textContent = originalText;
