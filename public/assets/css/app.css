@@ -29,6 +29,12 @@ body{
     radial-gradient(900px 700px at 50% 110%, rgba(255,77,109,.10), transparent 60%),
     var(--bg);
 }
+body.home{
+  background:
+    linear-gradient(180deg, rgba(5,7,12,.72), rgba(5,7,12,.86)),
+    url('../background.jpg') center/cover fixed no-repeat,
+    var(--bg);
+}
 
 a{color:inherit; text-decoration:none}
 code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
@@ -114,9 +120,23 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card-header p{margin:0; color:var(--muted); font-size:13px}
 .card-footer{display:flex; gap:10px; padding:14px 18px 18px}
 
-.hero-card .card-header{padding:22px 22px 10px}
-.hero-card h1{margin:0 0 6px; font-size:28px; letter-spacing:.3px}
-.hero-card .hero-tagline{margin:0 0 10px; font-size:15px; font-weight:600; color:var(--text)}
+.hero-card{background: rgba(7,10,18,.78); backdrop-filter: blur(8px)}
+.hero-banner{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px 20px 14px;
+  background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.2));
+  border-bottom:1px solid var(--border);
+}
+.hero-logo{
+  width:min(520px, 92%);
+  height:auto;
+  filter: drop-shadow(0 10px 26px rgba(0,0,0,.55));
+}
+.hero-card .card-header{padding:18px 22px 10px}
+.hero-card h1{margin:0 0 6px; font-size:28px; letter-spacing:1px; text-transform:uppercase}
+.hero-card .hero-tagline{margin:0 0 10px; font-size:15px; font-weight:600; color:#F6C676}
 .hero-body{padding:0 22px 22px; display:grid; gap:12px; color:var(--muted)}
 .hero-body p{margin:0; line-height:1.6}
 .hero-body .hero-pledge{color:var(--text); font-weight:600}

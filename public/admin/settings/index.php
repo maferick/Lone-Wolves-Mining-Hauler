@@ -18,6 +18,9 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Corp Settings';
 
 $msg = null;
+$alertType = 'pill';
+$uploadMsg = null;
+$resetMsg = null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $corpName = trim((string)($_POST['corp_name'] ?? ''));
@@ -51,6 +54,148 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $msg = "Saved.";
 }
 
+$brandDir = __DIR__ . '/../../assets';
+$brandBaseUrl = ($basePath ?: '') . '/assets';
+$brandDefaultsDir = $brandDir . '/defaults';
+$isResetRequest = $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_branding']);
+
+function resizeAndSaveImage(array $file, string $destPath, int $maxWidth, int $maxHeight, array &$errors): bool
+{
+  if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
+    return false;
+  }
+
+  if (($file['size'] ?? 0) <= 0 || ($file['size'] ?? 0) > 8 * 1024 * 1024) {
+    $errors[] = 'Image upload must be less than 8MB.';
+    return false;
+  }
+
+  $imageInfo = getimagesize($file['tmp_name']);
+  if ($imageInfo === false) {
+    $errors[] = 'Uploaded file is not a valid image.';
+    return false;
+  }
+
+  $mimeType = $imageInfo['mime'] ?? '';
+  $srcImage = null;
+  switch ($mimeType) {
+    case 'image/jpeg':
+      $srcImage = imagecreatefromjpeg($file['tmp_name']);
+      break;
+    case 'image/png':
+      $srcImage = imagecreatefrompng($file['tmp_name']);
+      break;
+    case 'image/webp':
+      $srcImage = imagecreatefromwebp($file['tmp_name']);
+      break;
+    default:
+      $errors[] = 'Only JPG, PNG, or WebP images are supported.';
+      return false;
+  }
+
+  if (!$srcImage) {
+    $errors[] = 'Failed to read the uploaded image.';
+    return false;
+  }
+
+  [$width, $height] = $imageInfo;
+  $scale = min($maxWidth / $width, $maxHeight / $height, 1);
+  $targetWidth = (int)round($width * $scale);
+  $targetHeight = (int)round($height * $scale);
+
+  if ($targetWidth <= 0 || $targetHeight <= 0) {
+    $errors[] = 'Invalid image dimensions.';
+    imagedestroy($srcImage);
+    return false;
+  }
+
+  $targetImage = imagecreatetruecolor($targetWidth, $targetHeight);
+  imagealphablending($targetImage, false);
+  imagesavealpha($targetImage, true);
+  imagecopyresampled($targetImage, $srcImage, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+
+  if (!is_dir(dirname($destPath))) {
+    mkdir(dirname($destPath), 0775, true);
+  }
+
+  $saved = imagejpeg($targetImage, $destPath, 86);
+  imagedestroy($srcImage);
+  imagedestroy($targetImage);
+
+  if (!$saved) {
+    $errors[] = 'Unable to save the resized image.';
+    return false;
+  }
+
+  return true;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $errors = [];
+  $uploads = [
+    'background_image' => [
+      'path' => $brandDir . '/background.jpg',
+      'label' => 'Background',
+      'maxWidth' => 2400,
+      'maxHeight' => 1400,
+    ],
+    'logo_image' => [
+      'path' => $brandDir . '/logo.jpg',
+      'label' => 'Logo',
+      'maxWidth' => 1400,
+      'maxHeight' => 900,
+    ],
+  ];
+
+  foreach ($uploads as $field => $meta) {
+    if (!empty($_FILES[$field]['tmp_name'])) {
+      $defaultPath = $brandDefaultsDir . '/' . basename($meta['path']);
+      if (!is_dir($brandDefaultsDir)) {
+        mkdir($brandDefaultsDir, 0775, true);
+      }
+      if (!file_exists($defaultPath) && file_exists($meta['path'])) {
+        copy($meta['path'], $defaultPath);
+      }
+
+      if (!resizeAndSaveImage($_FILES[$field], $meta['path'], $meta['maxWidth'], $meta['maxHeight'], $errors)) {
+        $errors[] = $meta['label'] . ' image upload failed.';
+      }
+    }
+  }
+
+  if (!empty($errors)) {
+    $uploadMsg = implode(' ', array_unique($errors));
+    $alertType = 'pill pill-danger';
+  } elseif (!empty($_FILES['background_image']['tmp_name']) || !empty($_FILES['logo_image']['tmp_name'])) {
+    $uploadMsg = 'Branding images updated.';
+  }
+}
+
+if ($isResetRequest) {
+  $resetErrors = [];
+  $defaults = [
+    $brandDefaultsDir . '/background.jpg' => $brandDir . '/background.jpg',
+    $brandDefaultsDir . '/logo.jpg' => $brandDir . '/logo.jpg',
+  ];
+
+  foreach ($defaults as $defaultPath => $targetPath) {
+    if (file_exists($defaultPath)) {
+      if (!copy($defaultPath, $targetPath)) {
+        $resetErrors[] = 'Failed to restore ' . basename($targetPath) . '.';
+      }
+    } else {
+      $resetErrors[] = 'Default ' . basename($targetPath) . ' not found.';
+    }
+  }
+
+  if (!empty($resetErrors)) {
+    $uploadMsg = implode(' ', array_unique($resetErrors));
+    $alertType = 'pill pill-danger';
+  } else {
+    $resetMsg = 'Branding images reset to default.';
+  }
+}
+
 $corp = $db->one("SELECT corp_id, corp_name, ticker, alliance_id, alliance_name FROM corp WHERE corp_id=:cid", ['cid'=>$corpId]);
 
 ob_start();
@@ -66,8 +211,14 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php if ($msg): ?>
       <div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div>
     <?php endif; ?>
+    <?php if ($uploadMsg): ?>
+      <div class="<?= htmlspecialchars($alertType, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($uploadMsg, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
+    <?php if ($resetMsg): ?>
+      <div class="pill"><?= htmlspecialchars($resetMsg, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
 
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
       <div class="row">
         <div>
           <div class="label">Corp Name</div>
@@ -90,8 +241,31 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         </div>
       </div>
 
+      <div style="margin-top:16px;">
+        <div class="label">Front Page Branding</div>
+        <p class="muted" style="margin-top:6px;">Upload JPG/PNG/WebP. Images are auto-resized for best fit.</p>
+        <p class="muted" style="margin-top:6px;">Reset restores the original images saved before the first upload.</p>
+        <div class="row" style="margin-top:12px;">
+          <div>
+            <label class="label" for="background_image">Background image</label>
+            <input class="input" type="file" id="background_image" name="background_image" accept="image/jpeg,image/png,image/webp" />
+            <?php if (file_exists($brandDir . '/background.jpg')): ?>
+              <div class="muted" style="margin-top:6px;">Current: <a href="<?= htmlspecialchars($brandBaseUrl . '/background.jpg', ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">View background</a></div>
+            <?php endif; ?>
+          </div>
+          <div>
+            <label class="label" for="logo_image">Logo image</label>
+            <input class="input" type="file" id="logo_image" name="logo_image" accept="image/jpeg,image/png,image/webp" />
+            <?php if (file_exists($brandDir . '/logo.jpg')): ?>
+              <div class="muted" style="margin-top:6px;">Current: <a href="<?= htmlspecialchars($brandBaseUrl . '/logo.jpg', ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">View logo</a></div>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
+
       <div style="margin-top:14px; display:flex; gap:10px;">
         <button class="btn" type="submit">Save</button>
+        <button class="btn ghost" type="submit" name="reset_branding" value="1">Reset branding</button>
         <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
       </div>
     </form>
