@@ -58,8 +58,20 @@ SELECT
   r.from_location_type,
   r.to_location_id,
   r.to_location_type,
-  COALESCE(f_ent.name, CONCAT(r.from_location_type, ':', r.from_location_id)) AS from_name,
-  COALESCE(t_ent.name, CONCAT(r.to_location_type, ':', r.to_location_id)) AS to_name,
+  COALESCE(
+    f_sys.system_name,
+    f_station.station_name,
+    f_structure.structure_name,
+    f_ent.name,
+    CONCAT(r.from_location_type, ':', r.from_location_id)
+  ) AS from_name,
+  COALESCE(
+    t_sys.system_name,
+    t_station.station_name,
+    t_structure.structure_name,
+    t_ent.name,
+    CONCAT(r.to_location_type, ':', r.to_location_id)
+  ) AS to_name,
   COALESCE(r.contract_acceptor_name, a_ent.name, CONCAT('Character:', r.contract_acceptor_id)) AS contract_acceptor_name,
   u.display_name AS requester_display_name,
   COALESCE(u.character_name, r.requester_character_name) AS requester_character_name
@@ -74,6 +86,15 @@ LEFT JOIN eve_entity f_ent
     WHEN 'station' THEN 'station'
     WHEN 'structure' THEN 'structure'
     ELSE 'unknown' END
+LEFT JOIN eve_system f_sys
+  ON f_sys.system_id = r.from_location_id
+  AND r.from_location_type = 'system'
+LEFT JOIN eve_station f_station
+  ON f_station.station_id = r.from_location_id
+  AND r.from_location_type = 'station'
+LEFT JOIN eve_structure f_structure
+  ON f_structure.structure_id = r.from_location_id
+  AND r.from_location_type = 'structure'
 LEFT JOIN eve_entity t_ent
   ON t_ent.entity_id = r.to_location_id
   AND t_ent.entity_type = CASE r.to_location_type
@@ -81,6 +102,15 @@ LEFT JOIN eve_entity t_ent
     WHEN 'station' THEN 'station'
     WHEN 'structure' THEN 'structure'
     ELSE 'unknown' END
+LEFT JOIN eve_system t_sys
+  ON t_sys.system_id = r.to_location_id
+  AND r.to_location_type = 'system'
+LEFT JOIN eve_station t_station
+  ON t_station.station_id = r.to_location_id
+  AND r.to_location_type = 'station'
+LEFT JOIN eve_structure t_structure
+  ON t_structure.structure_id = r.to_location_id
+  AND r.to_location_type = 'structure'
 LEFT JOIN eve_entity a_ent
   ON a_ent.entity_id = r.contract_acceptor_id
   AND a_ent.entity_type = 'character';
