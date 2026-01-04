@@ -100,6 +100,8 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .grid{display:grid; grid-template-columns: 1.25fr .75fr; gap:18px}
 @media (max-width: 960px){ .grid{grid-template-columns: 1fr} }
 
+.stack{display:flex; flex-direction:column; gap:18px}
+
 .card{
   border:1px solid var(--border);
   border-radius: var(--radius);
@@ -111,6 +113,13 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card-header h2{margin:0 0 6px; font-size:18px}
 .card-header p{margin:0; color:var(--muted); font-size:13px}
 .card-footer{display:flex; gap:10px; padding:14px 18px 18px}
+
+.hero-card .card-header{padding:22px 22px 10px}
+.hero-card h1{margin:0 0 6px; font-size:28px; letter-spacing:.3px}
+.hero-card .hero-tagline{margin:0 0 10px; font-size:15px; font-weight:600; color:var(--text)}
+.hero-body{padding:0 22px 22px; display:grid; gap:12px; color:var(--muted)}
+.hero-body p{margin:0; line-height:1.6}
+.hero-body .hero-pledge{color:var(--text); font-weight:600}
 
 .kpi-row{display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; padding:10px 18px 0}
 .kpi{

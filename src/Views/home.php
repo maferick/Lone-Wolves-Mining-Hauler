@@ -29,51 +29,83 @@ $destinationLocationOptions = $destinationLocationOptions ?? [];
 ob_start();
 ?>
 <section class="grid">
-  <div class="card">
-    <div class="card-header">
-      <h2>Queue status</h2>
-      <p class="muted">ESI-fed courier contracts currently in flow.</p>
-      <?php if ($isLoggedIn): ?>
-        <div class="pill subtle" style="margin-top:10px; display:inline-flex;">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></div>
-      <?php endif; ?>
+  <div class="stack">
+    <div class="card hero-card">
+      <div class="card-header">
+        <h1>Lone Wolves Logistics</h1>
+        <p class="hero-tagline">The Pack Delivers.</p>
+      </div>
+      <div class="content hero-body">
+        <p>In New Eden, logistics is not about movement—it is about certainty.</p>
+        <p>
+          Lone Wolves Logistics operates as the hauling backbone of Lone Wolves Mining, engineered to ensure that assets,
+          materials, and strategic supplies arrive exactly where they are needed, without disruption. We exist to keep
+          operations flowing, production uninterrupted, and pilots focused on what generates value.
+        </p>
+        <p>
+          Our hauling doctrine is built on discipline, risk awareness, and execution. Every contract is treated as
+          mission-critical. Routes are selected deliberately, ships are chosen with intent, and deliveries are completed
+          without noise or excuses.
+        </p>
+        <p class="hero-pledge">
+          We do not chase volume.<br />
+          We do not cut corners.<br />
+          We do not leave cargo behind.
+        </p>
+        <p>
+          Internally, we serve the pack—supporting mining, industry, buyback, and deployment logistics. Externally, when
+          opened, we will extend the same operational standard to partners who value reliability over theatrics.
+        </p>
+        <p>If it flies under Lone Wolves Logistics, the outcome is not uncertain.</p>
+        <p class="hero-tagline">The Pack Delivers.</p>
+      </div>
     </div>
-    <?php if (!$contractStatsAvailable || $contractStats['total'] <= 0): ?>
-      <div class="content">
-        <p class="muted">No courier contracts pulled yet. Sync via the ESI panel to populate en-route totals.</p>
-      </div>
-    <?php else: ?>
-      <div class="kpi-row">
-        <div class="kpi">
-          <div class="kpi-label">Outstanding</div>
-          <div class="kpi-value"><?= number_format((int)$contractStats['outstanding']) ?></div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">En Route</div>
-          <div class="kpi-value"><?= number_format((int)$contractStats['in_progress']) ?></div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-label">Completed</div>
-          <div class="kpi-value"><?= number_format((int)$contractStats['completed']) ?></div>
-        </div>
-      </div>
-      <div class="content" style="padding-top:6px;">
-        <div class="row">
-          <div>
-            <div class="label">En route volume</div>
-            <div><?= number_format((float)$contractStats['en_route_volume'], 0) ?> m³</div>
-          </div>
-          <div>
-            <div class="label">Pending volume</div>
-            <div><?= number_format((float)$contractStats['pending_volume'], 0) ?> m³</div>
-          </div>
-        </div>
-        <?php if (!empty($contractStats['last_fetched_at'])): ?>
-          <div class="muted" style="margin-top:10px; font-size:12px;">
-            Last ESI sync: <?= htmlspecialchars((string)$contractStats['last_fetched_at'], ENT_QUOTES, 'UTF-8') ?> UTC
-          </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>Queue status</h2>
+        <p class="muted">ESI-fed courier contracts currently in flow.</p>
+        <?php if ($isLoggedIn): ?>
+          <div class="pill subtle" style="margin-top:10px; display:inline-flex;">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></div>
         <?php endif; ?>
       </div>
-    <?php endif; ?>
+      <?php if (!$contractStatsAvailable || $contractStats['total'] <= 0): ?>
+        <div class="content">
+          <p class="muted">No courier contracts pulled yet. Sync via the ESI panel to populate en-route totals.</p>
+        </div>
+      <?php else: ?>
+        <div class="kpi-row">
+          <div class="kpi">
+            <div class="kpi-label">Outstanding</div>
+            <div class="kpi-value"><?= number_format((int)$contractStats['outstanding']) ?></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">En Route</div>
+            <div class="kpi-value"><?= number_format((int)$contractStats['in_progress']) ?></div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Completed</div>
+            <div class="kpi-value"><?= number_format((int)$contractStats['completed']) ?></div>
+          </div>
+        </div>
+        <div class="content" style="padding-top:6px;">
+          <div class="row">
+            <div>
+              <div class="label">En route volume</div>
+              <div><?= number_format((float)$contractStats['en_route_volume'], 0) ?> m³</div>
+            </div>
+            <div>
+              <div class="label">Pending volume</div>
+              <div><?= number_format((float)$contractStats['pending_volume'], 0) ?> m³</div>
+            </div>
+          </div>
+          <?php if (!empty($contractStats['last_fetched_at'])): ?>
+            <div class="muted" style="margin-top:10px; font-size:12px;">
+              Last ESI sync: <?= htmlspecialchars((string)$contractStats['last_fetched_at'], ENT_QUOTES, 'UTF-8') ?> UTC
+            </div>
+          <?php endif; ?>
+        </div>
+      <?php endif; ?>
+    </div>
   </div>
 
   <?php if ($isLoggedIn): ?>
