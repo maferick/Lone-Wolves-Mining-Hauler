@@ -125,6 +125,20 @@ switch ($path) {
         $queueStats['in_progress'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'in_progress'");
         $queueStats['completed'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'completed' AND completed_at >= (NOW() - INTERVAL 1 DAY)");
       } elseif ($hasHaulRequest) {
+        $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+        $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+        $contractLifecycleColumn = null;
+        if ($hasContractLifecycle) {
+          $contractLifecycleColumn = 'contract_lifecycle';
+        } elseif ($hasContractState) {
+          $contractLifecycleColumn = 'contract_state';
+        }
+        $activeLifecycleFilter = $contractLifecycleColumn
+          ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
+          : '';
+        $completedLifecycleCase = $contractLifecycleColumn
+          ? "OR {$contractLifecycleColumn} = 'DELIVERED'"
+          : '';
         $row = $db->one(
           "SELECT
               SUM(CASE WHEN derived.status = 'outstanding' THEN 1 ELSE 0 END) AS outstanding,
@@ -133,9 +147,9 @@ switch ($path) {
             FROM (
               SELECT
                 CASE
-                  WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 'outstanding'
-                  WHEN status IN ('in_progress','accepted','in_transit') THEN 'in_progress'
-                  WHEN status IN ('completed','delivered') THEN 'completed'
+                  WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 'outstanding'
+                  WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 'in_progress'
+                  WHEN status IN ('completed','delivered') {$completedLifecycleCase} THEN 'completed'
                   ELSE 'other'
                 END AS status,
                 delivered_at AS completed_at
