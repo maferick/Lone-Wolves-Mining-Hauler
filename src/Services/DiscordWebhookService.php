@@ -526,6 +526,7 @@ final class DiscordWebhookService
     $contractId = (int)($details['contract_id'] ?? 0);
     $issuerId = (int)($details['issuer_id'] ?? 0);
     $issuerName = trim((string)($details['issuer_name'] ?? ''));
+    $contractHint = trim((string)($details['contract_hint_text'] ?? ''));
 
     $shipLabel = $this->formatShipClassLabel($shipClass);
     $fields = [];
@@ -543,6 +544,9 @@ final class DiscordWebhookService
     $fields[] = ['name' => 'Volume', 'value' => number_format($volume, 0) . ' m³', 'inline' => true];
     if ($route !== '') {
       $fields[] = ['name' => 'Route', 'value' => str_replace('→', '-', $route), 'inline' => false];
+    }
+    if ($contractHint !== '') {
+      $fields[] = ['name' => 'Quote Identifier (Info by Issuer)', 'value' => $contractHint, 'inline' => false];
     }
     if ($contractId > 0) {
       $fields[] = ['name' => 'Contract ID', 'value' => (string)$contractId, 'inline' => true];
