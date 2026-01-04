@@ -1436,7 +1436,9 @@ final class DiscordWebhookService
 
     $decimals = abs($value) < 10 ? 1 : 0;
     $formatted = number_format($value, $decimals);
-    $formatted = rtrim(rtrim($formatted, '0'), '.');
+    if ($decimals > 0) {
+      $formatted = rtrim(rtrim($formatted, '0'), '.');
+    }
 
     return $formatted . $unit . $suffix;
   }
