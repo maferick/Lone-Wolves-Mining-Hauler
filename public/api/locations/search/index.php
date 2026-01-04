@@ -98,6 +98,7 @@ if (!$systemRows) {
 }
 
 $items = [];
+$systemOrder = [];
 foreach ($systemRows as $row) {
   $systemId = (int)($row['system_id'] ?? 0);
   $name = trim((string)($row['system_name'] ?? ''));
@@ -113,6 +114,7 @@ foreach ($systemRows as $row) {
     }
   }
   $items[] = ['name' => $name, 'label' => 'System'];
+  $systemOrder[mb_strtolower($name)] = count($systemOrder);
   if (count($items) >= $limit) {
     break;
   }
@@ -138,11 +140,18 @@ if ($allowStructureLocations && count($items) < $limit) {
   }
 
   $structureNameById = [];
+  $structureRows = [];
   if ($structureIds) {
     $structureIds = array_values(array_unique($structureIds));
     $placeholders = implode(',', array_fill(0, count($structureIds), '?'));
     $structureRows = $db->select(
-      "SELECT structure_id, structure_name FROM eve_structure WHERE structure_id IN ($placeholders)",
+      "SELECT es.structure_id,
+              es.structure_name,
+              COALESCE(ms.system_name, s.system_name) AS system_name
+         FROM eve_structure es
+         LEFT JOIN map_system ms ON ms.system_id = es.system_id
+         LEFT JOIN eve_system s ON s.system_id = es.system_id
+        WHERE es.structure_id IN ($placeholders)",
       $structureIds
     );
     foreach ($structureRows as $row) {
@@ -151,6 +160,15 @@ if ($allowStructureLocations && count($items) < $limit) {
   }
 
   $prefixLower = mb_strtolower($prefix);
+  $structureMetaById = [];
+  foreach ($structureRows as $row) {
+    $structureMetaById[(int)$row['structure_id']] = [
+      'name' => (string)($row['structure_name'] ?? ''),
+      'system_name' => (string)($row['system_name'] ?? ''),
+    ];
+  }
+
+  $structureItems = [];
   foreach ($structureRules as $rule) {
     if (empty($rule['allowed'])) {
       continue;
@@ -169,10 +187,37 @@ if ($allowStructureLocations && count($items) < $limit) {
     if ($name === '') {
       continue;
     }
-    if (!str_starts_with(mb_strtolower($name), $prefixLower)) {
+    $structureMeta = $structureMetaById[$id] ?? ['name' => $name, 'system_name' => ''];
+    $systemName = trim((string)$structureMeta['system_name']);
+    $structureNameLower = mb_strtolower($name);
+    $systemNameLower = $systemName !== '' ? mb_strtolower($systemName) : '';
+    $matchesSystemPrefix = $systemNameLower !== '' && str_starts_with($systemNameLower, $prefixLower);
+    $matchesNamePrefix = str_starts_with($structureNameLower, $prefixLower);
+    if (!$matchesSystemPrefix && !$matchesNamePrefix) {
       continue;
     }
-    $items[] = ['name' => $name, 'label' => 'Structure'];
+    $displayName = $systemName !== '' ? "{$systemName} - {$name}" : $name;
+    $structureItems[] = [
+      'name' => $displayName,
+      'label' => 'Structure',
+      'sort_order' => $matchesSystemPrefix && $systemNameLower !== '' && array_key_exists($systemNameLower, $systemOrder)
+        ? $systemOrder[$systemNameLower]
+        : PHP_INT_MAX,
+      'sort_name' => mb_strtolower($displayName),
+    ];
+  }
+
+  usort($structureItems, static function (array $a, array $b): int {
+    $orderCompare = $a['sort_order'] <=> $b['sort_order'];
+    if ($orderCompare !== 0) {
+      return $orderCompare;
+    }
+    return $a['sort_name'] <=> $b['sort_name'];
+  });
+
+  foreach ($structureItems as $structureItem) {
+    unset($structureItem['sort_order'], $structureItem['sort_name']);
+    $items[] = $structureItem;
     if (count($items) >= $limit) {
       break;
     }
