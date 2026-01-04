@@ -219,13 +219,33 @@ final class PricingService
       return null;
     }
 
+    $name = trim($structureName);
+    if ($name === '') {
+      return null;
+    }
+
     $row = $this->db->one(
       "SELECT structure_id, system_id
          FROM eve_structure
         WHERE LOWER(structure_name) = LOWER(:name)
         LIMIT 1",
-      ['name' => trim($structureName)]
+      ['name' => $name]
     );
+    if ($row === null && str_contains($name, ' - ')) {
+      $parts = explode(' - ', $name, 2);
+      if (count($parts) === 2 && $this->resolveSystemByName($parts[0]) !== null) {
+        $candidateName = trim($parts[1]);
+        if ($candidateName !== '') {
+          $row = $this->db->one(
+            "SELECT structure_id, system_id
+               FROM eve_structure
+              WHERE LOWER(structure_name) = LOWER(:name)
+              LIMIT 1",
+            ['name' => $candidateName]
+          );
+        }
+      }
+    }
     if ($row === null) {
       return null;
     }
