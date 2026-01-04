@@ -17,6 +17,7 @@ $contractStats = $contractStats ?? [
   'last_fetched_at' => null,
 ];
 $contractStatsAvailable = $contractStatsAvailable ?? false;
+$queueStats = $queueStats ?? ['outstanding' => 0];
 $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => ''];
 $defaultPriority = $defaultPriority ?? 'normal';
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
@@ -71,7 +72,6 @@ ob_start();
     <div class="card">
       <div class="card-header">
         <h2>Queue status</h2>
-        <p class="muted">ESI-fed courier contracts currently in flow.</p>
         <?php if ($isLoggedIn): ?>
           <div class="pill subtle" style="margin-top:10px; display:inline-flex;">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></div>
         <?php endif; ?>
@@ -84,7 +84,7 @@ ob_start();
         <div class="kpi-row">
           <div class="kpi">
             <div class="kpi-label">Outstanding</div>
-            <div class="kpi-value"><?= number_format((int)$contractStats['outstanding']) ?></div>
+            <div class="kpi-value"><?= number_format((int)($queueStats['outstanding'] ?? 0)) ?></div>
           </div>
           <div class="kpi">
             <div class="kpi-label">En Route</div>
