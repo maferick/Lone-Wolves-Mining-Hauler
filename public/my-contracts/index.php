@@ -22,6 +22,14 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
   $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
 
   if ($hasHaulRequest && $corpId > 0) {
+    $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+    $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+    $lifecycleFilter = '';
+    if ($hasContractLifecycle) {
+      $lifecycleFilter = " AND (contract_lifecycle IS NULL OR contract_lifecycle NOT IN ('DELIVERED','FAILED','EXPIRED'))";
+    } elseif ($hasContractState) {
+      $lifecycleFilter = " AND (contract_state IS NULL OR contract_state NOT IN ('DELIVERED','FAILED','EXPIRED'))";
+    }
     $queueStatuses = [
       'requested',
       'awaiting_contract',
@@ -39,6 +47,7 @@ if (($health['db'] ?? false) && $db !== null && $userId > 0) {
          FROM haul_request
         WHERE corp_id = ?
           AND status IN ({$statusPlaceholders})
+          {$lifecycleFilter}
         ORDER BY created_at ASC, request_id ASC",
       array_merge([$corpId], $queueStatuses)
     );
