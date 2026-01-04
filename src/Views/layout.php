@@ -105,7 +105,6 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
           <a class="btn ghost" href="<?= ($basePath ?: '') ?>/login/">Login</a>
         <?php endif; ?>
         <span class="pill">2026</span>
-        <span class="pill subtle">Dark Ops</span>
       </div>
     </header>
 
@@ -115,7 +114,6 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
 
     <footer class="footer">
       <div>© <?= date('Y') ?> <?= $appName ?> • Built for corp operations</div>
-      <div class="muted">Performance-first • Cache-first • Name-first</div>
     </footer>
   </div>
 </body>

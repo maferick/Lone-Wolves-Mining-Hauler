@@ -110,11 +110,47 @@ switch ($path) {
       'last_fetched_at' => null,
     ];
     $contractStatsAvailable = false;
+    $queueStats = [
+      'outstanding' => 0,
+    ];
 
     if ($dbOk && $db !== null) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
       $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
       $hasContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
+
+      if ($hasHaulRequest) {
+        $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+        if ($corpId > 0) {
+          $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
+          $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
+          $contractLifecycleColumn = null;
+          if ($hasContractLifecycle) {
+            $contractLifecycleColumn = 'contract_lifecycle';
+          } elseif ($hasContractState) {
+            $contractLifecycleColumn = 'contract_state';
+          }
+          $lifecycleExpr = $contractLifecycleColumn
+            ? "UPPER({$contractLifecycleColumn})"
+            : "NULL";
+          $statsRow = $db->one(
+            "SELECT
+                SUM(CASE
+                      WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 0
+                      WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                      WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                      WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 1
+                      ELSE 0
+                    END) AS outstanding
+              FROM haul_request
+             WHERE corp_id = :cid",
+            ['cid' => $corpId]
+          );
+          if ($statsRow) {
+            $queueStats['outstanding'] = (int)($statsRow['outstanding'] ?? 0);
+          }
+        }
+      }
 
       $contractCorpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
       if ($hasContracts && $contractCorpId > 0) {
