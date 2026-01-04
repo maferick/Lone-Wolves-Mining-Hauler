@@ -48,8 +48,10 @@ final class PricingService
       throw new \InvalidArgumentException('collateral_isk must be zero or higher.');
     }
 
-    $fromSystem = $this->resolveSystemByName($from);
-    $toSystem = $this->resolveSystemByName($to);
+    $allowStructures = $this->loadQuoteLocationMode($corpId);
+    $structureAllowlist = $allowStructures ? $this->loadStructureAllowlist($corpId) : ['pickup' => [], 'destination' => []];
+    $fromSystem = $this->resolveLocationByName($from, $allowStructures, 'pickup', $structureAllowlist);
+    $toSystem = $this->resolveLocationByName($to, $allowStructures, 'destination', $structureAllowlist);
     if ($fromSystem === null || $toSystem === null) {
       throw new \InvalidArgumentException('Unknown system name.');
     }
@@ -186,6 +188,98 @@ final class PricingService
     ];
   }
 
+  private function resolveLocationByName(
+    string $locationName,
+    bool $allowStructures,
+    string $type,
+    array $structureAllowlist
+  ): ?array {
+    $system = $this->resolveSystemByName($locationName);
+    if ($system !== null) {
+      return $system;
+    }
+    if (!$allowStructures) {
+      return null;
+    }
+
+    $structure = $this->resolveStructureByName($locationName, $type, $structureAllowlist);
+    if ($structure !== null) {
+      return $structure;
+    }
+
+    return $this->resolveStationByName($locationName);
+  }
+
+  private function resolveStructureByName(string $structureName, string $type, array $structureAllowlist): ?array
+  {
+    $allowedIds = $type === 'destination'
+      ? ($structureAllowlist['destination'] ?? [])
+      : ($structureAllowlist['pickup'] ?? []);
+    if (empty($allowedIds)) {
+      return null;
+    }
+
+    $row = $this->db->one(
+      "SELECT structure_id, system_id
+         FROM eve_structure
+        WHERE LOWER(structure_name) = LOWER(:name)
+        LIMIT 1",
+      ['name' => trim($structureName)]
+    );
+    if ($row === null) {
+      return null;
+    }
+    $structureId = (int)$row['structure_id'];
+    if (!in_array($structureId, $allowedIds, true)) {
+      return null;
+    }
+
+    return $this->resolveSystemById((int)$row['system_id']);
+  }
+
+  private function resolveStationByName(string $stationName): ?array
+  {
+    $row = $this->db->one(
+      "SELECT station_id, system_id
+         FROM eve_station
+        WHERE LOWER(station_name) = LOWER(:name)
+        LIMIT 1",
+      ['name' => trim($stationName)]
+    );
+    if ($row === null) {
+      return null;
+    }
+
+    return $this->resolveSystemById((int)$row['system_id']);
+  }
+
+  private function resolveSystemById(int $systemId): ?array
+  {
+    if ($systemId <= 0) {
+      return null;
+    }
+
+    $row = $this->db->one(
+      "SELECT system_id, system_name FROM map_system WHERE system_id = :id LIMIT 1",
+      ['id' => $systemId]
+    );
+    if ($row === null) {
+      $row = $this->db->one(
+        "SELECT system_id, system_name FROM eve_system WHERE system_id = :id LIMIT 1",
+        ['id' => $systemId]
+      );
+    }
+
+    if ($row === null) {
+      return null;
+    }
+
+    return [
+      'system_id' => (int)$row['system_id'],
+      'system_name' => (string)$row['system_name'],
+    ];
+  }
+
   private function softDnfPenalty(array $rules, float $ratePerJump): array
   {
     $total = 0.0;
@@ -299,6 +393,66 @@ final class PricingService
       'rate_per_jump' => 0,
       'collateral_rate' => 0,
       'min_price' => 0,
+    ];
+  }
+
+  private function loadQuoteLocationMode(int $corpId): bool
+  {
+    if ($corpId <= 0) {
+      return true;
+    }
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'quote.location_mode' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if (!$row || empty($row['setting_json'])) {
+      return true;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (is_array($decoded) && array_key_exists('allow_structures', $decoded)) {
+      return (bool)$decoded['allow_structures'];
+    }
+
+    return true;
+  }
+
+  private function loadStructureAllowlist(int $corpId): array
+  {
+    $allowPickup = [];
+    $allowDestination = [];
+    if ($corpId <= 0) {
+      return ['pickup' => $allowPickup, 'destination' => $allowDestination];
+    }
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row && !empty($row['setting_json'])) {
+      $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+      if (is_array($decoded)) {
+        foreach ($decoded['structures'] ?? [] as $rule) {
+          if (empty($rule['allowed'])) {
+            continue;
+          }
+          $id = (int)($rule['id'] ?? 0);
+          if ($id <= 0) {
+            continue;
+          }
+          if (!empty($rule['pickup_allowed'])) {
+            $allowPickup[] = $id;
+          }
+          if (!empty($rule['delivery_allowed'])) {
+            $allowDestination[] = $id;
+          }
+        }
+      }
+    }
+
+    return [
+      'pickup' => array_values(array_unique($allowPickup)),
+      'destination' => array_values(array_unique($allowDestination)),
     ];
   }
 

@@ -40,6 +40,7 @@ $accessRules = [
   'structures' => [],
 ];
 $corpIdForAccess = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+$allowStructureLocations = true;
 if ($corpIdForAccess > 0) {
   $accessRow = $db->one(
     "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
@@ -49,6 +50,17 @@ if ($corpIdForAccess > 0) {
     $decoded = json_decode((string)$accessRow['setting_json'], true);
     if (is_array($decoded)) {
       $accessRules = array_replace_recursive($accessRules, $decoded);
+    }
+  }
+
+  $locationRow = $db->one(
+    "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'quote.location_mode' LIMIT 1",
+    ['cid' => $corpIdForAccess]
+  );
+  if ($locationRow && !empty($locationRow['setting_json'])) {
+    $decoded = json_decode((string)$locationRow['setting_json'], true);
+    if (is_array($decoded) && array_key_exists('allow_structures', $decoded)) {
+      $allowStructureLocations = (bool)$decoded['allow_structures'];
     }
   }
 }
@@ -106,7 +118,7 @@ foreach ($systemRows as $row) {
   }
 }
 
-if (count($items) < $limit) {
+if ($allowStructureLocations && count($items) < $limit) {
   $structureRules = $accessRules['structures'] ?? [];
   $structureIds = [];
   foreach ($structureRules as $rule) {
@@ -161,6 +173,40 @@ if (count($items) < $limit) {
       continue;
     }
     $items[] = ['name' => $name, 'label' => 'Structure'];
+    if (count($items) >= $limit) {
+      break;
+    }
+  }
+}
+
+if ($allowStructureLocations && count($items) < $limit) {
+  $stationRows = $db->select(
+    "SELECT st.station_id, st.station_name, st.system_id,
+            COALESCE(ms.region_id, c.region_id) AS region_id
+       FROM eve_station st
+       LEFT JOIN map_system ms ON ms.system_id = st.system_id
+       LEFT JOIN eve_system s ON s.system_id = st.system_id
+       LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+      WHERE st.station_name LIKE ?
+      ORDER BY st.station_name
+      LIMIT ?",
+    [$prefix . '%', $limit * 2]
+  );
+  foreach ($stationRows as $row) {
+    $stationName = trim((string)($row['station_name'] ?? ''));
+    if ($stationName === '') {
+      continue;
+    }
+    if ($hasAccessAllowlist) {
+      $systemId = (int)($row['system_id'] ?? 0);
+      $regionId = (int)($row['region_id'] ?? 0);
+      $allowed = in_array($systemId, $allowedSystemIds, true)
+        || in_array($regionId, $allowedRegionIds, true);
+      if (!$allowed) {
+        continue;
+      }
+    }
+    $items[] = ['name' => $stationName, 'label' => 'Station'];
     if (count($items) >= $limit) {
       break;
     }
