@@ -5,7 +5,6 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canManage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
-$apiKey = $apiKey ?? '';
 $mismatchDetails = [];
 if (!empty($request['mismatch_reason_json'])) {
   $decodedMismatch = json_decode((string)$request['mismatch_reason_json'], true);
@@ -136,7 +135,6 @@ ob_start();
 <script>
   (() => {
     const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-    const apiKey = <?= json_encode($apiKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const attachBtn = document.getElementById('attach-contract');
     const contractInput = document.getElementById('contract-id');
     const statusEl = document.getElementById('attach-status');
@@ -156,7 +154,6 @@ ob_start();
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({
             quote_id: quoteId,

@@ -9,7 +9,6 @@ use App\Db\Db;
 $appName = $config['app']['name'];
 $title = $appName . ' • Contract Instructions';
 $basePathForViews = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-$apiKey = (string)($config['security']['api_key'] ?? '');
 
 \App\Auth\Auth::requireLogin($authCtx);
 $requestKey = trim((string)($_GET['request_key'] ?? ''));

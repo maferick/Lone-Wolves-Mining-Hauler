@@ -5,7 +5,6 @@ use App\Auth\Auth;
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $me = $authCtx['display_name'] ?? 'User';
-$apiKey = (string)($config['security']['api_key'] ?? '');
 $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
 $adminPerms = [
   'corp.manage',
@@ -44,7 +43,7 @@ $navItems = [
         <a class="nav-link" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
       <?php endif; ?>
     <?php endforeach; ?>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>">API</a>
+    <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
     <?php if ($canRights): ?>
       <a class="nav-link" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
     <?php endif; ?>
