@@ -14,6 +14,11 @@
   --danger: #FF4D6D;
   --shadow: 0 18px 60px rgba(0,0,0,.55);
   --radius: 18px;
+  --panel-alpha: .07;
+  --panel-alpha-2: .04;
+  --hero-card-alpha: .6;
+  --hero-banner-alpha: .4;
+  --hero-banner-alpha-2: .12;
 }
 
 *{box-sizing:border-box}
@@ -29,7 +34,8 @@ body{
     radial-gradient(900px 700px at 50% 110%, rgba(255,77,109,.10), transparent 60%),
     var(--bg);
 }
-body.home{
+body.home,
+body.brand-bg{
   background:
     linear-gradient(180deg, rgba(5,7,12,.72), rgba(5,7,12,.86)),
     url('../background.jpg') center/cover fixed no-repeat,
@@ -111,7 +117,7 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card{
   border:1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+  background: linear-gradient(180deg, rgba(255,255,255, var(--panel-alpha)), rgba(255,255,255, var(--panel-alpha-2)));
   box-shadow: var(--shadow);
   overflow:hidden;
 }
@@ -120,18 +126,20 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card-header p{margin:0; color:var(--muted); font-size:13px}
 .card-footer{display:flex; gap:10px; padding:14px 18px 18px}
 
-.hero-card{background: rgba(7,10,18,.78); backdrop-filter: blur(8px)}
+.hero-card{background: rgba(7,10,18, var(--hero-card-alpha)); backdrop-filter: blur(10px)}
 .hero-banner{
   display:flex;
   align-items:center;
   justify-content:center;
-  padding:24px 20px 14px;
-  background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.2));
+  padding:20px 20px 12px;
+  background: linear-gradient(180deg, rgba(8,10,16, var(--hero-banner-alpha)), rgba(8,10,16, var(--hero-banner-alpha-2)));
   border-bottom:1px solid var(--border);
 }
 .hero-logo{
-  width:min(520px, 92%);
+  width:min(420px, 86%);
+  max-height:220px;
   height:auto;
+  object-fit:contain;
   filter: drop-shadow(0 10px 26px rgba(0,0,0,.55));
 }
 .hero-card .card-header{padding:18px 22px 10px}
