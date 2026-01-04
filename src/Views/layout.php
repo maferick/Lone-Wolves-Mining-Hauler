@@ -39,23 +39,17 @@ $branding = $config['branding'] ?? [];
 $panelIntensity = (int)($branding['panel_intensity'] ?? 60);
 $panelIntensity = max(0, min(100, $panelIntensity));
 $panelScale = $panelIntensity / 100;
-$panelAlpha = 0.04 + (0.10 * $panelScale);
-$panelAlpha2 = 0.02 + (0.08 * $panelScale);
-$heroCardAlpha = 0.35 + (0.35 * $panelScale);
-$heroBannerAlpha = 0.12 + (0.5 * $panelScale);
-$heroBannerAlpha2 = 0.06 + (0.35 * $panelScale);
+$cardAlpha = 0.08 + (0.32 * $panelScale);
+$transparencyEnabled = !array_key_exists('transparency_enabled', $branding) || !empty($branding['transparency_enabled']);
 $bodyStyle = sprintf(
-  '--panel-alpha: %.3f; --panel-alpha-2: %.3f; --hero-card-alpha: %.3f; --hero-banner-alpha: %.3f; --hero-banner-alpha-2: %.3f;',
-  $panelAlpha,
-  $panelAlpha2,
-  $heroCardAlpha,
-  $heroBannerAlpha,
-  $heroBannerAlpha2
+  '--card-alpha: %.3f;',
+  $cardAlpha
 );
 $backgroundAllPages = !empty($branding['background_all_pages']);
 if ($backgroundAllPages) {
   $bodyClass = trim($bodyClass . ' brand-bg');
 }
+$bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -71,7 +65,7 @@ if ($backgroundAllPages) {
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= ($basePath ?: '') ?>/assets/css/app.css?v=2026" />
 </head>
-<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?> style="<?= htmlspecialchars($bodyStyle, ENT_QUOTES, 'UTF-8') ?>">
+<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?><?= $bodyTransparencyAttr ?> style="<?= htmlspecialchars($bodyStyle, ENT_QUOTES, 'UTF-8') ?>">
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">

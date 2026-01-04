@@ -60,7 +60,7 @@ ob_start();
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:16px;">
+    <div class="card card-subtle" style="margin-bottom:16px;">
       <div class="card-header">
         <h3>Hall of Fame</h3>
         <p class="muted">Top performers by completed or delivered contracts.</p>
@@ -93,7 +93,7 @@ ob_start();
       </div>
     </div>
 
-    <div class="card">
+    <div class="card card-subtle">
       <div class="card-header">
         <h3>Hall of Shame</h3>
         <p class="muted">Failed, expired, rejected, or cancelled contracts.</p>

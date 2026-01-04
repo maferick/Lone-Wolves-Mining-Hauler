@@ -3,8 +3,6 @@
 
 :root{
   --bg: #070A12;
-  --panel: rgba(255,255,255,.06);
-  --panel-2: rgba(255,255,255,.08);
   --border: rgba(255,255,255,.12);
   --text: rgba(255,255,255,.92);
   --muted: rgba(255,255,255,.64);
@@ -14,11 +12,14 @@
   --danger: #FF4D6D;
   --shadow: 0 18px 60px rgba(0,0,0,.55);
   --radius: 18px;
-  --panel-alpha: .07;
-  --panel-alpha-2: .04;
-  --hero-card-alpha: .6;
-  --hero-banner-alpha: .4;
-  --hero-banner-alpha-2: .12;
+  --card-bg-rgb: 10,12,16;
+  --card-alpha: .22;
+  --card-alpha-soft: clamp(0, calc(var(--card-alpha) - 0.08), 1);
+  --card-alpha-strong: clamp(0, calc(var(--card-alpha) + 0.18), 1);
+  --card-bg: rgba(var(--card-bg-rgb), var(--card-alpha));
+  --card-bg-soft: rgba(var(--card-bg-rgb), var(--card-alpha-soft));
+  --card-bg-strong: rgba(var(--card-bg-rgb), var(--card-alpha-strong));
+  --card-blur: blur(12px);
 }
 
 *{box-sizing:border-box}
@@ -33,6 +34,12 @@ body{
     radial-gradient(900px 600px at 90% 30%, rgba(46,229,157,.12), transparent 55%),
     radial-gradient(900px 700px at 50% 110%, rgba(255,77,109,.10), transparent 60%),
     var(--bg);
+}
+body[data-transparency="off"]{
+  --card-alpha: 1;
+  --card-alpha-soft: 1;
+  --card-alpha-strong: 1;
+  --card-blur: none;
 }
 body.home,
 body.brand-bg{
@@ -117,22 +124,26 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card{
   border:1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(8,10,16, var(--hero-banner-alpha)), rgba(8,10,16, var(--hero-banner-alpha-2)));
+  background: var(--card-bg);
   box-shadow: var(--shadow);
+  backdrop-filter: var(--card-blur);
   overflow:hidden;
+}
+.card-subtle{
+  background: var(--card-bg-soft);
 }
 .card-header{padding:18px 18px 8px}
 .card-header h2{margin:0 0 6px; font-size:18px}
 .card-header p{margin:0; color:var(--muted); font-size:13px}
 .card-footer{display:flex; gap:10px; padding:14px 18px 18px}
 
-.hero-card{background: rgba(7,10,18, var(--hero-card-alpha)); backdrop-filter: blur(10px)}
+.hero-card{background: var(--card-bg-strong); backdrop-filter: var(--card-blur)}
 .hero-banner{
   display:flex;
   align-items:center;
   justify-content:center;
   padding:20px 20px 12px;
-  background: linear-gradient(180deg, rgba(8,10,16, var(--hero-banner-alpha)), rgba(8,10,16, var(--hero-banner-alpha-2)));
+  background: linear-gradient(180deg, rgba(var(--card-bg-rgb), var(--card-alpha-strong)), rgba(var(--card-bg-rgb), var(--card-alpha-soft)));
   border-bottom:1px solid var(--border);
 }
 .hero-logo{
@@ -153,7 +164,8 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .kpi{
   border:1px solid var(--border);
   border-radius: 14px;
-  background: rgba(0,0,0,.18);
+  background: var(--card-bg-soft);
+  backdrop-filter: var(--card-blur);
   padding:12px 12px;
 }
 .kpi-label{color:var(--muted); font-size:12px}

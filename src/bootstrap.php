@@ -156,6 +156,7 @@ $authCtx = Auth::context($db);
 $brandingDefaults = [
   'panel_intensity' => 60,
   'background_all_pages' => false,
+  'transparency_enabled' => true,
 ];
 
 // Corp branding/profile (if logged in)

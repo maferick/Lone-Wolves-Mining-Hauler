@@ -191,7 +191,7 @@ ob_start();
         </div>
       </div>
       <div class="row">
-        <div class="card" style="background: rgba(255,255,255,.02);">
+        <div class="card card-subtle">
           <div class="card-header">
             <h2>View queue</h2>
             <p class="muted">Monitor incoming requests and see status changes in real time.</p>
@@ -200,7 +200,7 @@ ob_start();
             <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#queue', ENT_QUOTES, 'UTF-8') ?>">Open queue</a>
           </div>
         </div>
-        <div class="card" style="background: rgba(255,255,255,.02);">
+        <div class="card card-subtle">
           <div class="card-header">
             <h2>Manage requests</h2>
             <p class="muted">Quote, update, and audit haul requests before posting.</p>
@@ -211,7 +211,7 @@ ob_start();
         </div>
       </div>
       <div class="row" style="margin-top:14px;">
-        <div class="card" style="background: rgba(255,255,255,.02);">
+        <div class="card card-subtle">
           <div class="card-header">
             <h2>Assign haulers</h2>
             <p class="muted">Dispatch internal haulers and track assignments.</p>
@@ -220,7 +220,7 @@ ob_start();
             <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#assign', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
           </div>
         </div>
-        <div class="card" style="background: rgba(255,255,255,.02);">
+        <div class="card card-subtle">
           <div class="card-header">
             <h2>Update status</h2>
             <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
