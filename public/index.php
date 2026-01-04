@@ -896,10 +896,18 @@ switch ($path) {
   case '/api/quote/':
     require __DIR__ . '/api/quote/index.php';
     break;
+  case '/api/quote/buyback':
+  case '/api/quote/buyback/':
+    require __DIR__ . '/api/quote/buyback/index.php';
+    break;
 
   case '/api/requests/create':
   case '/api/requests/create/':
     require __DIR__ . '/api/requests/create/index.php';
+    break;
+  case '/api/requests/buyback':
+  case '/api/requests/buyback/':
+    require __DIR__ . '/api/requests/buyback/index.php';
     break;
   case '/api/requests/delete':
   case '/api/requests/delete/':
