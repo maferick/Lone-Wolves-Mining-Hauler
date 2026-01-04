@@ -26,6 +26,7 @@ if ($isLoggedIn) {
   }
 }
 $canRights = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'user.manage');
+$canHallOfFame = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpId = (int)($config['corp']['id'] ?? 0);
 $corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/logo?size=64" : null;
@@ -72,6 +73,9 @@ $body = $body ?? '';
         <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>
+        <?php if ($canHallOfFame): ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/hall-of-fame">Hall of Fame</a>
+        <?php endif; ?>
       </nav>
 
       <div class="topbar-actions">

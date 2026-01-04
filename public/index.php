@@ -36,6 +36,7 @@ if ($basePath === '') {
     '/docs',
     '/rates',
     '/faq',
+    '/hall-of-fame',
     '/health',
     '/login',
     '/logout',
@@ -479,6 +480,95 @@ switch ($path) {
     }
 
     require __DIR__ . '/../src/Views/operations.php';
+    break;
+
+  case '/hall-of-fame':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Hall of Fame';
+    $basePathForViews = $basePath;
+
+    \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requirePerm($authCtx, 'haul.request.read');
+
+    $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    $hallOfFameRows = [];
+    $hallOfShameRows = [];
+    $completedTotals = ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
+    $failedTotals = ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
+
+    if ($dbOk && $db !== null && $corpId > 0) {
+      $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
+      $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+      $table = null;
+      $nameExpr = null;
+
+      if ($hasRequestView) {
+        $table = 'v_haul_request_display';
+        $nameExpr = "COALESCE(NULLIF(TRIM(r.esi_acceptor_display_name), ''), NULLIF(TRIM(r.esi_acceptor_name), ''), NULLIF(TRIM(r.ops_assignee_name), ''), 'Unassigned')";
+      } elseif ($hasHaulRequest) {
+        $table = 'haul_request';
+        $nameExpr = "COALESCE(NULLIF(TRIM(r.esi_acceptor_name), ''), NULLIF(TRIM(r.ops_assignee_name), ''), 'Unassigned')";
+      }
+
+      if ($table && $nameExpr) {
+        $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM {$table} LIKE 'contract_lifecycle'");
+        $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM {$table} LIKE 'contract_state'");
+        $contractLifecycleColumn = null;
+        if ($hasContractLifecycle) {
+          $contractLifecycleColumn = 'r.contract_lifecycle';
+        } elseif ($hasContractState) {
+          $contractLifecycleColumn = 'r.contract_state';
+        }
+
+        $completedStatusFilter = "r.status IN ('completed','delivered')";
+        $failedStatusFilter = "r.status IN ('failed','expired','rejected','cancelled')";
+        $completedFilter = $contractLifecycleColumn
+          ? "({$completedStatusFilter} OR {$contractLifecycleColumn} = 'DELIVERED')"
+          : $completedStatusFilter;
+        $failedFilter = $contractLifecycleColumn
+          ? "({$failedStatusFilter} OR {$contractLifecycleColumn} IN ('FAILED','EXPIRED'))"
+          : $failedStatusFilter;
+
+        $hallOfFameRows = $db->select(
+          "SELECT {$nameExpr} AS hauler_name,
+                  COUNT(*) AS total_count,
+                  SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
+                  SUM(COALESCE(r.reward_isk, 0)) AS total_reward_isk
+             FROM {$table} r
+            WHERE r.corp_id = :cid
+              AND {$completedFilter}
+            GROUP BY hauler_name
+            ORDER BY total_count DESC, total_volume_m3 DESC",
+          ['cid' => $corpId]
+        );
+
+        $hallOfShameRows = $db->select(
+          "SELECT {$nameExpr} AS hauler_name,
+                  COUNT(*) AS total_count,
+                  SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
+                  SUM(COALESCE(r.reward_isk, 0)) AS total_reward_isk
+             FROM {$table} r
+            WHERE r.corp_id = :cid
+              AND {$failedFilter}
+            GROUP BY hauler_name
+            ORDER BY total_count DESC, total_volume_m3 DESC",
+          ['cid' => $corpId]
+        );
+
+        foreach ($hallOfFameRows as $row) {
+          $completedTotals['count'] += (int)($row['total_count'] ?? 0);
+          $completedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
+          $completedTotals['reward_isk'] += (float)($row['total_reward_isk'] ?? 0);
+        }
+        foreach ($hallOfShameRows as $row) {
+          $failedTotals['count'] += (int)($row['total_count'] ?? 0);
+          $failedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
+          $failedTotals['reward_isk'] += (float)($row['total_reward_isk'] ?? 0);
+        }
+      }
+    }
+
+    require __DIR__ . '/../src/Views/hall_of_fame.php';
     break;
 
   case '/my-contracts':
