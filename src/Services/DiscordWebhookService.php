@@ -174,6 +174,48 @@ final class DiscordWebhookService
     return $results;
   }
 
+  public function requeueFailedDeliveries(int $limit = 200, int $minutes = 60): array
+  {
+    $limit = max(1, $limit);
+    $minutes = max(1, $minutes);
+    $rows = $this->db->select(
+      "SELECT d.delivery_id
+         FROM webhook_delivery d
+         JOIN discord_webhook w ON w.webhook_id = d.webhook_id
+         LEFT JOIN discord_webhook_event e
+           ON e.webhook_id = w.webhook_id AND e.event_key = d.event_key
+        WHERE d.status = 'failed'
+          AND d.updated_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {$minutes} MINUTE)
+          AND w.is_enabled = 1
+          AND (
+            (d.event_key = 'haul.contract.linked' AND w.notify_on_contract_link = 1)
+            OR (d.event_key <> 'haul.contract.linked' AND (e.event_key IS NULL OR e.is_enabled = 1))
+          )
+        ORDER BY d.updated_at ASC
+        LIMIT {$limit}"
+    );
+
+    $requeued = 0;
+    foreach ($rows as $row) {
+      $requeued += $this->db->execute(
+        "UPDATE webhook_delivery
+            SET status = 'pending',
+                attempts = 0,
+                next_attempt_at = NULL,
+                last_http_status = NULL,
+                last_error = NULL,
+                sent_at = NULL
+          WHERE delivery_id = :id",
+        ['id' => (int)$row['delivery_id']]
+      );
+    }
+
+    return [
+      'candidates' => count($rows),
+      'requeued' => $requeued,
+    ];
+  }
+
   public function dispatchQueued(int $limit = 10): array
   {
     return $this->sendPending($limit);

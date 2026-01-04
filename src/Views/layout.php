@@ -26,6 +26,7 @@ if ($isLoggedIn) {
   }
 }
 $canRights = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'user.manage');
+$canHallOfFame = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpId = (int)($config['corp']['id'] ?? 0);
 $corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/logo?size=64" : null;
@@ -33,6 +34,22 @@ $appName = htmlspecialchars($appName ?? ($config['app']['name'] ?? 'Corp Hauling
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
+$bodyClass = trim((string)($bodyClass ?? ''));
+$branding = $config['branding'] ?? [];
+$panelIntensity = (int)($branding['panel_intensity'] ?? 60);
+$panelIntensity = max(0, min(100, $panelIntensity));
+$panelScale = $panelIntensity / 100;
+$cardAlpha = 0.08 + (0.32 * $panelScale);
+$transparencyEnabled = !array_key_exists('transparency_enabled', $branding) || !empty($branding['transparency_enabled']);
+$bodyStyle = sprintf(
+  '--card-alpha: %.3f;',
+  $cardAlpha
+);
+$backgroundAllPages = !empty($branding['background_all_pages']);
+if ($backgroundAllPages) {
+  $bodyClass = trim($bodyClass . ' brand-bg');
+}
+$bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -48,7 +65,7 @@ $body = $body ?? '';
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= ($basePath ?: '') ?>/assets/css/app.css?v=2026" />
 </head>
-<body>
+<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?><?= $bodyTransparencyAttr ?> style="<?= htmlspecialchars($bodyStyle, ENT_QUOTES, 'UTF-8') ?>">
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
@@ -72,6 +89,9 @@ $body = $body ?? '';
         <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>
+        <?php if ($canHallOfFame): ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/hall-of-fame">Hall of Fame</a>
+        <?php endif; ?>
       </nav>
 
       <div class="topbar-actions">

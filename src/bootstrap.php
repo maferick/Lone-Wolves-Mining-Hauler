@@ -153,6 +153,12 @@ try {
 
 $authCtx = Auth::context($db);
 
+$brandingDefaults = [
+  'panel_intensity' => 60,
+  'background_all_pages' => false,
+  'transparency_enabled' => true,
+];
+
 // Corp branding/profile (if logged in)
 if ($db !== null && ($authCtx['corp_id'] ?? 0) > 0) {
   $corpId = (int)$authCtx['corp_id'];
@@ -192,6 +198,36 @@ if ($db !== null && ($authCtx['corp_id'] ?? 0) > 0) {
     $config['app']['name'] = (string)$config['corp']['name'];
   }
 }
+
+$brandingSettings = $brandingDefaults;
+if ($db !== null) {
+  $brandingCorpId = (int)($authCtx['corp_id'] ?? 0);
+  $brandingRow = null;
+  if ($brandingCorpId > 0) {
+    $brandingRow = $db->one(
+      "SELECT setting_json
+         FROM app_setting
+        WHERE corp_id = :cid AND setting_key = 'branding.ui' LIMIT 1",
+      ['cid' => $brandingCorpId]
+    );
+  }
+  if (!$brandingRow) {
+    $brandingRow = $db->one(
+      "SELECT setting_json
+         FROM app_setting
+        WHERE setting_key = 'branding.ui'
+        ORDER BY corp_id DESC LIMIT 1"
+    );
+  }
+  if ($brandingRow && !empty($brandingRow['setting_json'])) {
+    $decoded = json_decode((string)$brandingRow['setting_json'], true);
+    if (is_array($decoded)) {
+      $brandingSettings = array_merge($brandingSettings, $decoded);
+    }
+  }
+}
+
+$config['branding'] = $brandingSettings;
 
 $GLOBALS['config'] = $config;
 $GLOBALS['authCtx'] = $authCtx;

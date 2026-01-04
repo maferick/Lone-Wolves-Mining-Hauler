@@ -36,6 +36,7 @@ if ($basePath === '') {
     '/docs',
     '/rates',
     '/faq',
+    '/hall-of-fame',
     '/health',
     '/login',
     '/logout',
@@ -90,19 +91,15 @@ if (str_starts_with($path, '/assets/')) {
   }
 }
 
+$dbOk = $health['db'] ?? false;
+
 switch ($path) {
   case '/':
     $env = $config['app']['env'];
-    $dbOk = $health['db'] ?? false;
     $esiCacheEnabled = (bool)($config['esi']['cache']['enabled'] ?? true);
     $appName = $config['app']['name'];
     $title = $appName . ' • Dashboard';
     $basePathForViews = $basePath; // pass-through
-    $queueStats = [
-      'outstanding' => 0,
-      'in_progress' => 0,
-      'completed' => 0,
-    ];
     $contractStats = [
       'total' => 0,
       'outstanding' => 0,
@@ -119,49 +116,6 @@ switch ($path) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
       $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
       $hasContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
-
-      if ($hasHaulingJob) {
-        $queueStats['outstanding'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'outstanding'");
-        $queueStats['in_progress'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'in_progress'");
-        $queueStats['completed'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'completed' AND completed_at >= (NOW() - INTERVAL 1 DAY)");
-      } elseif ($hasHaulRequest) {
-        $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
-        $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
-        $contractLifecycleColumn = null;
-        if ($hasContractLifecycle) {
-          $contractLifecycleColumn = 'contract_lifecycle';
-        } elseif ($hasContractState) {
-          $contractLifecycleColumn = 'contract_state';
-        }
-        $activeLifecycleFilter = $contractLifecycleColumn
-          ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
-          : '';
-        $completedLifecycleCase = $contractLifecycleColumn
-          ? "OR {$contractLifecycleColumn} = 'DELIVERED'"
-          : '';
-        $row = $db->one(
-          "SELECT
-              SUM(CASE WHEN derived.status = 'outstanding' THEN 1 ELSE 0 END) AS outstanding,
-              SUM(CASE WHEN derived.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
-              SUM(CASE WHEN derived.status = 'completed' AND derived.completed_at >= (NOW() - INTERVAL 1 DAY) THEN 1 ELSE 0 END) AS completed
-            FROM (
-              SELECT
-                CASE
-                  WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 'outstanding'
-                  WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 'in_progress'
-                  WHEN status IN ('completed','delivered') {$completedLifecycleCase} THEN 'completed'
-                  ELSE 'other'
-                END AS status,
-                delivered_at AS completed_at
-              FROM haul_request
-            ) AS derived"
-        );
-        if ($row) {
-          $queueStats['outstanding'] = (int)($row['outstanding'] ?? 0);
-          $queueStats['in_progress'] = (int)($row['in_progress'] ?? 0);
-          $queueStats['completed'] = (int)($row['completed'] ?? 0);
-        }
-      }
 
       $contractCorpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
       if ($hasContracts && $contractCorpId > 0) {
@@ -280,21 +234,35 @@ switch ($path) {
         } elseif ($hasContractState) {
           $contractLifecycleColumn = 'contract_state';
         }
-        $activeLifecycleFilter = $contractLifecycleColumn
-          ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
-          : '';
-        $deliveredCase = $contractLifecycleColumn
-          ? "SUM(CASE WHEN {$contractLifecycleColumn} = 'DELIVERED' THEN 1 ELSE 0 END) AS delivered"
-          : "SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered";
-        $failedCase = $contractLifecycleColumn
-          ? "SUM(CASE WHEN {$contractLifecycleColumn} IN ('FAILED','EXPIRED') THEN 1 ELSE 0 END) AS failed"
-          : "SUM(CASE WHEN status IN ('cancelled','expired','rejected','failed') THEN 1 ELSE 0 END) AS failed";
+        $lifecycleExpr = $contractLifecycleColumn
+          ? "UPPER({$contractLifecycleColumn})"
+          : "NULL";
         $statsRow = $db->one(
           "SELECT
-              SUM(CASE WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS outstanding,
-              SUM(CASE WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS in_progress,
-              {$deliveredCase},
-              {$failedCase}
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 0
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                    WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 1
+                    ELSE 0
+                  END) AS outstanding,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 1
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                    WHEN status IN ('in_progress','accepted','in_transit') THEN 1
+                    ELSE 0
+                  END) AS in_progress,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 1
+                    WHEN status IN ('completed','delivered') THEN 1
+                    ELSE 0
+                  END) AS delivered,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 1
+                    WHEN status IN ('cancelled','expired','rejected','failed') THEN 1
+                    ELSE 0
+                  END) AS failed
             FROM haul_request
            WHERE corp_id = :cid",
           ['cid' => $corpId]
@@ -375,6 +343,256 @@ switch ($path) {
     }
 
     require __DIR__ . '/../src/Views/operations.php';
+    break;
+
+  case '/hall-of-fame':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Hall of Fame';
+    $basePathForViews = $basePath;
+
+    \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requirePerm($authCtx, 'haul.request.read');
+
+    $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    $hallOfFameRows = [];
+    $hallOfShameRows = [];
+    $completedTotals = ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
+    $failedTotals = ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
+
+    if ($dbOk && $db !== null && $corpId > 0) {
+      $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
+      $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+      $hasCorpContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
+      $table = null;
+      $nameExpr = null;
+
+      if ($hasRequestView) {
+        $table = 'v_haul_request_display';
+        $nameExpr = "COALESCE(NULLIF(TRIM(r.esi_acceptor_display_name), ''), NULLIF(TRIM(r.esi_acceptor_name), ''), NULLIF(TRIM(r.ops_assignee_name), ''), 'Unassigned')";
+      } elseif ($hasHaulRequest) {
+        $table = 'haul_request';
+        $nameExpr = "COALESCE(NULLIF(TRIM(r.esi_acceptor_name), ''), NULLIF(TRIM(r.ops_assignee_name), ''), 'Unassigned')";
+      }
+
+      if ($table && $nameExpr) {
+        $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM {$table} LIKE 'contract_lifecycle'");
+        $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM {$table} LIKE 'contract_state'");
+        $contractLifecycleColumn = null;
+        if ($hasContractLifecycle) {
+          $contractLifecycleColumn = 'r.contract_lifecycle';
+        } elseif ($hasContractState) {
+          $contractLifecycleColumn = 'r.contract_state';
+        }
+
+        $completedStatusFilter = "r.status IN ('completed','delivered')";
+        $failedStatusFilter = "r.status IN ('failed','expired','rejected','cancelled')";
+        $contractStatusCompletedFilter = "LOWER(COALESCE(r.contract_status_esi, r.contract_status, '')) IN ('finished','finished_issuer','finished_contractor','completed')";
+        $contractStatusFailedFilter = "LOWER(COALESCE(r.contract_status_esi, r.contract_status, '')) IN ('failed','cancelled','rejected','expired','deleted','reversed')";
+        $completedFilter = $contractLifecycleColumn
+          ? "({$completedStatusFilter} OR {$contractLifecycleColumn} = 'DELIVERED' OR {$contractStatusCompletedFilter})"
+          : "({$completedStatusFilter} OR {$contractStatusCompletedFilter})";
+        $failedFilter = $contractLifecycleColumn
+          ? "({$failedStatusFilter} OR {$contractLifecycleColumn} IN ('FAILED','EXPIRED') OR {$contractStatusFailedFilter})"
+          : "({$failedStatusFilter} OR {$contractStatusFailedFilter})";
+
+        $hallOfFameRows = $db->select(
+          "SELECT {$nameExpr} AS hauler_name,
+                  COUNT(*) AS total_count,
+                  SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
+                  SUM(COALESCE(r.collateral_isk, 0)) AS total_collateral_isk
+             FROM {$table} r
+            WHERE r.corp_id = :cid
+              AND {$completedFilter}
+            GROUP BY hauler_name
+            ORDER BY total_count DESC, total_volume_m3 DESC",
+          ['cid' => $corpId]
+        );
+
+        $hallOfShameRows = $db->select(
+          "SELECT {$nameExpr} AS hauler_name,
+                  COUNT(*) AS total_count,
+                  SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
+                  SUM(COALESCE(r.collateral_isk, 0)) AS total_collateral_isk
+             FROM {$table} r
+            WHERE r.corp_id = :cid
+              AND {$failedFilter}
+            GROUP BY hauler_name
+            ORDER BY total_count DESC, total_volume_m3 DESC",
+          ['cid' => $corpId]
+        );
+
+        if ($hasCorpContracts) {
+          $failedContracts = $db->select(
+            "SELECT c.contract_id, c.acceptor_id, c.volume_m3, c.collateral_isk, c.reward_isk, c.title, c.raw_json,
+                    COALESCE(NULLIF(TRIM(e.name), ''), CONCAT('Character:', c.acceptor_id), 'Unassigned') AS hauler_name
+               FROM esi_corp_contract c
+               LEFT JOIN haul_request r
+                 ON r.corp_id = c.corp_id
+                AND (r.esi_contract_id = c.contract_id OR r.contract_id = c.contract_id)
+               LEFT JOIN eve_entity e
+                 ON e.entity_id = c.acceptor_id
+                AND e.entity_type = 'character'
+              WHERE c.corp_id = :cid
+                AND c.type = 'courier'
+                AND c.status IN ('failed','cancelled','rejected','expired','deleted','reversed')
+                AND r.request_id IS NULL
+              ORDER BY c.date_issued DESC",
+            ['cid' => $corpId]
+          );
+
+          if ($failedContracts) {
+            $quoteIds = [];
+            $requestKeys = [];
+            foreach ($failedContracts as $contract) {
+              $description = '';
+              if (!empty($contract['raw_json'])) {
+                $decoded = json_decode((string)$contract['raw_json'], true);
+                if (is_array($decoded) && !empty($decoded['description'])) {
+                  $description = trim((string)$decoded['description']);
+                }
+              }
+              if ($description === '') {
+                $description = trim((string)($contract['title'] ?? ''));
+              }
+              if ($description === '') {
+                continue;
+              }
+              if (preg_match('/Quote\s+#?(\d+)/i', $description, $matches)) {
+                $quoteId = (int)$matches[1];
+                if ($quoteId > 0) {
+                  $quoteIds[$quoteId] = true;
+                }
+              }
+              if (preg_match('/Quote\s+([a-f0-9]{32})/i', $description, $matches)) {
+                $requestKeys[$matches[1]] = true;
+              }
+            }
+
+            $validQuoteIds = [];
+            if ($quoteIds) {
+              $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
+              $rows = $db->select(
+                "SELECT quote_id FROM quote WHERE corp_id = ? AND quote_id IN ({$placeholders})",
+                array_merge([$corpId], array_keys($quoteIds))
+              );
+              foreach ($rows as $row) {
+                $validQuoteIds[(int)$row['quote_id']] = true;
+              }
+            }
+
+            $validRequestKeys = [];
+            if ($requestKeys) {
+              $placeholders = implode(',', array_fill(0, count($requestKeys), '?'));
+              $rows = $db->select(
+                "SELECT request_key FROM haul_request WHERE corp_id = ? AND request_key IN ({$placeholders})",
+                array_merge([$corpId], array_keys($requestKeys))
+              );
+              foreach ($rows as $row) {
+                $key = (string)($row['request_key'] ?? '');
+                if ($key !== '') {
+                  $validRequestKeys[$key] = true;
+                }
+              }
+            }
+
+            if ($validQuoteIds || $validRequestKeys) {
+              $extraShame = [];
+              foreach ($failedContracts as $contract) {
+                $description = '';
+                if (!empty($contract['raw_json'])) {
+                  $decoded = json_decode((string)$contract['raw_json'], true);
+                  if (is_array($decoded) && !empty($decoded['description'])) {
+                    $description = trim((string)$decoded['description']);
+                  }
+                }
+                if ($description === '') {
+                  $description = trim((string)($contract['title'] ?? ''));
+                }
+                if ($description === '') {
+                  continue;
+                }
+
+                $matchesSiteQuote = false;
+                if (preg_match('/Quote\s+#?(\d+)/i', $description, $matches)) {
+                  $quoteId = (int)$matches[1];
+                  if ($quoteId > 0 && isset($validQuoteIds[$quoteId])) {
+                    $matchesSiteQuote = true;
+                  }
+                }
+                if (!$matchesSiteQuote && preg_match('/Quote\s+([a-f0-9]{32})/i', $description, $matches)) {
+                  if (isset($validRequestKeys[$matches[1]])) {
+                    $matchesSiteQuote = true;
+                  }
+                }
+
+                if (!$matchesSiteQuote) {
+                  continue;
+                }
+
+                $name = trim((string)($contract['hauler_name'] ?? ''));
+                if ($name === '') {
+                  $name = 'Unassigned';
+                }
+                if (!isset($extraShame[$name])) {
+                  $extraShame[$name] = ['hauler_name' => $name, 'total_count' => 0, 'total_volume_m3' => 0.0, 'total_collateral_isk' => 0.0];
+                }
+                $extraShame[$name]['total_count'] += 1;
+                $extraShame[$name]['total_volume_m3'] += (float)($contract['volume_m3'] ?? 0);
+                $extraShame[$name]['total_collateral_isk'] += (float)($contract['collateral_isk'] ?? 0);
+              }
+
+              if ($extraShame) {
+                $merged = [];
+                foreach ($hallOfShameRows as $row) {
+                  $name = (string)($row['hauler_name'] ?? '');
+                  if ($name === '') {
+                    $name = 'Unassigned';
+                  }
+                  $merged[$name] = [
+                    'hauler_name' => $name,
+                    'total_count' => (int)($row['total_count'] ?? 0),
+                    'total_volume_m3' => (float)($row['total_volume_m3'] ?? 0),
+                    'total_collateral_isk' => (float)($row['total_collateral_isk'] ?? 0),
+                  ];
+                }
+
+                foreach ($extraShame as $name => $row) {
+                  if (!isset($merged[$name])) {
+                    $merged[$name] = $row;
+                    continue;
+                  }
+                  $merged[$name]['total_count'] += (int)$row['total_count'];
+                  $merged[$name]['total_volume_m3'] += (float)$row['total_volume_m3'];
+                  $merged[$name]['total_collateral_isk'] += (float)$row['total_collateral_isk'];
+                }
+
+                $hallOfShameRows = array_values($merged);
+                usort($hallOfShameRows, static function ($a, $b) {
+                  $count = (int)($b['total_count'] ?? 0) <=> (int)($a['total_count'] ?? 0);
+                  if ($count !== 0) {
+                    return $count;
+                  }
+                  return (float)($b['total_volume_m3'] ?? 0) <=> (float)($a['total_volume_m3'] ?? 0);
+                });
+              }
+            }
+          }
+        }
+
+        foreach ($hallOfFameRows as $row) {
+          $completedTotals['count'] += (int)($row['total_count'] ?? 0);
+          $completedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
+          $completedTotals['collateral_isk'] += (float)($row['total_collateral_isk'] ?? 0);
+        }
+        foreach ($hallOfShameRows as $row) {
+          $failedTotals['count'] += (int)($row['total_count'] ?? 0);
+          $failedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
+          $failedTotals['collateral_isk'] += (float)($row['total_collateral_isk'] ?? 0);
+        }
+      }
+    }
+
+    require __DIR__ . '/../src/Views/hall_of_fame.php';
     break;
 
   case '/my-contracts':

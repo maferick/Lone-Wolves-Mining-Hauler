@@ -38,6 +38,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
   $jobQueue = new JobQueueService($db);
   $job = $jobQueue->claimNextJob([
     JobQueueService::WEBHOOK_DELIVERY_JOB,
+    JobQueueService::WEBHOOK_REQUEUE_JOB,
     JobQueueService::CRON_SYNC_JOB,
     JobQueueService::CRON_TOKEN_REFRESH_JOB,
     JobQueueService::CRON_STRUCTURES_JOB,
@@ -130,6 +131,23 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_delivery.completed', 'Webhook delivery completed.');
         $log("Webhook delivery job {$jobId} completed.");
         return 1;
+      case JobQueueService::WEBHOOK_REQUEUE_JOB:
+        if (!isset($services['discord_webhook'])) {
+          throw new RuntimeException('Discord webhook service not configured.');
+        }
+        $limit = (int)($payload['limit'] ?? 200);
+        $minutes = (int)($payload['minutes'] ?? 60);
+        $jobQueue->updateProgress($jobId, [
+          'current' => 0,
+          'total' => 0,
+          'label' => 'Requeuing failed webhooks',
+          'stage' => 'start',
+        ], 'Webhook requeue started.');
+        $jobQueue->markStarted($jobId, 'cron.webhook_requeue.started');
+        $result = $services['discord_webhook']->requeueFailedDeliveries($limit, $minutes);
+        $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_requeue.completed', 'Webhook requeue completed.');
+        $log("Webhook requeue job {$jobId} completed.");
+        return 1;
       case JobQueueService::CONTRACT_MATCH_JOB:
         if ($corpId <= 0) {
           throw new RuntimeException('Contract match job missing corp id.');
@@ -214,6 +232,15 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
           ['error_detail' => $errorDetail],
           'cron.webhook_delivery.failed',
           "Webhook delivery failed: {$e->getMessage()}"
+        );
+        break;
+      case JobQueueService::WEBHOOK_REQUEUE_JOB:
+        $jobQueue->markFailed(
+          $jobId,
+          $e->getMessage(),
+          ['error_detail' => $errorDetail],
+          'cron.webhook_requeue.failed',
+          "Webhook requeue failed: {$e->getMessage()}"
         );
         break;
       case JobQueueService::CONTRACT_MATCH_JOB:

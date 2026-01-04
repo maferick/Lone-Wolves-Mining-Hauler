@@ -667,7 +667,7 @@ CREATE TABLE IF NOT EXISTS webhook_delivery (
   KEY idx_delivery_corp_status (corp_id, status, next_attempt_at),
   KEY idx_delivery_webhook (webhook_id, status),
   KEY idx_delivery_event (event_key, created_at),
-  UNIQUE KEY uq_delivery_transition (event_key, entity_type, entity_id, transition_to),
+  UNIQUE KEY uq_delivery_transition (webhook_id, event_key, entity_type, entity_id, transition_to),
   CONSTRAINT fk_delivery_webhook FOREIGN KEY (webhook_id) REFERENCES discord_webhook(webhook_id) ON DELETE CASCADE,
   CONSTRAINT fk_delivery_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
