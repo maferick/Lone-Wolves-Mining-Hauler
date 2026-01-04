@@ -489,6 +489,7 @@ final class ContractMatchService
     $payload = $this->webhooks->buildContractLinkedPayload([
       'request_id' => (int)($request['request_id'] ?? 0),
       'request_key' => (string)($request['request_key'] ?? ''),
+      'contract_hint_text' => (string)($request['contract_hint_text'] ?? ''),
       'route' => $routeLabel,
       'pickup' => $fromName !== '' ? $fromName : ('System #' . $fromId),
       'dropoff' => $toName !== '' ? $toName : ('System #' . $toId),
