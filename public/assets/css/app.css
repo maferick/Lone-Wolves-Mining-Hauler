@@ -119,6 +119,7 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   border:1px solid var(--border);
   border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(var(--card-base), var(--panel-alpha)), rgba(var(--card-base), var(--panel-alpha-2)));
+  background: linear-gradient(180deg, rgba(8,10,16, var(--hero-banner-alpha)), rgba(8,10,16, var(--hero-banner-alpha-2)));
   box-shadow: var(--shadow);
   overflow:hidden;
 }
