@@ -460,8 +460,8 @@ switch ($path) {
     $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
     $hallOfFameRows = [];
     $hallOfShameRows = [];
-    $completedTotals = ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
-    $failedTotals = ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
+    $completedTotals = ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
+    $failedTotals = ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
 
     if ($dbOk && $db !== null && $corpId > 0) {
       $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
@@ -503,7 +503,7 @@ switch ($path) {
           "SELECT {$nameExpr} AS hauler_name,
                   COUNT(*) AS total_count,
                   SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
-                  SUM(COALESCE(r.reward_isk, 0)) AS total_reward_isk
+                  SUM(COALESCE(r.collateral_isk, 0)) AS total_collateral_isk
              FROM {$table} r
             WHERE r.corp_id = :cid
               AND {$completedFilter}
@@ -516,7 +516,7 @@ switch ($path) {
           "SELECT {$nameExpr} AS hauler_name,
                   COUNT(*) AS total_count,
                   SUM(COALESCE(r.volume_m3, 0)) AS total_volume_m3,
-                  SUM(COALESCE(r.reward_isk, 0)) AS total_reward_isk
+                  SUM(COALESCE(r.collateral_isk, 0)) AS total_collateral_isk
              FROM {$table} r
             WHERE r.corp_id = :cid
               AND {$failedFilter}
@@ -527,7 +527,7 @@ switch ($path) {
 
         if ($hasCorpContracts) {
           $failedContracts = $db->select(
-            "SELECT c.contract_id, c.acceptor_id, c.volume_m3, c.reward_isk, c.title, c.raw_json,
+            "SELECT c.contract_id, c.acceptor_id, c.volume_m3, c.collateral_isk, c.reward_isk, c.title, c.raw_json,
                     COALESCE(NULLIF(TRIM(e.name), ''), CONCAT('Character:', c.acceptor_id), 'Unassigned') AS hauler_name
                FROM esi_corp_contract c
                LEFT JOIN haul_request r
@@ -638,11 +638,11 @@ switch ($path) {
                   $name = 'Unassigned';
                 }
                 if (!isset($extraShame[$name])) {
-                  $extraShame[$name] = ['hauler_name' => $name, 'total_count' => 0, 'total_volume_m3' => 0.0, 'total_reward_isk' => 0.0];
+                  $extraShame[$name] = ['hauler_name' => $name, 'total_count' => 0, 'total_volume_m3' => 0.0, 'total_collateral_isk' => 0.0];
                 }
                 $extraShame[$name]['total_count'] += 1;
                 $extraShame[$name]['total_volume_m3'] += (float)($contract['volume_m3'] ?? 0);
-                $extraShame[$name]['total_reward_isk'] += (float)($contract['reward_isk'] ?? 0);
+                $extraShame[$name]['total_collateral_isk'] += (float)($contract['collateral_isk'] ?? 0);
               }
 
               if ($extraShame) {
@@ -656,7 +656,7 @@ switch ($path) {
                     'hauler_name' => $name,
                     'total_count' => (int)($row['total_count'] ?? 0),
                     'total_volume_m3' => (float)($row['total_volume_m3'] ?? 0),
-                    'total_reward_isk' => (float)($row['total_reward_isk'] ?? 0),
+                    'total_collateral_isk' => (float)($row['total_collateral_isk'] ?? 0),
                   ];
                 }
 
@@ -667,7 +667,7 @@ switch ($path) {
                   }
                   $merged[$name]['total_count'] += (int)$row['total_count'];
                   $merged[$name]['total_volume_m3'] += (float)$row['total_volume_m3'];
-                  $merged[$name]['total_reward_isk'] += (float)$row['total_reward_isk'];
+                  $merged[$name]['total_collateral_isk'] += (float)$row['total_collateral_isk'];
                 }
 
                 $hallOfShameRows = array_values($merged);
@@ -686,12 +686,12 @@ switch ($path) {
         foreach ($hallOfFameRows as $row) {
           $completedTotals['count'] += (int)($row['total_count'] ?? 0);
           $completedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
-          $completedTotals['reward_isk'] += (float)($row['total_reward_isk'] ?? 0);
+          $completedTotals['collateral_isk'] += (float)($row['total_collateral_isk'] ?? 0);
         }
         foreach ($hallOfShameRows as $row) {
           $failedTotals['count'] += (int)($row['total_count'] ?? 0);
           $failedTotals['volume_m3'] += (float)($row['total_volume_m3'] ?? 0);
-          $failedTotals['reward_isk'] += (float)($row['total_reward_isk'] ?? 0);
+          $failedTotals['collateral_isk'] += (float)($row['total_collateral_isk'] ?? 0);
         }
       }
     }

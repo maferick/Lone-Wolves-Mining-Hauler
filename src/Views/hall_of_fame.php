@@ -5,8 +5,8 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $corpName = (string)($config['corp']['name'] ?? ($config['app']['name'] ?? 'Corp Hauling'));
 $hallOfFameRows = $hallOfFameRows ?? [];
 $hallOfShameRows = $hallOfShameRows ?? [];
-$completedTotals = $completedTotals ?? ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
-$failedTotals = $failedTotals ?? ['count' => 0, 'volume_m3' => 0.0, 'reward_isk' => 0.0];
+$completedTotals = $completedTotals ?? ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
+$failedTotals = $failedTotals ?? ['count' => 0, 'volume_m3' => 0.0, 'collateral_isk' => 0.0];
 
 $fmtVolume = static function ($value): string {
   return number_format((float)$value, 0, '.', ',') . ' m³';
@@ -36,8 +36,8 @@ ob_start();
             <div class="kpi-value"><?= $fmtVolume($completedTotals['volume_m3']) ?></div>
           </div>
           <div class="kpi">
-            <div class="kpi-label">Total ISK</div>
-            <div class="kpi-value"><?= $fmtIsk($completedTotals['reward_isk']) ?></div>
+            <div class="kpi-label">Total collateral ISK</div>
+            <div class="kpi-value"><?= $fmtIsk($completedTotals['collateral_isk']) ?></div>
           </div>
         </div>
       </div>
@@ -53,8 +53,8 @@ ob_start();
             <div class="kpi-value"><?= $fmtVolume($failedTotals['volume_m3']) ?></div>
           </div>
           <div class="kpi">
-            <div class="kpi-label">Total ISK</div>
-            <div class="kpi-value"><?= $fmtIsk($failedTotals['reward_isk']) ?></div>
+            <div class="kpi-label">Total collateral ISK</div>
+            <div class="kpi-value"><?= $fmtIsk($failedTotals['collateral_isk']) ?></div>
           </div>
         </div>
       </div>
@@ -75,7 +75,7 @@ ob_start();
                 <th>Hauler</th>
                 <th>Completed</th>
                 <th>Total m³</th>
-                <th>Total ISK</th>
+                <th>Total collateral ISK</th>
               </tr>
             </thead>
             <tbody>
@@ -84,7 +84,7 @@ ob_start();
                   <td><?= htmlspecialchars((string)($row['hauler_name'] ?? 'Unassigned'), ENT_QUOTES, 'UTF-8') ?></td>
                   <td><?= number_format((int)($row['total_count'] ?? 0)) ?></td>
                   <td><?= $fmtVolume($row['total_volume_m3'] ?? 0) ?></td>
-                  <td><?= $fmtIsk($row['total_reward_isk'] ?? 0) ?></td>
+                  <td><?= $fmtIsk($row['total_collateral_isk'] ?? 0) ?></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
@@ -108,7 +108,7 @@ ob_start();
                 <th>Hauler</th>
                 <th>Failed</th>
                 <th>Total m³</th>
-                <th>Total ISK</th>
+                <th>Total collateral ISK</th>
               </tr>
             </thead>
             <tbody>
@@ -117,7 +117,7 @@ ob_start();
                   <td><?= htmlspecialchars((string)($row['hauler_name'] ?? 'Unassigned'), ENT_QUOTES, 'UTF-8') ?></td>
                   <td><?= number_format((int)($row['total_count'] ?? 0)) ?></td>
                   <td><?= $fmtVolume($row['total_volume_m3'] ?? 0) ?></td>
-                  <td><?= $fmtIsk($row['total_reward_isk'] ?? 0) ?></td>
+                  <td><?= $fmtIsk($row['total_collateral_isk'] ?? 0) ?></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
