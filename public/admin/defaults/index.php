@@ -61,12 +61,18 @@ try {
   $systemOptions = $db->select("SELECT system_id, system_name FROM eve_system ORDER BY system_name");
   $regionOptions = $db->select("SELECT region_id, region_name FROM eve_region ORDER BY region_name");
   $structureOptions = $db->select(
-    "SELECT es.structure_id, es.structure_name,
+    "SELECT st.station_id AS structure_id, st.station_name AS structure_name,
             COALESCE(ms.system_name, s.system_name) AS system_name
+       FROM eve_station st
+       LEFT JOIN map_system ms ON ms.system_id = st.system_id
+       LEFT JOIN eve_system s ON s.system_id = st.system_id
+      UNION ALL
+     SELECT es.structure_id AS structure_id, es.structure_name AS structure_name,
+            COALESCE(ms2.system_name, s2.system_name) AS system_name
        FROM eve_structure es
-       LEFT JOIN map_system ms ON ms.system_id = es.system_id
-       LEFT JOIN eve_system s ON s.system_id = es.system_id
-      ORDER BY es.structure_name"
+       LEFT JOIN map_system ms2 ON ms2.system_id = es.system_id
+       LEFT JOIN eve_system s2 ON s2.system_id = es.system_id
+      ORDER BY structure_name"
   );
 } catch (Throwable $e) {
   $systemOptions = [];
