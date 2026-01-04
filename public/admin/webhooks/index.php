@@ -152,7 +152,6 @@ foreach ($subscriptionRows as $row) {
   $subscriptions[$webhookId][$eventKey] = (int)$row['is_enabled'];
 }
 
-$apiKey = (string)($config['security']['api_key'] ?? '');
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
@@ -277,7 +276,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <button class="btn ghost" name="action" value="toggle_contract_link" type="submit">Toggle Contract Link</button>
               <button class="btn" name="action" value="delete" type="submit" onclick="return confirm('Delete webhook?')">Delete</button>
             </form>
-            <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test?webhook_id=<?= (int)$h['webhook_id'] ?><?= $apiKey !== '' ? '&amp;api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:6px;">
+            <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test?webhook_id=<?= (int)$h['webhook_id'] ?>" style="margin-top:6px;">
               <button class="btn ghost" type="submit">Send Test</button>
             </form>
           </td>
@@ -286,7 +285,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </tbody>
     </table>
 
-    <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test-events<?= $apiKey !== '' ? '?api_key=' . urlencode($apiKey) : '' ?>" style="margin-top:18px;">
+    <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test-events" style="margin-top:18px;">
       <input type="hidden" name="corp_id" value="<?= (int)$corpId ?>" />
       <div class="label">Send Test Events</div>
       <div class="muted" style="margin-bottom:10px;">Choose which webhooks should receive each event.</div>

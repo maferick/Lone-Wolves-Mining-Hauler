@@ -16,7 +16,6 @@ $requests = [];
 $haulers = [];
 $requestsAvailable = false;
 $dbOk = $health['db'] ?? false;
-$apiKey = (string)($config['security']['api_key'] ?? '');
 
 $canViewOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $canAssignOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.assign');

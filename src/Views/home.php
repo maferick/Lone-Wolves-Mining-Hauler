@@ -19,7 +19,6 @@ $contractStats = $contractStats ?? [
 $contractStatsAvailable = $contractStatsAvailable ?? false;
 $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => ''];
 $defaultPriority = $defaultPriority ?? 'normal';
-$apiKey = $apiKey ?? '';
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
 $canBuybackHaulage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.buyback');
 $buybackHaulagePrice = max(0.0, (float)($buybackHaulagePrice ?? 0.0));
@@ -123,7 +122,7 @@ ob_start();
         <h2>Get Quote</h2>
         <p class="muted">Enter pickup, destination, and volume to get an instant breakdown.</p>
       </div>
-      <div class="content" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>" data-api-key="<?= htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') ?>">
+      <div class="content" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>">
         <div class="form-grid">
           <label class="form-field">
             <span class="form-label">Pickup system</span>
@@ -206,7 +205,6 @@ ob_start();
 <script>
   (() => {
     const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-    const apiKey = <?= json_encode($apiKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const minChars = 3;
 
     const buildOptions = (listEl, items, value) => {
@@ -249,11 +247,7 @@ ob_start();
       const queryId = ++locationQueryIds[type];
       const url = `${basePath}/api/locations/search/?prefix=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
       try {
-        const resp = await fetch(url, {
-          headers: {
-            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
-          },
-        });
+        const resp = await fetch(url);
         const data = await resp.json();
         if (queryId !== locationQueryIds[type]) return;
         if (!data || !data.ok) return;
@@ -415,7 +409,6 @@ ob_start();
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({
             pickup,
@@ -464,7 +457,6 @@ ob_start();
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({ quote_id: currentQuoteId }),
         });
@@ -516,7 +508,6 @@ ob_start();
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
           },
           body: JSON.stringify({
             pickup,

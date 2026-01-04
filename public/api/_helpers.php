@@ -34,7 +34,12 @@ function api_key_ok(): bool {
   $q = $_GET['api_key'] ?? '';
   $provided = $hdr !== '' ? $hdr : $q;
 
-  return hash_equals($required, (string)$provided);
+  if ($provided !== '') {
+    return hash_equals($required, (string)$provided);
+  }
+
+  $authCtx = $GLOBALS['authCtx'] ?? [];
+  return !empty($authCtx['user_id']);
 }
 
 function api_require_key(): void {

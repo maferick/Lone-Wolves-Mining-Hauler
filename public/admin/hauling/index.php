@@ -15,7 +15,6 @@ if ($corpId <= 0) { http_response_code(400); echo "No corp context"; exit; }
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Hauling Settings';
-$apiKey = (string)($config['security']['api_key'] ?? '');
 $graphStatus = $services['route']->getGraphStatus();
 $graphEmpty = empty($graphStatus['graph_loaded']);
 $systemOptions = [];
@@ -34,7 +33,7 @@ try {
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
-<section class="card" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>" data-api-key="<?= htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') ?>" data-corp-id="<?= (int)$corpId ?>">
+<section class="card" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>" data-corp-id="<?= (int)$corpId ?>">
   <div class="card-header">
     <h2>Routing & Pricing Controls</h2>
     <p class="muted">Manage routing priority, reward tolerance, DNF rules, and rate plans.</p>
@@ -185,7 +184,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 (() => {
   const root = document.querySelector('section.card[data-base-path]');
   const basePath = root?.dataset.basePath || '';
-  const apiKey = root?.dataset.apiKey || '';
   const corpId = root?.dataset.corpId || '';
 
   const fetchJson = async (url, options = {}) => {
@@ -193,7 +191,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
         ...(options.headers || {}),
       },
     });

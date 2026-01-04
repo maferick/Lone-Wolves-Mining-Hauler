@@ -110,7 +110,6 @@ switch ($path) {
       'last_fetched_at' => null,
     ];
     $contractStatsAvailable = false;
-    $apiKey = (string)($config['security']['api_key'] ?? '');
 
     if ($dbOk && $db !== null) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
@@ -691,7 +690,6 @@ switch ($path) {
     $appName = $config['app']['name'];
     $title = $appName . ' • Contract Instructions';
     $basePathForViews = $basePath;
-    $apiKey = (string)($config['security']['api_key'] ?? '');
 
     \App\Auth\Auth::requireLogin($authCtx);
     $requestKey = trim((string)($_GET['request_key'] ?? ''));
