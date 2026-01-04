@@ -91,10 +91,11 @@ if (str_starts_with($path, '/assets/')) {
   }
 }
 
+$dbOk = $health['db'] ?? false;
+
 switch ($path) {
   case '/':
     $env = $config['app']['env'];
-    $dbOk = $health['db'] ?? false;
     $esiCacheEnabled = (bool)($config['esi']['cache']['enabled'] ?? true);
     $appName = $config['app']['name'];
     $title = $appName . ' • Dashboard';
