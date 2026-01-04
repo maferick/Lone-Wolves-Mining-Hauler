@@ -34,6 +34,7 @@ $appName = htmlspecialchars($appName ?? ($config['app']['name'] ?? 'Corp Hauling
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
+$bodyClass = trim((string)($bodyClass ?? ''));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -49,7 +50,7 @@ $body = $body ?? '';
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= ($basePath ?: '') ?>/assets/css/app.css?v=2026" />
 </head>
-<body>
+<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">

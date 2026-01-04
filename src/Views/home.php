@@ -25,12 +25,16 @@ $canBuybackHaulage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.buyback'
 $buybackHaulagePrice = max(0.0, (float)($buybackHaulagePrice ?? 0.0));
 $pickupLocationOptions = $pickupLocationOptions ?? [];
 $destinationLocationOptions = $destinationLocationOptions ?? [];
+$bodyClass = 'home';
 
 ob_start();
 ?>
 <section class="grid">
   <div class="stack">
     <div class="card hero-card">
+      <div class="hero-banner">
+        <img class="hero-logo" src="<?= ($basePath ?: '') ?>/assets/logo.jpg" alt="Lone Wolves Logistics logo" />
+      </div>
       <div class="card-header">
         <h1>Lone Wolves Logistics</h1>
         <p class="hero-tagline">The Pack Delivers.</p>
