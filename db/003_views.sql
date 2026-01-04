@@ -16,14 +16,37 @@ SELECT
   cc.date_expired,
   cc.start_location_id,
   cc.end_location_id,
-  COALESCE(s_ent.name, CONCAT('loc:', cc.start_location_id)) AS start_name,
-  COALESCE(e_ent.name, CONCAT('loc:', cc.end_location_id)) AS end_name
+  COALESCE(
+    s_sys.system_name,
+    s_station.station_name,
+    s_structure.structure_name,
+    s_ent.name,
+    CONCAT('loc:', cc.start_location_id)
+  ) AS start_name,
+  COALESCE(
+    e_sys.system_name,
+    e_station.station_name,
+    e_structure.structure_name,
+    e_ent.name,
+    CONCAT('loc:', cc.end_location_id)
+  ) AS end_name
 FROM esi_corp_contract cc
 JOIN corp c ON c.corp_id = cc.corp_id
 LEFT JOIN eve_entity s_ent
   ON s_ent.entity_id = cc.start_location_id
   AND s_ent.entity_type IN ('station','structure','system')
+LEFT JOIN eve_system s_sys
+  ON s_sys.system_id = cc.start_location_id
+LEFT JOIN eve_station s_station
+  ON s_station.station_id = cc.start_location_id
+LEFT JOIN eve_structure s_structure
+  ON s_structure.structure_id = cc.start_location_id
 LEFT JOIN eve_entity e_ent
   ON e_ent.entity_id = cc.end_location_id
-  AND e_ent.entity_type IN ('station','structure','system');
-
+  AND e_ent.entity_type IN ('station','structure','system')
+LEFT JOIN eve_system e_sys
+  ON e_sys.system_id = cc.end_location_id
+LEFT JOIN eve_station e_station
+  ON e_station.station_id = cc.end_location_id
+LEFT JOIN eve_structure e_structure
+  ON e_structure.structure_id = cc.end_location_id;
