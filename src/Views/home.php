@@ -205,8 +205,6 @@ ob_start();
 <?php if ($isLoggedIn): ?>
 <script>
   (() => {
-    const pickupLocations = <?= json_encode($pickupLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-    const destinationLocations = <?= json_encode($destinationLocationOptions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const apiKey = <?= json_encode($apiKey, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const minChars = 3;
@@ -214,16 +212,11 @@ ob_start();
     const buildOptions = (listEl, items, value) => {
       listEl.innerHTML = '';
       if (!value || value.length < minChars) return;
-      const query = value.toLowerCase();
-      let count = 0;
       for (const item of items || []) {
-        if (!item.name.toLowerCase().startsWith(query)) continue;
         const option = document.createElement('option');
         option.value = item.name;
         if (item.label) option.label = item.label;
         listEl.appendChild(option);
-        count += 1;
-        if (count >= 50) break;
       }
     };
 
@@ -245,12 +238,47 @@ ob_start();
     const requestStatus = document.getElementById('quote-request-status');
     const buybackBtn = document.getElementById('buyback-haulage-btn');
     let currentQuoteId = null;
+    const locationQueryIds = { pickup: 0, destination: 0 };
+    const locationTimers = { pickup: null, destination: null };
+
+    const fetchLocations = async (value, type, listEl) => {
+      if (!value || value.length < minChars) {
+        listEl.innerHTML = '';
+        return;
+      }
+      const queryId = ++locationQueryIds[type];
+      const url = `${basePath}/api/locations/search/?prefix=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
+      try {
+        const resp = await fetch(url, {
+          headers: {
+            ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+          },
+        });
+        const data = await resp.json();
+        if (queryId !== locationQueryIds[type]) return;
+        if (!data || !data.ok) return;
+        buildOptions(listEl, data.items || [], value);
+      } catch (err) {
+        if (queryId !== locationQueryIds[type]) return;
+        listEl.innerHTML = '';
+      }
+    };
 
     pickupInput?.addEventListener('input', () => {
-      buildOptions(pickupList, pickupLocations, pickupInput.value);
+      if (locationTimers.pickup) {
+        clearTimeout(locationTimers.pickup);
+      }
+      locationTimers.pickup = setTimeout(() => {
+        fetchLocations(pickupInput.value, 'pickup', pickupList);
+      }, 150);
     });
     destinationInput?.addEventListener('input', () => {
-      buildOptions(destinationList, destinationLocations, destinationInput.value);
+      if (locationTimers.destination) {
+        clearTimeout(locationTimers.destination);
+      }
+      locationTimers.destination = setTimeout(() => {
+        fetchLocations(destinationInput.value, 'destination', destinationList);
+      }, 150);
     });
 
     const parseIsk = (value) => {

@@ -152,8 +152,6 @@ switch ($path) {
       'pickup_system' => '',
       'destination_system' => '',
     ];
-    $pickupLocationOptions = [];
-    $destinationLocationOptions = [];
     $defaultPriority = 'normal';
     $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
     if ($dbOk && $db !== null && $corpIdForProfile > 0) {
@@ -190,108 +188,6 @@ switch ($path) {
           $buybackHaulagePrice = max(0.0, (float)($decoded['price_isk'] ?? 0.0));
         }
       }
-    }
-
-    if ($dbOk && $db !== null) {
-      $accessRules = [
-        'systems' => [],
-        'regions' => [],
-        'structures' => [],
-      ];
-      $corpIdForAccess = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
-      if ($corpIdForAccess > 0) {
-        $accessRow = $db->one(
-          "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
-          ['cid' => $corpIdForAccess]
-        );
-        if ($accessRow && !empty($accessRow['setting_json'])) {
-          $decoded = json_decode((string)$accessRow['setting_json'], true);
-          if (is_array($decoded)) {
-            $accessRules = array_replace_recursive($accessRules, $decoded);
-          }
-        }
-      }
-
-      $systemRows = $db->select("SELECT system_id, system_name, region_id FROM map_system ORDER BY system_name");
-      if (!$systemRows) {
-        $systemRows = $db->select(
-          "SELECT s.system_id, s.system_name, c.region_id
-             FROM eve_system s
-             JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-            ORDER BY s.system_name"
-        );
-      }
-
-      $allowedSystemIds = [];
-      foreach ($accessRules['systems'] ?? [] as $rule) {
-        if (!empty($rule['allowed'])) {
-          $allowedSystemIds[] = (int)($rule['id'] ?? 0);
-        }
-      }
-      $allowedRegionIds = [];
-      foreach ($accessRules['regions'] ?? [] as $rule) {
-        if (!empty($rule['allowed'])) {
-          $allowedRegionIds[] = (int)($rule['id'] ?? 0);
-        }
-      }
-      $allowedSystemIds = array_values(array_filter($allowedSystemIds));
-      $allowedRegionIds = array_values(array_filter($allowedRegionIds));
-      $hasAccessAllowlist = !empty($allowedSystemIds) || !empty($allowedRegionIds);
-
-      $systemOptions = [];
-      foreach ($systemRows as $row) {
-        $systemId = (int)($row['system_id'] ?? 0);
-        $name = trim((string)($row['system_name'] ?? ''));
-        if ($name === '') continue;
-        if ($hasAccessAllowlist) {
-          $regionId = (int)($row['region_id'] ?? 0);
-          $allowed = in_array($systemId, $allowedSystemIds, true)
-            || in_array($regionId, $allowedRegionIds, true);
-          if (!$allowed) {
-            continue;
-          }
-        }
-        $systemOptions[] = ['name' => $name, 'label' => 'System'];
-      }
-
-      $structureRules = $accessRules['structures'] ?? [];
-      $structureIds = [];
-      foreach ($structureRules as $rule) {
-        $id = (int)($rule['id'] ?? 0);
-        if ($id > 0) $structureIds[] = $id;
-      }
-      $structureNameById = [];
-      if ($structureIds) {
-        $placeholders = implode(',', array_fill(0, count($structureIds), '?'));
-        $structureRows = $db->select(
-          "SELECT structure_id, structure_name FROM eve_structure WHERE structure_id IN ($placeholders)",
-          $structureIds
-        );
-        foreach ($structureRows as $row) {
-          $structureNameById[(int)$row['structure_id']] = (string)$row['structure_name'];
-        }
-      }
-
-      $pickupStructures = [];
-      $deliveryStructures = [];
-      foreach ($structureRules as $rule) {
-        if (empty($rule['allowed'])) continue;
-        $name = trim((string)($rule['name'] ?? ''));
-        $id = (int)($rule['id'] ?? 0);
-        if ($id > 0 && !empty($structureNameById[$id])) {
-          $name = (string)$structureNameById[$id];
-        }
-        if ($name === '') continue;
-        if (!empty($rule['pickup_allowed'])) {
-          $pickupStructures[] = ['name' => $name, 'label' => 'Structure'];
-        }
-        if (!empty($rule['delivery_allowed'])) {
-          $deliveryStructures[] = ['name' => $name, 'label' => 'Structure'];
-        }
-      }
-
-      $pickupLocationOptions = array_merge($systemOptions, $pickupStructures);
-      $destinationLocationOptions = array_merge($systemOptions, $deliveryStructures);
     }
 
     require __DIR__ . '/../src/Views/home.php';
