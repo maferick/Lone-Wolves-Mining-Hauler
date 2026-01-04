@@ -45,9 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $db->execute(
       "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
-       VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :cid, 'corp_name', :cn, 'ticker', :t, 'alliance_id', :aid, 'alliance_name', :an), :uid)
+       VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :json_cid, 'corp_name', :cn, 'ticker', :t, 'alliance_id', :aid, 'alliance_name', :an), :uid)
        ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json), updated_by_user_id=VALUES(updated_by_user_id)",
-      ['cid'=>$corpId,'cn'=>$corpName,'t'=>$ticker ?: null,'aid'=>$allianceIdVal,'an'=>$allianceName ?: null,'uid'=>$authCtx['user_id']]
+      [
+        'cid'=>$corpId,
+        'json_cid'=>$corpId,
+        'cn'=>$corpName,
+        't'=>$ticker ?: null,
+        'aid'=>$allianceIdVal,
+        'an'=>$allianceName ?: null,
+        'uid'=>$authCtx['user_id']
+      ]
     );
   });
 
