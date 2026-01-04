@@ -7,7 +7,6 @@ $isLoggedIn = !empty($authCtx['user_id']);
 $canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
-$queueStats = $queueStats ?? ['outstanding' => 0, 'in_progress' => 0, 'completed' => 0];
 $contractStats = $contractStats ?? [
   'total' => 0,
   'outstanding' => 0,
@@ -33,31 +32,10 @@ ob_start();
   <div class="card">
     <div class="card-header">
       <h2>Queue status</h2>
-      <p class="muted">Live snapshot of the hauling queue.</p>
+      <p class="muted">ESI-fed courier contracts currently in flow.</p>
       <?php if ($isLoggedIn): ?>
         <div class="pill subtle" style="margin-top:10px; display:inline-flex;">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></div>
       <?php endif; ?>
-    </div>
-    <div class="kpi-row">
-      <div class="kpi">
-        <div class="kpi-label">Outstanding</div>
-        <div class="kpi-value"><?= number_format((int)$queueStats['outstanding']) ?></div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">In Progress</div>
-        <div class="kpi-value"><?= number_format((int)$queueStats['in_progress']) ?></div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Completed (Last day)</div>
-        <div class="kpi-value"><?= number_format((int)$queueStats['completed']) ?></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-header">
-      <h2>Courier contract status</h2>
-      <p class="muted">ESI-fed courier contracts currently in flow.</p>
     </div>
     <?php if (!$contractStatsAvailable || $contractStats['total'] <= 0): ?>
       <div class="content">
