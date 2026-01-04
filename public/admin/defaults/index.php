@@ -60,7 +60,14 @@ $structureOptions = [];
 try {
   $systemOptions = $db->select("SELECT system_id, system_name FROM eve_system ORDER BY system_name");
   $regionOptions = $db->select("SELECT region_id, region_name FROM eve_region ORDER BY region_name");
-  $structureOptions = $db->select("SELECT structure_id, structure_name FROM eve_structure ORDER BY structure_name");
+  $structureOptions = $db->select(
+    "SELECT es.structure_id, es.structure_name,
+            COALESCE(ms.system_name, s.system_name) AS system_name
+       FROM eve_structure es
+       LEFT JOIN map_system ms ON ms.system_id = es.system_id
+       LEFT JOIN eve_system s ON s.system_id = es.system_id
+      ORDER BY es.structure_name"
+  );
 } catch (Throwable $e) {
   $systemOptions = [];
   $regionOptions = [];
@@ -79,8 +86,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $regionNameToId[strtolower((string)$row['region_name'])] = (int)$row['region_id'];
   }
   $structureNameToId = [];
+  $structureIdToName = [];
   foreach ($structureOptions as $row) {
-    $structureNameToId[strtolower((string)$row['structure_name'])] = (int)$row['structure_id'];
+    $structureId = (int)($row['structure_id'] ?? 0);
+    $structureName = (string)($row['structure_name'] ?? '');
+    if ($structureId <= 0 || $structureName === '') {
+      continue;
+    }
+    $structureNameToId[strtolower($structureName)] = $structureId;
+    $structureIdToName[$structureId] = $structureName;
   }
 
   $parseAccessValue = static function (string $value, array $nameMap): array {
@@ -172,6 +186,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
       } elseif ($newAccessType === 'structure') {
         [$id, $name] = $parseAccessValue($newAccessValue, $structureNameToId);
+        if ($id > 0 && isset($structureIdToName[$id])) {
+          $name = $structureIdToName[$id];
+        }
         if ($id <= 0 || $name === '') {
           $errors[] = 'Please select a valid structure.';
         } else {
@@ -517,7 +534,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         const accessData = {
           system: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['system_id'], 'name' => (string)$row['system_name']], $systemOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
           region: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['region_id'], 'name' => (string)$row['region_name']], $regionOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
-          structure: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['structure_id'], 'name' => (string)$row['structure_name']], $structureOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+          structure: <?= json_encode(array_map(static fn($row) => [
+            'id' => (int)$row['structure_id'],
+            'name' => (string)$row['structure_name'],
+            'system_name' => (string)($row['system_name'] ?? ''),
+          ], $structureOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
         };
         const minChars = 2;
         const typeSelect = document.getElementById('access-rule-type');
@@ -537,9 +558,14 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           if (!query) return;
           let count = 0;
           for (const item of items || []) {
-            if (!item.name.toLowerCase().includes(query)) continue;
+            const itemName = item.name?.toLowerCase() ?? '';
+            const systemName = item.system_name?.toLowerCase() ?? '';
+            if (!itemName.includes(query) && !systemName.includes(query)) continue;
             const option = document.createElement('option');
-            option.value = `${item.name} [${item.id}]`;
+            const display = systemName
+              ? `${item.system_name} - ${item.name}`
+              : item.name;
+            option.value = `${display} [${item.id}]`;
             listEl.appendChild(option);
             count += 1;
             if (count >= 50) break;
