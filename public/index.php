@@ -499,6 +499,7 @@ switch ($path) {
     if ($dbOk && $db !== null && $corpId > 0) {
       $hasRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
       $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+      $hasCorpContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
       $table = null;
       $nameExpr = null;
 
@@ -556,6 +557,164 @@ switch ($path) {
             ORDER BY total_count DESC, total_volume_m3 DESC",
           ['cid' => $corpId]
         );
+
+        if ($hasCorpContracts) {
+          $failedContracts = $db->select(
+            "SELECT c.contract_id, c.acceptor_id, c.volume_m3, c.reward_isk, c.title, c.raw_json,
+                    COALESCE(NULLIF(TRIM(e.name), ''), CONCAT('Character:', c.acceptor_id), 'Unassigned') AS hauler_name
+               FROM esi_corp_contract c
+               LEFT JOIN haul_request r
+                 ON r.corp_id = c.corp_id
+                AND (r.esi_contract_id = c.contract_id OR r.contract_id = c.contract_id)
+               LEFT JOIN eve_entity e
+                 ON e.entity_id = c.acceptor_id
+                AND e.entity_type = 'character'
+              WHERE c.corp_id = :cid
+                AND c.type = 'courier'
+                AND c.status IN ('failed','cancelled','rejected','expired','deleted','reversed')
+                AND r.request_id IS NULL
+              ORDER BY c.date_issued DESC",
+            ['cid' => $corpId]
+          );
+
+          if ($failedContracts) {
+            $quoteIds = [];
+            $requestKeys = [];
+            foreach ($failedContracts as $contract) {
+              $description = '';
+              if (!empty($contract['raw_json'])) {
+                $decoded = json_decode((string)$contract['raw_json'], true);
+                if (is_array($decoded) && !empty($decoded['description'])) {
+                  $description = trim((string)$decoded['description']);
+                }
+              }
+              if ($description === '') {
+                $description = trim((string)($contract['title'] ?? ''));
+              }
+              if ($description === '') {
+                continue;
+              }
+              if (preg_match('/Quote\s+#?(\d+)/i', $description, $matches)) {
+                $quoteId = (int)$matches[1];
+                if ($quoteId > 0) {
+                  $quoteIds[$quoteId] = true;
+                }
+              }
+              if (preg_match('/Quote\s+([a-f0-9]{32})/i', $description, $matches)) {
+                $requestKeys[$matches[1]] = true;
+              }
+            }
+
+            $validQuoteIds = [];
+            if ($quoteIds) {
+              $placeholders = implode(',', array_fill(0, count($quoteIds), '?'));
+              $rows = $db->select(
+                "SELECT quote_id FROM quote WHERE corp_id = ? AND quote_id IN ({$placeholders})",
+                array_merge([$corpId], array_keys($quoteIds))
+              );
+              foreach ($rows as $row) {
+                $validQuoteIds[(int)$row['quote_id']] = true;
+              }
+            }
+
+            $validRequestKeys = [];
+            if ($requestKeys) {
+              $placeholders = implode(',', array_fill(0, count($requestKeys), '?'));
+              $rows = $db->select(
+                "SELECT request_key FROM haul_request WHERE corp_id = ? AND request_key IN ({$placeholders})",
+                array_merge([$corpId], array_keys($requestKeys))
+              );
+              foreach ($rows as $row) {
+                $key = (string)($row['request_key'] ?? '');
+                if ($key !== '') {
+                  $validRequestKeys[$key] = true;
+                }
+              }
+            }
+
+            if ($validQuoteIds || $validRequestKeys) {
+              $extraShame = [];
+              foreach ($failedContracts as $contract) {
+                $description = '';
+                if (!empty($contract['raw_json'])) {
+                  $decoded = json_decode((string)$contract['raw_json'], true);
+                  if (is_array($decoded) && !empty($decoded['description'])) {
+                    $description = trim((string)$decoded['description']);
+                  }
+                }
+                if ($description === '') {
+                  $description = trim((string)($contract['title'] ?? ''));
+                }
+                if ($description === '') {
+                  continue;
+                }
+
+                $matchesSiteQuote = false;
+                if (preg_match('/Quote\s+#?(\d+)/i', $description, $matches)) {
+                  $quoteId = (int)$matches[1];
+                  if ($quoteId > 0 && isset($validQuoteIds[$quoteId])) {
+                    $matchesSiteQuote = true;
+                  }
+                }
+                if (!$matchesSiteQuote && preg_match('/Quote\s+([a-f0-9]{32})/i', $description, $matches)) {
+                  if (isset($validRequestKeys[$matches[1]])) {
+                    $matchesSiteQuote = true;
+                  }
+                }
+
+                if (!$matchesSiteQuote) {
+                  continue;
+                }
+
+                $name = trim((string)($contract['hauler_name'] ?? ''));
+                if ($name === '') {
+                  $name = 'Unassigned';
+                }
+                if (!isset($extraShame[$name])) {
+                  $extraShame[$name] = ['hauler_name' => $name, 'total_count' => 0, 'total_volume_m3' => 0.0, 'total_reward_isk' => 0.0];
+                }
+                $extraShame[$name]['total_count'] += 1;
+                $extraShame[$name]['total_volume_m3'] += (float)($contract['volume_m3'] ?? 0);
+                $extraShame[$name]['total_reward_isk'] += (float)($contract['reward_isk'] ?? 0);
+              }
+
+              if ($extraShame) {
+                $merged = [];
+                foreach ($hallOfShameRows as $row) {
+                  $name = (string)($row['hauler_name'] ?? '');
+                  if ($name === '') {
+                    $name = 'Unassigned';
+                  }
+                  $merged[$name] = [
+                    'hauler_name' => $name,
+                    'total_count' => (int)($row['total_count'] ?? 0),
+                    'total_volume_m3' => (float)($row['total_volume_m3'] ?? 0),
+                    'total_reward_isk' => (float)($row['total_reward_isk'] ?? 0),
+                  ];
+                }
+
+                foreach ($extraShame as $name => $row) {
+                  if (!isset($merged[$name])) {
+                    $merged[$name] = $row;
+                    continue;
+                  }
+                  $merged[$name]['total_count'] += (int)$row['total_count'];
+                  $merged[$name]['total_volume_m3'] += (float)$row['total_volume_m3'];
+                  $merged[$name]['total_reward_isk'] += (float)$row['total_reward_isk'];
+                }
+
+                $hallOfShameRows = array_values($merged);
+                usort($hallOfShameRows, static function ($a, $b) {
+                  $count = (int)($b['total_count'] ?? 0) <=> (int)($a['total_count'] ?? 0);
+                  if ($count !== 0) {
+                    return $count;
+                  }
+                  return (float)($b['total_volume_m3'] ?? 0) <=> (float)($a['total_volume_m3'] ?? 0);
+                });
+              }
+            }
+          }
+        }
 
         foreach ($hallOfFameRows as $row) {
           $completedTotals['count'] += (int)($row['total_count'] ?? 0);
