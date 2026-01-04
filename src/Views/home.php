@@ -26,6 +26,11 @@ $buybackHaulagePrice = max(0.0, (float)($buybackHaulagePrice ?? 0.0));
 $pickupLocationOptions = $pickupLocationOptions ?? [];
 $destinationLocationOptions = $destinationLocationOptions ?? [];
 $bodyClass = 'home';
+$logoPath = '/assets/logo.png';
+$logoDiskPath = __DIR__ . '/../../public/assets/logo.png';
+if (!file_exists($logoDiskPath)) {
+  $logoPath = '/assets/logo.jpg';
+}
 
 ob_start();
 ?>
@@ -33,7 +38,7 @@ ob_start();
   <div class="stack">
     <div class="card hero-card">
       <div class="hero-banner">
-        <img class="hero-logo" src="<?= ($basePath ?: '') ?>/assets/logo.jpg" alt="Lone Wolves Logistics logo" />
+        <img class="hero-logo" src="<?= ($basePath ?: '') . $logoPath ?>" alt="Lone Wolves Logistics logo" />
       </div>
       <div class="card-header">
         <h1>Lone Wolves Logistics</h1>

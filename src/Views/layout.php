@@ -35,6 +35,27 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
 $bodyClass = trim((string)($bodyClass ?? ''));
+$branding = $config['branding'] ?? [];
+$panelIntensity = (int)($branding['panel_intensity'] ?? 60);
+$panelIntensity = max(0, min(100, $panelIntensity));
+$panelScale = $panelIntensity / 100;
+$panelAlpha = 0.04 + (0.10 * $panelScale);
+$panelAlpha2 = 0.02 + (0.08 * $panelScale);
+$heroCardAlpha = 0.35 + (0.35 * $panelScale);
+$heroBannerAlpha = 0.12 + (0.5 * $panelScale);
+$heroBannerAlpha2 = 0.06 + (0.35 * $panelScale);
+$bodyStyle = sprintf(
+  '--panel-alpha: %.3f; --panel-alpha-2: %.3f; --hero-card-alpha: %.3f; --hero-banner-alpha: %.3f; --hero-banner-alpha-2: %.3f;',
+  $panelAlpha,
+  $panelAlpha2,
+  $heroCardAlpha,
+  $heroBannerAlpha,
+  $heroBannerAlpha2
+);
+$backgroundAllPages = !empty($branding['background_all_pages']);
+if ($backgroundAllPages) {
+  $bodyClass = trim($bodyClass . ' brand-bg');
+}
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -50,7 +71,7 @@ $bodyClass = trim((string)($bodyClass ?? ''));
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="<?= ($basePath ?: '') ?>/assets/css/app.css?v=2026" />
 </head>
-<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
+<body<?= $bodyClass !== '' ? ' class="' . htmlspecialchars($bodyClass, ENT_QUOTES, 'UTF-8') . '"' : '' ?> style="<?= htmlspecialchars($bodyStyle, ENT_QUOTES, 'UTF-8') ?>">
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">

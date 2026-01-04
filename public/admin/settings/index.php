@@ -65,9 +65,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $brandDir = __DIR__ . '/../../assets';
 $brandBaseUrl = ($basePath ?: '') . '/assets';
 $brandDefaultsDir = $brandDir . '/defaults';
+$logoPngPath = $brandDir . '/logo.png';
+$logoJpgPath = $brandDir . '/logo.jpg';
 $isResetRequest = $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_branding']);
+$brandingDefaults = [
+  'panel_intensity' => 60,
+  'background_all_pages' => false,
+];
+$brandingUi = $brandingDefaults;
 
-function resizeAndSaveImage(array $file, string $destPath, int $maxWidth, int $maxHeight, array &$errors): bool
+$brandingRow = $db->one(
+  "SELECT setting_json
+     FROM app_setting
+    WHERE corp_id = :cid AND setting_key = 'branding.ui' LIMIT 1",
+  ['cid' => $corpId]
+);
+if ($brandingRow && !empty($brandingRow['setting_json'])) {
+  $decoded = json_decode((string)$brandingRow['setting_json'], true);
+  if (is_array($decoded)) {
+    $brandingUi = array_merge($brandingUi, $decoded);
+  }
+}
+
+function resizeAndSaveImage(
+  array $file,
+  string $destPath,
+  int $maxWidth,
+  int $maxHeight,
+  array &$errors,
+  string $outputFormat = 'jpg'
+): bool
 {
   if (!isset($file['error']) || $file['error'] !== UPLOAD_ERR_OK) {
     return false;
@@ -126,7 +153,20 @@ function resizeAndSaveImage(array $file, string $destPath, int $maxWidth, int $m
     mkdir(dirname($destPath), 0775, true);
   }
 
-  $saved = imagejpeg($targetImage, $destPath, 86);
+  $saved = false;
+  switch ($outputFormat) {
+    case 'png':
+      $saved = imagepng($targetImage, $destPath, 6);
+      break;
+    case 'webp':
+      $saved = imagewebp($targetImage, $destPath, 86);
+      break;
+    case 'jpg':
+    case 'jpeg':
+    default:
+      $saved = imagejpeg($targetImage, $destPath, 86);
+      break;
+  }
   imagedestroy($srcImage);
   imagedestroy($targetImage);
 
@@ -140,18 +180,23 @@ function resizeAndSaveImage(array $file, string $destPath, int $maxWidth, int $m
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $errors = [];
+  $panelIntensity = (int)($_POST['panel_intensity'] ?? $brandingUi['panel_intensity']);
+  $panelIntensity = max(0, min(100, $panelIntensity));
+  $backgroundAllPages = !empty($_POST['background_all_pages']);
   $uploads = [
     'background_image' => [
       'path' => $brandDir . '/background.jpg',
       'label' => 'Background',
       'maxWidth' => 2400,
       'maxHeight' => 1400,
+      'format' => 'jpg',
     ],
     'logo_image' => [
-      'path' => $brandDir . '/logo.jpg',
+      'path' => $brandDir . '/logo.png',
       'label' => 'Logo',
       'maxWidth' => 1400,
       'maxHeight' => 900,
+      'format' => 'png',
     ],
   ];
 
@@ -161,15 +206,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!is_dir($brandDefaultsDir)) {
         mkdir($brandDefaultsDir, 0775, true);
       }
+      if ($field === 'logo_image' && !file_exists($defaultPath) && file_exists($logoJpgPath)) {
+        $legacyDefault = $brandDefaultsDir . '/logo.jpg';
+        if (!file_exists($legacyDefault)) {
+          copy($logoJpgPath, $legacyDefault);
+        }
+      }
       if (!file_exists($defaultPath) && file_exists($meta['path'])) {
         copy($meta['path'], $defaultPath);
       }
 
-      if (!resizeAndSaveImage($_FILES[$field], $meta['path'], $meta['maxWidth'], $meta['maxHeight'], $errors)) {
+      if (!resizeAndSaveImage(
+        $_FILES[$field],
+        $meta['path'],
+        $meta['maxWidth'],
+        $meta['maxHeight'],
+        $errors,
+        $meta['format']
+      )) {
         $errors[] = $meta['label'] . ' image upload failed.';
       }
     }
   }
+
+  $db->execute(
+    "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
+     VALUES (:cid, 'branding.ui', JSON_OBJECT('panel_intensity', :panel, 'background_all_pages', :background_all), :uid)
+     ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json), updated_by_user_id=VALUES(updated_by_user_id)",
+    [
+      'cid' => $corpId,
+      'panel' => $panelIntensity,
+      'background_all' => $backgroundAllPages ? 1 : 0,
+      'uid' => $authCtx['user_id'],
+    ]
+  );
+  $brandingUi = [
+    'panel_intensity' => $panelIntensity,
+    'background_all_pages' => $backgroundAllPages,
+  ];
 
   if (!empty($errors)) {
     $uploadMsg = implode(' ', array_unique($errors));
@@ -183,6 +257,7 @@ if ($isResetRequest) {
   $resetErrors = [];
   $defaults = [
     $brandDefaultsDir . '/background.jpg' => $brandDir . '/background.jpg',
+    $brandDefaultsDir . '/logo.png' => $brandDir . '/logo.png',
     $brandDefaultsDir . '/logo.jpg' => $brandDir . '/logo.jpg',
   ];
 
@@ -203,6 +278,9 @@ if ($isResetRequest) {
     $resetMsg = 'Branding images reset to default.';
   }
 }
+
+$logoFilename = file_exists($logoPngPath) ? 'logo.png' : 'logo.jpg';
+$logoUrl = $brandBaseUrl . '/' . $logoFilename;
 
 $corp = $db->one("SELECT corp_id, corp_name, ticker, alliance_id, alliance_name FROM corp WHERE corp_id=:cid", ['cid'=>$corpId]);
 
@@ -255,6 +333,31 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <p class="muted" style="margin-top:6px;">Reset restores the original images saved before the first upload.</p>
         <div class="row" style="margin-top:12px;">
           <div>
+            <label class="label" for="panel_intensity">Card &amp; banner transparency</label>
+            <input
+              class="input"
+              type="range"
+              id="panel_intensity"
+              name="panel_intensity"
+              min="0"
+              max="100"
+              value="<?= htmlspecialchars((string)$brandingUi['panel_intensity'], ENT_QUOTES, 'UTF-8') ?>"
+              style="padding:6px 0;"
+            />
+            <div class="muted" style="margin-top:6px;">
+              Intensity: <span id="panel_intensity_value"><?= htmlspecialchars((string)$brandingUi['panel_intensity'], ENT_QUOTES, 'UTF-8') ?></span>%
+            </div>
+          </div>
+          <div>
+            <label class="label" for="background_all_pages">Background image visibility</label>
+            <label class="pill" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
+              <input type="checkbox" id="background_all_pages" name="background_all_pages" value="1"<?= !empty($brandingUi['background_all_pages']) ? ' checked' : '' ?> />
+              Show background on all pages
+            </label>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;">
+          <div>
             <label class="label" for="background_image">Background image</label>
             <input class="input" type="file" id="background_image" name="background_image" accept="image/jpeg,image/png,image/webp" />
             <?php if (file_exists($brandDir . '/background.jpg')): ?>
@@ -264,8 +367,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div>
             <label class="label" for="logo_image">Logo image</label>
             <input class="input" type="file" id="logo_image" name="logo_image" accept="image/jpeg,image/png,image/webp" />
-            <?php if (file_exists($brandDir . '/logo.jpg')): ?>
-              <div class="muted" style="margin-top:6px;">Current: <a href="<?= htmlspecialchars($brandBaseUrl . '/logo.jpg', ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">View logo</a></div>
+            <?php if (file_exists($logoPngPath) || file_exists($logoJpgPath)): ?>
+              <div class="muted" style="margin-top:6px;">Current: <a href="<?= htmlspecialchars($logoUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener">View logo</a></div>
             <?php endif; ?>
           </div>
         </div>
@@ -279,6 +382,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </form>
   </div>
 </section>
+<script>
+  const panelSlider = document.getElementById('panel_intensity');
+  const panelValue = document.getElementById('panel_intensity_value');
+  if (panelSlider && panelValue) {
+    const updateValue = () => {
+      panelValue.textContent = panelSlider.value;
+    };
+    panelSlider.addEventListener('input', updateValue);
+    updateValue();
+  }
+</script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
