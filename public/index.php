@@ -113,6 +113,7 @@ switch ($path) {
     $queueStats = [
       'outstanding' => 0,
     ];
+    $pendingVolume = 0.0;
 
     if ($dbOk && $db !== null) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
@@ -149,6 +150,23 @@ switch ($path) {
           if ($statsRow) {
             $queueStats['outstanding'] = (int)($statsRow['outstanding'] ?? 0);
           }
+          $pendingRow = $db->one(
+            "SELECT
+                SUM(CASE
+                      WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 0
+                      WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                      WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                      WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted')
+                        THEN COALESCE(volume_m3, 0)
+                      ELSE 0
+                    END) AS pending_volume
+              FROM haul_request
+             WHERE corp_id = :cid",
+            ['cid' => $corpId]
+          );
+          if ($pendingRow) {
+            $pendingVolume = (float)($pendingRow['pending_volume'] ?? 0);
+          }
         }
       }
 
@@ -182,6 +200,7 @@ switch ($path) {
         }
       }
     }
+    $contractStats['pending_volume'] = $pendingVolume;
 
     $quoteInput = [
       'pickup_system' => '',
