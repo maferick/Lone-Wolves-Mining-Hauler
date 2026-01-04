@@ -9,6 +9,8 @@ declare(strict_types=1);
  *
  * Env overrides:
  *  - CRON_WEBHOOK_LIMIT (default 50)
+ *  - CRON_WEBHOOK_REQUEUE_LIMIT (default 200)
+ *  - CRON_WEBHOOK_REQUEUE_INTERVAL (seconds, default 900)
  *  - CRON_SYNC_INTERVAL (seconds, default 300)
  *  - CRON_TOKEN_REFRESH_INTERVAL (seconds, default 300)
  *  - CRON_STRUCTURES_INTERVAL (seconds, default 900)
@@ -67,10 +69,15 @@ $webhookLimit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
 if ($webhookLimit <= 0) {
   $webhookLimit = 50;
 }
+$webhookRequeueLimit = (int)($_ENV['CRON_WEBHOOK_REQUEUE_LIMIT'] ?? 200);
+if ($webhookRequeueLimit <= 0) {
+  $webhookRequeueLimit = 200;
+}
 $normalizeInterval = static function (int $value, int $fallback): int {
   $interval = $value > 0 ? $value : $fallback;
   return max(60, $interval);
 };
+$webhookRequeueInterval = $normalizeInterval((int)($_ENV['CRON_WEBHOOK_REQUEUE_INTERVAL'] ?? 900), 900);
 $syncInterval = $normalizeInterval((int)($_ENV['CRON_SYNC_INTERVAL'] ?? 300), 300);
 $tokenRefreshInterval = $normalizeInterval((int)($_ENV['CRON_TOKEN_REFRESH_INTERVAL'] ?? 300), 300);
 $structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900), 900);
@@ -160,6 +167,24 @@ $shouldRun = static function (?string $lastRun, int $intervalSeconds, int $now):
   }
   return ($now - $ts) >= $intervalSeconds;
 };
+$shouldRunGlobal = static function (Db $db, string $jobType, int $intervalSeconds, int $now): bool {
+  $row = $db->one(
+    "SELECT COALESCE(MAX(finished_at), MAX(started_at), MAX(created_at)) AS last_run
+       FROM job_queue
+      WHERE job_type = :job_type
+        AND status IN ('running','succeeded','failed','dead')",
+    ['job_type' => $jobType]
+  );
+  $lastRun = $row ? (string)($row['last_run'] ?? '') : '';
+  if ($lastRun === '') {
+    return true;
+  }
+  $ts = strtotime($lastRun);
+  if ($ts === false) {
+    return true;
+  }
+  return ($now - $ts) >= $intervalSeconds;
+};
 
 $globalTaskSettings = $loadTaskSettings($db, null);
 
@@ -178,6 +203,23 @@ try {
   }
 } catch (Throwable $e) {
   $log("Webhook delivery error: {$e->getMessage()}");
+}
+
+try {
+  if (!$isTaskEnabled($globalTaskSettings, JobQueueService::WEBHOOK_REQUEUE_JOB)) {
+    $log('Webhook requeue disabled; skipping.');
+  } elseif (!isset($services['discord_webhook'])) {
+    $log('Discord webhook service not configured.');
+  } elseif ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_REQUEUE_JOB)) {
+    $log('Webhook requeue job already queued.');
+  } elseif (!$shouldRunGlobal($db, JobQueueService::WEBHOOK_REQUEUE_JOB, $webhookRequeueInterval, $now)) {
+    $log('Webhook requeue interval not reached; skipping.');
+  } else {
+    $jobId = $jobQueue->enqueueWebhookRequeue($webhookRequeueLimit, 60);
+    $log("Webhook requeue job queued: {$jobId}.");
+  }
+} catch (Throwable $e) {
+  $log("Webhook requeue error: {$e->getMessage()}");
 }
 
 $cronRows = $db->select(

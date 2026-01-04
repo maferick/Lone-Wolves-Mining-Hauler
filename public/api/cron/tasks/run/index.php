@@ -78,6 +78,25 @@ switch ($taskKey) {
       'time_utc' => gmdate('c'),
     ]);
     break;
+  case JobQueueService::WEBHOOK_REQUEUE_JOB:
+    if (!isset($services['discord_webhook'])) {
+      api_send_json(['ok' => false, 'error' => 'Webhook service not configured.'], 400);
+    }
+    if ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_REQUEUE_JOB)) {
+      api_send_json(['ok' => false, 'error' => 'Webhook requeue already queued.'], 409);
+    }
+    $limit = (int)($_ENV['CRON_WEBHOOK_REQUEUE_LIMIT'] ?? 200);
+    if ($limit <= 0) {
+      $limit = 200;
+    }
+    $jobId = $jobQueue->enqueueWebhookRequeue($limit, 60, $auditContext);
+    api_send_json([
+      'ok' => true,
+      'job_id' => $jobId,
+      'status' => 'queued',
+      'time_utc' => gmdate('c'),
+    ]);
+    break;
   case JobQueueService::CRON_TOKEN_REFRESH_JOB:
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);

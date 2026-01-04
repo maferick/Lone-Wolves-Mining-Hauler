@@ -42,6 +42,7 @@ $publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTUR
 $contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
 $webhookInterval = 60;
+$webhookRequeueInterval = $normalizeInterval((int)($_ENV['CRON_WEBHOOK_REQUEUE_INTERVAL'] ?? 900), 900);
 $intervalSettings = [];
 $intervalSettingRow = $db->one(
   "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'cron.intervals' LIMIT 1",
@@ -258,6 +259,14 @@ $taskDefinitions = [
     'interval' => $webhookInterval,
     'scope' => 'global',
     'description' => 'Flushes queued Discord webhook deliveries.',
+    'runner' => 'task',
+  ],
+  JobQueueService::WEBHOOK_REQUEUE_JOB => [
+    'key' => JobQueueService::WEBHOOK_REQUEUE_JOB,
+    'name' => 'Webhook Requeue',
+    'interval' => $webhookRequeueInterval,
+    'scope' => 'global',
+    'description' => 'Requeues failed Discord webhooks that are still enabled.',
     'runner' => 'task',
   ],
 ];
