@@ -100,11 +100,6 @@ switch ($path) {
     $appName = $config['app']['name'];
     $title = $appName . ' • Dashboard';
     $basePathForViews = $basePath; // pass-through
-    $queueStats = [
-      'outstanding' => 0,
-      'in_progress' => 0,
-      'completed' => 0,
-    ];
     $contractStats = [
       'total' => 0,
       'outstanding' => 0,
@@ -121,49 +116,6 @@ switch ($path) {
       $hasHaulingJob = (bool)$db->fetchValue("SHOW TABLES LIKE 'hauling_job'");
       $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
       $hasContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
-
-      if ($hasHaulingJob) {
-        $queueStats['outstanding'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'outstanding'");
-        $queueStats['in_progress'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'in_progress'");
-        $queueStats['completed'] = (int)$db->fetchValue("SELECT COUNT(*) FROM hauling_job WHERE status = 'completed' AND completed_at >= (NOW() - INTERVAL 1 DAY)");
-      } elseif ($hasHaulRequest) {
-        $hasContractLifecycle = (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_lifecycle'");
-        $hasContractState = $hasContractLifecycle ? false : (bool)$db->fetchValue("SHOW COLUMNS FROM haul_request LIKE 'contract_state'");
-        $contractLifecycleColumn = null;
-        if ($hasContractLifecycle) {
-          $contractLifecycleColumn = 'contract_lifecycle';
-        } elseif ($hasContractState) {
-          $contractLifecycleColumn = 'contract_state';
-        }
-        $activeLifecycleFilter = $contractLifecycleColumn
-          ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
-          : '';
-        $completedLifecycleCase = $contractLifecycleColumn
-          ? "OR {$contractLifecycleColumn} = 'DELIVERED'"
-          : '';
-        $row = $db->one(
-          "SELECT
-              SUM(CASE WHEN derived.status = 'outstanding' THEN 1 ELSE 0 END) AS outstanding,
-              SUM(CASE WHEN derived.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
-              SUM(CASE WHEN derived.status = 'completed' AND derived.completed_at >= (NOW() - INTERVAL 1 DAY) THEN 1 ELSE 0 END) AS completed
-            FROM (
-              SELECT
-                CASE
-                  WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 'outstanding'
-                  WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 'in_progress'
-                  WHEN status IN ('completed','delivered') {$completedLifecycleCase} THEN 'completed'
-                  ELSE 'other'
-                END AS status,
-                delivered_at AS completed_at
-              FROM haul_request
-            ) AS derived"
-        );
-        if ($row) {
-          $queueStats['outstanding'] = (int)($row['outstanding'] ?? 0);
-          $queueStats['in_progress'] = (int)($row['in_progress'] ?? 0);
-          $queueStats['completed'] = (int)($row['completed'] ?? 0);
-        }
-      }
 
       $contractCorpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
       if ($hasContracts && $contractCorpId > 0) {
@@ -386,21 +338,35 @@ switch ($path) {
         } elseif ($hasContractState) {
           $contractLifecycleColumn = 'contract_state';
         }
-        $activeLifecycleFilter = $contractLifecycleColumn
-          ? " AND ({$contractLifecycleColumn} IS NULL OR {$contractLifecycleColumn} NOT IN ('FAILED','EXPIRED','DELIVERED'))"
-          : '';
-        $deliveredCase = $contractLifecycleColumn
-          ? "SUM(CASE WHEN {$contractLifecycleColumn} = 'DELIVERED' THEN 1 ELSE 0 END) AS delivered"
-          : "SUM(CASE WHEN status IN ('completed','delivered') THEN 1 ELSE 0 END) AS delivered";
-        $failedCase = $contractLifecycleColumn
-          ? "SUM(CASE WHEN {$contractLifecycleColumn} IN ('FAILED','EXPIRED') THEN 1 ELSE 0 END) AS failed"
-          : "SUM(CASE WHEN status IN ('cancelled','expired','rejected','failed') THEN 1 ELSE 0 END) AS failed";
+        $lifecycleExpr = $contractLifecycleColumn
+          ? "UPPER({$contractLifecycleColumn})"
+          : "NULL";
         $statsRow = $db->one(
           "SELECT
-              SUM(CASE WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS outstanding,
-              SUM(CASE WHEN status IN ('in_progress','accepted','in_transit'){$activeLifecycleFilter} THEN 1 ELSE 0 END) AS in_progress,
-              {$deliveredCase},
-              {$failedCase}
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 0
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                    WHEN status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','draft','quoted','submitted','posted') THEN 1
+                    ELSE 0
+                  END) AS outstanding,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('PICKED_UP','IN_TRANSIT') THEN 1
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 0
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 0
+                    WHEN status IN ('in_progress','accepted','in_transit') THEN 1
+                    ELSE 0
+                  END) AS in_progress,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('DELIVERED') THEN 1
+                    WHEN status IN ('completed','delivered') THEN 1
+                    ELSE 0
+                  END) AS delivered,
+              SUM(CASE
+                    WHEN {$lifecycleExpr} IN ('FAILED','EXPIRED') THEN 1
+                    WHEN status IN ('cancelled','expired','rejected','failed') THEN 1
+                    ELSE 0
+                  END) AS failed
             FROM haul_request
            WHERE corp_id = :cid",
           ['cid' => $corpId]
