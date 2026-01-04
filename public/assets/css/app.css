@@ -3,6 +3,7 @@
 
 :root{
   --bg: #070A12;
+  --card-base: 7,10,18;
   --panel: rgba(255,255,255,.06);
   --panel-2: rgba(255,255,255,.08);
   --border: rgba(255,255,255,.12);
@@ -117,7 +118,7 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card{
   border:1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255,255,255, var(--panel-alpha)), rgba(255,255,255, var(--panel-alpha-2)));
+  background: linear-gradient(180deg, rgba(var(--card-base), var(--panel-alpha)), rgba(var(--card-base), var(--panel-alpha-2)));
   box-shadow: var(--shadow);
   overflow:hidden;
 }
@@ -126,7 +127,7 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card-header p{margin:0; color:var(--muted); font-size:13px}
 .card-footer{display:flex; gap:10px; padding:14px 18px 18px}
 
-.hero-card{background: rgba(7,10,18, var(--hero-card-alpha)); backdrop-filter: blur(10px)}
+.hero-card{background: rgba(var(--card-base), var(--hero-card-alpha)); backdrop-filter: blur(10px)}
 .hero-banner{
   display:flex;
   align-items:center;

@@ -170,7 +170,7 @@ ob_start();
         </div>
         <div class="alert alert-warning" id="quote-error" style="display:none;"></div>
         <div class="alert alert-success" id="quote-result" style="display:none;"></div>
-        <div class="card" id="quote-breakdown" style="margin-top:16px; display:none; background: rgba(255,255,255,.03);">
+        <div class="card" id="quote-breakdown" style="margin-top:16px; display:none; background: rgba(var(--card-base), var(--panel-alpha-2));">
           <div class="card-header">
             <h3>Quote Breakdown</h3>
             <p class="muted">Includes route, penalties, and rate plan components.</p>
