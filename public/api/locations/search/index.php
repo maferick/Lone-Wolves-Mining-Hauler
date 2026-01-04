@@ -145,14 +145,24 @@ if ($allowStructureLocations && count($items) < $limit) {
     $structureIds = array_values(array_unique($structureIds));
     $placeholders = implode(',', array_fill(0, count($structureIds), '?'));
     $structureRows = $db->select(
-      "SELECT es.structure_id,
-              es.structure_name,
-              COALESCE(ms.system_name, s.system_name) AS system_name
+      "SELECT st.station_id AS structure_id,
+              st.station_name AS structure_name,
+              COALESCE(ms.system_name, s.system_name) AS system_name,
+              'station' AS source
+         FROM eve_station st
+         LEFT JOIN map_system ms ON ms.system_id = st.system_id
+         LEFT JOIN eve_system s ON s.system_id = st.system_id
+        WHERE st.station_id IN ($placeholders)
+       UNION ALL
+       SELECT es.structure_id AS structure_id,
+              es.structure_name AS structure_name,
+              COALESCE(ms2.system_name, s2.system_name) AS system_name,
+              'structure' AS source
          FROM eve_structure es
-         LEFT JOIN map_system ms ON ms.system_id = es.system_id
-         LEFT JOIN eve_system s ON s.system_id = es.system_id
+         LEFT JOIN map_system ms2 ON ms2.system_id = es.system_id
+         LEFT JOIN eve_system s2 ON s2.system_id = es.system_id
         WHERE es.structure_id IN ($placeholders)",
-      $structureIds
+      array_merge($structureIds, $structureIds)
     );
     foreach ($structureRows as $row) {
       $structureNameById[(int)$row['structure_id']] = (string)$row['structure_name'];
@@ -165,6 +175,7 @@ if ($allowStructureLocations && count($items) < $limit) {
     $structureMetaById[(int)$row['structure_id']] = [
       'name' => (string)($row['structure_name'] ?? ''),
       'system_name' => (string)($row['system_name'] ?? ''),
+      'source' => (string)($row['source'] ?? 'structure'),
     ];
   }
 
@@ -197,9 +208,10 @@ if ($allowStructureLocations && count($items) < $limit) {
       continue;
     }
     $displayName = $systemName !== '' ? "{$systemName} - {$name}" : $name;
+    $source = $structureMeta['source'] ?? 'structure';
     $structureItems[] = [
       'name' => $displayName,
-      'label' => 'Structure',
+      'label' => $source === 'station' ? 'Station' : 'Structure',
       'sort_order' => $matchesSystemPrefix && $systemNameLower !== '' && array_key_exists($systemNameLower, $systemOrder)
         ? $systemOrder[$systemNameLower]
         : PHP_INT_MAX,

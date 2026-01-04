@@ -225,7 +225,37 @@ final class PricingService
     }
 
     $row = $this->db->one(
-      "SELECT structure_id, system_id
+      "SELECT station_id AS location_id, system_id
+         FROM eve_station
+        WHERE LOWER(station_name) = LOWER(:name)
+        LIMIT 1",
+      ['name' => $name]
+    );
+    if ($row === null && str_contains($name, ' - ')) {
+      $parts = explode(' - ', $name, 2);
+      if (count($parts) === 2 && $this->resolveSystemByName($parts[0]) !== null) {
+        $candidateName = trim($parts[1]);
+        if ($candidateName !== '') {
+          $row = $this->db->one(
+            "SELECT station_id AS location_id, system_id
+               FROM eve_station
+              WHERE LOWER(station_name) = LOWER(:name)
+              LIMIT 1",
+            ['name' => $candidateName]
+          );
+        }
+      }
+    }
+    if ($row !== null) {
+      $stationId = (int)$row['location_id'];
+      if (in_array($stationId, $allowedIds, true)) {
+        return $this->resolveSystemById((int)$row['system_id']);
+      }
+      return null;
+    }
+
+    $row = $this->db->one(
+      "SELECT structure_id AS location_id, system_id
          FROM eve_structure
         WHERE LOWER(structure_name) = LOWER(:name)
         LIMIT 1",
@@ -237,7 +267,7 @@ final class PricingService
         $candidateName = trim($parts[1]);
         if ($candidateName !== '') {
           $row = $this->db->one(
-            "SELECT structure_id, system_id
+            "SELECT structure_id AS location_id, system_id
                FROM eve_structure
               WHERE LOWER(structure_name) = LOWER(:name)
               LIMIT 1",
@@ -249,7 +279,7 @@ final class PricingService
     if ($row === null) {
       return null;
     }
-    $structureId = (int)$row['structure_id'];
+    $structureId = (int)$row['location_id'];
     if (!in_array($structureId, $allowedIds, true)) {
       return null;
     }
