@@ -522,12 +522,14 @@ switch ($path) {
 
         $completedStatusFilter = "r.status IN ('completed','delivered')";
         $failedStatusFilter = "r.status IN ('failed','expired','rejected','cancelled')";
+        $contractStatusCompletedFilter = "LOWER(COALESCE(r.contract_status_esi, r.contract_status, '')) IN ('finished','finished_issuer','finished_contractor','completed')";
+        $contractStatusFailedFilter = "LOWER(COALESCE(r.contract_status_esi, r.contract_status, '')) IN ('failed','cancelled','rejected','expired','deleted','reversed')";
         $completedFilter = $contractLifecycleColumn
-          ? "({$completedStatusFilter} OR {$contractLifecycleColumn} = 'DELIVERED')"
-          : $completedStatusFilter;
+          ? "({$completedStatusFilter} OR {$contractLifecycleColumn} = 'DELIVERED' OR {$contractStatusCompletedFilter})"
+          : "({$completedStatusFilter} OR {$contractStatusCompletedFilter})";
         $failedFilter = $contractLifecycleColumn
-          ? "({$failedStatusFilter} OR {$contractLifecycleColumn} IN ('FAILED','EXPIRED'))"
-          : $failedStatusFilter;
+          ? "({$failedStatusFilter} OR {$contractLifecycleColumn} IN ('FAILED','EXPIRED') OR {$contractStatusFailedFilter})"
+          : "({$failedStatusFilter} OR {$contractStatusFailedFilter})";
 
         $hallOfFameRows = $db->select(
           "SELECT {$nameExpr} AS hauler_name,
