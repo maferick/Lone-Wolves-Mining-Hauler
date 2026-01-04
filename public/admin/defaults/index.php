@@ -447,7 +447,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div class="card" style="margin-bottom:12px;">
             <div class="card-header">
               <h4>Add Access Rule</h4>
-              <p class="muted">Type at least three letters to see matching systems, regions, or structures.</p>
+              <p class="muted">Type at least two letters to see matching systems, regions, or structures.</p>
             </div>
             <div class="content">
               <div class="row">
@@ -519,7 +519,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           region: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['region_id'], 'name' => (string)$row['region_name']], $regionOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
           structure: <?= json_encode(array_map(static fn($row) => ['id' => (int)$row['structure_id'], 'name' => (string)$row['structure_name']], $structureOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
         };
-        const minChars = 3;
+        const minChars = 2;
         const typeSelect = document.getElementById('access-rule-type');
         const valueInput = document.getElementById('access-rule-value');
         const structureFlags = document.getElementById('access-structure-flags');
@@ -533,10 +533,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           if (!listEl) return;
           listEl.innerHTML = '';
           if (!value || value.length < minChars) return;
-          const query = value.toLowerCase();
+          const query = value.toLowerCase().trim();
+          if (!query) return;
           let count = 0;
           for (const item of items || []) {
-            if (!item.name.toLowerCase().startsWith(query)) continue;
+            if (!item.name.toLowerCase().includes(query)) continue;
             const option = document.createElement('option');
             option.value = `${item.name} [${item.id}]`;
             listEl.appendChild(option);
