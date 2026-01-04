@@ -1,8 +1,23 @@
 # Corp Hauling
 
+![EVE Online](https://img.shields.io/badge/EVE-Online-0A1F44?style=for-the-badge&logo=steam&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Active-2E7D32?style=for-the-badge)
+![PHP](https://img.shields.io/badge/PHP-8.x-777BB4?style=for-the-badge&logo=php&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-1E88E5?style=for-the-badge)
+
 Dark, modern 2026 UI skeleton + a strict include pattern:
 
 **config → dbfunctions → auth → services → route handler**
+
+## About
+Built for corporation hauling operations with a clear separation of concerns, ESI-native services, and automation-first workflows.
+
+**In-game contact:** `lellebel`
+
+If you plan to deploy this in New Eden, a quick ping in-game is appreciated.  
+Donations in ISK, exotic beverages, or other morale-boosting commodities are always welcome.
+
+Setup assistance, custom extensions, or operational tuning are available—rates negotiable, payable in whatever keeps your logistics chain moving.
 
 ## Run locally (quick)
 - Point your web server document root to `public/`
@@ -22,7 +37,6 @@ Dark, modern 2026 UI skeleton + a strict include pattern:
   - ETag + `esi_cache`
   - Token refresh with `sso_token`
   - Corp contracts pull → `esi_corp_contract` tables
-
 
 ## ESI contracts pull (CLI)
 1) Ensure `.env` has:
@@ -52,7 +66,6 @@ Recommended cron (every minute):
 * * * * * php /path/to/hauling/bin/cron.php
 ```
 
-
 ## Create database from .env
 If you have server-level credentials available (dev/staging), you can bootstrap the DB automatically:
 
@@ -64,14 +77,12 @@ php createdb.php --import=../db
 
 - `--import` can point to a directory containing `*.sql` or a single `.sql` file.
 
-
 ## Subdirectory hosting (/hauling)
 Because this site is hosted under a subdirectory, set:
 - `APP_BASE_URL="http://killsineve.online/hauling"`
 - `APP_BASE_PATH="/hauling"`
 
 This ensures all links and assets resolve to `/hauling/*` (e.g., `/hauling/health`, `/hauling/docs`).
-
 
 ## API entrypoints (physical)
 Automation endpoints live under `/public/api/` so they never depend on rewrite rules.
@@ -83,7 +94,6 @@ Available endpoints:
 - `/hauling/api/jobs/webhooks?limit=25`
 
 All future automation (Discord webhooks, cron jobs, ESI pulls) should be added here.
-
 
 ## Import order gotcha (drop scripts)
 `db/900_drop_all.sql` is a utility script and **must not** be imported during normal setup.
