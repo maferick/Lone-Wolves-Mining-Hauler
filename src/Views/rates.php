@@ -35,7 +35,7 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
         </ul>
       </div>
       <div class="grid">
-        <div class="card">
+        <div class="card card-subtle">
           <div class="card-header">
             <h3>Rate plans</h3>
             <p class="muted">Per-jump, collateral %, and minimums by ship class.</p>
@@ -70,7 +70,7 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
             <?php endif; ?>
           </div>
         </div>
-        <div class="card">
+        <div class="card card-subtle">
           <div class="card-header">
             <h3>Priority fees</h3>
             <p class="muted">Applied after jump + collateral pricing.</p>
@@ -83,7 +83,7 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
           </div>
         </div>
       </div>
-      <div class="card" style="margin-top:16px;">
+      <div class="card card-subtle" style="margin-top:16px;">
         <div class="card-header">
           <h3>Ready to book?</h3>
           <p class="muted">Generate a live quote with your route and collateral details.</p>

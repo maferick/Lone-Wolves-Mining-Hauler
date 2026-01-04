@@ -71,6 +71,7 @@ $isResetRequest = $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_b
 $brandingDefaults = [
   'panel_intensity' => 60,
   'background_all_pages' => false,
+  'transparency_enabled' => true,
 ];
 $brandingUi = $brandingDefaults;
 
@@ -183,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $panelIntensity = (int)($_POST['panel_intensity'] ?? $brandingUi['panel_intensity']);
   $panelIntensity = max(0, min(100, $panelIntensity));
   $backgroundAllPages = !empty($_POST['background_all_pages']);
+  $transparencyEnabled = !empty($_POST['transparency_enabled']);
   $uploads = [
     'background_image' => [
       'path' => $brandDir . '/background.jpg',
@@ -231,18 +233,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   $db->execute(
     "INSERT INTO app_setting (corp_id, setting_key, setting_json, updated_by_user_id)
-     VALUES (:cid, 'branding.ui', JSON_OBJECT('panel_intensity', :panel, 'background_all_pages', :background_all), :uid)
+     VALUES (:cid, 'branding.ui', JSON_OBJECT('panel_intensity', :panel, 'background_all_pages', :background_all, 'transparency_enabled', :transparency_enabled), :uid)
      ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json), updated_by_user_id=VALUES(updated_by_user_id)",
     [
       'cid' => $corpId,
       'panel' => $panelIntensity,
       'background_all' => $backgroundAllPages ? 1 : 0,
+      'transparency_enabled' => $transparencyEnabled ? 1 : 0,
       'uid' => $authCtx['user_id'],
     ]
   );
   $brandingUi = [
     'panel_intensity' => $panelIntensity,
     'background_all_pages' => $backgroundAllPages,
+    'transparency_enabled' => $transparencyEnabled,
   ];
 
   if (!empty($errors)) {
@@ -347,12 +351,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <div class="muted" style="margin-top:6px;">
               Intensity: <span id="panel_intensity_value"><?= htmlspecialchars((string)$brandingUi['panel_intensity'], ENT_QUOTES, 'UTF-8') ?></span>%
             </div>
+            <div class="muted" id="panel_intensity_hint" style="margin-top:6px;">
+              Transparency is managed globally across cards.
+            </div>
           </div>
           <div>
             <label class="label" for="background_all_pages">Background image visibility</label>
             <label class="pill" style="display:flex; align-items:center; gap:8px; margin-top:6px;">
               <input type="checkbox" id="background_all_pages" name="background_all_pages" value="1"<?= !empty($brandingUi['background_all_pages']) ? ' checked' : '' ?> />
               Show background on all pages
+            </label>
+            <label class="pill" style="display:flex; align-items:center; gap:8px; margin-top:10px;">
+              <input type="checkbox" id="transparency_enabled" name="transparency_enabled" value="1"<?= !empty($brandingUi['transparency_enabled']) ? ' checked' : '' ?> />
+              Enable card transparency
             </label>
           </div>
         </div>
@@ -385,12 +396,27 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <script>
   const panelSlider = document.getElementById('panel_intensity');
   const panelValue = document.getElementById('panel_intensity_value');
+  const panelHint = document.getElementById('panel_intensity_hint');
+  const transparencyToggle = document.getElementById('transparency_enabled');
   if (panelSlider && panelValue) {
     const updateValue = () => {
       panelValue.textContent = panelSlider.value;
     };
     panelSlider.addEventListener('input', updateValue);
     updateValue();
+  }
+  if (panelSlider && transparencyToggle) {
+    const syncTransparencyState = () => {
+      const enabled = transparencyToggle.checked;
+      panelSlider.disabled = !enabled;
+      if (panelHint) {
+        panelHint.textContent = enabled
+          ? 'Transparency is managed globally across cards.'
+          : 'Transparency is disabled. Cards will render as solid dark panels.';
+      }
+    };
+    transparencyToggle.addEventListener('change', syncTransparencyState);
+    syncTransparencyState();
   }
 </script>
 <?php
