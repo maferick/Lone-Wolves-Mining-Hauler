@@ -14,6 +14,7 @@ final class JobQueueService
   public const CRON_CONTRACTS_JOB = 'cron.contracts';
   public const CONTRACT_MATCH_JOB = 'cron.contract_match';
   public const WEBHOOK_DELIVERY_JOB = 'cron.webhook_delivery';
+  public const WEBHOOK_REQUEUE_JOB = 'cron.webhook_requeue';
 
   public function __construct(private Db $db)
   {
@@ -208,6 +209,50 @@ final class JobQueueService
       $auditContext['actor_user_id'] ?? null,
       $auditContext['actor_character_id'] ?? null,
       'cron.webhook_delivery.queued',
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
+  }
+
+  public function enqueueWebhookRequeue(int $limit, int $minutes = 60, array $auditContext = []): int
+  {
+    $payload = [
+      'limit' => $limit,
+      'minutes' => $minutes,
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => 'Webhook requeue queued.',
+        ],
+      ],
+    ];
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => null,
+      'job_type' => self::WEBHOOK_REQUEUE_JOB,
+      'priority' => 95,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      null,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      'cron.webhook_requeue.queued',
       'job_queue',
       (string)$jobId,
       null,
