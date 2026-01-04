@@ -93,6 +93,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
 
     <div style="margin-top:20px;">
+      <h3>Quote Location Inputs</h3>
+      <div class="muted">Allow quote requests to search stations and structures in addition to systems.</div>
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Enable stations &amp; structures</span>
+          <input type="checkbox" id="quote-locations-structures" />
+        </label>
+        <button class="btn" type="button" id="save-quote-locations">Save</button>
+      </div>
+      <div class="muted" id="quote-locations-note" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:20px;">
       <h3>Buyback Haulage</h3>
       <div class="muted">Set the fixed price for the buyback haulage button on the quote page.</div>
       <div class="row" style="margin-top:10px; align-items:center;">
@@ -281,6 +294,20 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     if (note) note.textContent = enabled ? 'Contract attach enabled for requesters.' : 'Contract attach disabled. Requests cannot attach contract IDs.';
   };
 
+  const loadQuoteLocations = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/quote-locations/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const toggle = document.getElementById('quote-locations-structures');
+    const note = document.getElementById('quote-locations-note');
+    const enabled = !!data.allow_structures;
+    if (toggle) toggle.checked = enabled;
+    if (note) {
+      note.textContent = enabled
+        ? 'Stations and structures are available in quote location search.'
+        : 'Quotes are limited to system names only.';
+    }
+  };
+
   const loadTolerance = async () => {
     const data = await fetchJson(`${basePath}/api/admin/settings/?corp_id=${corpId}`);
     if (data.ok) {
@@ -398,6 +425,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     loadContractAttach();
   });
 
+  document.getElementById('save-quote-locations')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('quote-locations-structures')?.checked ?? true;
+    await fetchJson(`${basePath}/api/admin/quote-locations/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        allow_structures: enabled,
+      }),
+    });
+    loadQuoteLocations();
+  });
+
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
     const type = document.getElementById('tolerance-type').value;
     const value = parseFloat(document.getElementById('tolerance-value').value || '0');
@@ -487,6 +526,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   loadPriority();
   loadPriorityFees();
   loadContractAttach();
+  loadQuoteLocations();
   loadTolerance();
   loadBuyback();
   loadRatePlans();
