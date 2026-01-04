@@ -117,7 +117,7 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .card{
   border:1px solid var(--border);
   border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255,255,255, var(--panel-alpha)), rgba(255,255,255, var(--panel-alpha-2)));
+  background: linear-gradient(180deg, rgba(8,10,16, var(--hero-banner-alpha)), rgba(8,10,16, var(--hero-banner-alpha-2)));
   box-shadow: var(--shadow);
   overflow:hidden;
 }
