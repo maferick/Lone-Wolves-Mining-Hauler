@@ -121,6 +121,23 @@ foreach ($systemRows as $row) {
 }
 
 if ($allowStructureLocations && count($items) < $limit) {
+  $stationPlaceholderPattern = '/^station\\s+\\d+$/i';
+  $resolveStationName = static function (string $stationName, string $aliasName, string $entityName) use ($stationPlaceholderPattern): string {
+    $stationName = trim($stationName);
+    $aliasName = trim($aliasName);
+    $entityName = trim($entityName);
+    $isPlaceholder = $stationName === '' || preg_match($stationPlaceholderPattern, $stationName) === 1;
+    if ($isPlaceholder) {
+      if ($aliasName !== '') {
+        return $aliasName;
+      }
+      if ($entityName !== '' && preg_match($stationPlaceholderPattern, $entityName) !== 1) {
+        return $entityName;
+      }
+    }
+    return $stationName;
+  };
+
   $structureRules = $accessRules['structures'] ?? [];
   $structureIds = [];
   foreach ($structureRules as $rule) {
@@ -147,15 +164,26 @@ if ($allowStructureLocations && count($items) < $limit) {
     $structureRows = $db->select(
       "SELECT st.station_id AS structure_id,
               st.station_name AS structure_name,
+              ea.alias AS alias_name,
+              ee.name AS entity_name,
               COALESCE(ms.system_name, s.system_name) AS system_name,
               'station' AS source
          FROM eve_station st
+         LEFT JOIN (
+           SELECT entity_id, MIN(alias) AS alias
+             FROM eve_entity_alias
+            WHERE entity_type = 'station'
+            GROUP BY entity_id
+         ) ea ON ea.entity_id = st.station_id
+         LEFT JOIN eve_entity ee ON ee.entity_id = st.station_id AND ee.entity_type = 'station'
          LEFT JOIN map_system ms ON ms.system_id = st.system_id
          LEFT JOIN eve_system s ON s.system_id = st.system_id
         WHERE st.station_id IN ($placeholders)
        UNION ALL
        SELECT es.structure_id AS structure_id,
               es.structure_name AS structure_name,
+              NULL AS alias_name,
+              NULL AS entity_name,
               COALESCE(ms2.system_name, s2.system_name) AS system_name,
               'structure' AS source
          FROM eve_structure es
@@ -165,15 +193,33 @@ if ($allowStructureLocations && count($items) < $limit) {
       array_merge($structureIds, $structureIds)
     );
     foreach ($structureRows as $row) {
-      $structureNameById[(int)$row['structure_id']] = (string)$row['structure_name'];
+      $structureId = (int)$row['structure_id'];
+      $structureName = (string)$row['structure_name'];
+      if (($row['source'] ?? '') === 'station') {
+        $structureName = $resolveStationName(
+          $structureName,
+          (string)($row['alias_name'] ?? ''),
+          (string)($row['entity_name'] ?? '')
+        );
+      }
+      $structureNameById[$structureId] = $structureName;
     }
   }
 
   $prefixLower = mb_strtolower($prefix);
   $structureMetaById = [];
   foreach ($structureRows as $row) {
-    $structureMetaById[(int)$row['structure_id']] = [
-      'name' => (string)($row['structure_name'] ?? ''),
+    $structureId = (int)$row['structure_id'];
+    $structureName = (string)($row['structure_name'] ?? '');
+    if (($row['source'] ?? '') === 'station') {
+      $structureName = $resolveStationName(
+        $structureName,
+        (string)($row['alias_name'] ?? ''),
+        (string)($row['entity_name'] ?? '')
+      );
+    }
+    $structureMetaById[$structureId] = [
+      'name' => $structureName,
       'system_name' => (string)($row['system_name'] ?? ''),
       'source' => (string)($row['source'] ?? 'structure'),
     ];
@@ -239,8 +285,17 @@ if ($allowStructureLocations && count($items) < $limit) {
 if ($allowStructureLocations && count($items) < $limit) {
   $stationRows = $db->select(
     "SELECT st.station_id, st.station_name, st.system_id,
+            ea.alias AS alias_name,
+            ee.name AS entity_name,
             COALESCE(ms.region_id, c.region_id) AS region_id
        FROM eve_station st
+       LEFT JOIN (
+         SELECT entity_id, MIN(alias) AS alias
+           FROM eve_entity_alias
+          WHERE entity_type = 'station'
+          GROUP BY entity_id
+       ) ea ON ea.entity_id = st.station_id
+       LEFT JOIN eve_entity ee ON ee.entity_id = st.station_id AND ee.entity_type = 'station'
        LEFT JOIN map_system ms ON ms.system_id = st.system_id
        LEFT JOIN eve_system s ON s.system_id = st.system_id
        LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
@@ -250,7 +305,11 @@ if ($allowStructureLocations && count($items) < $limit) {
     [$prefix . '%', $limit * 2]
   );
   foreach ($stationRows as $row) {
-    $stationName = trim((string)($row['station_name'] ?? ''));
+    $stationName = $resolveStationName(
+      (string)($row['station_name'] ?? ''),
+      (string)($row['alias_name'] ?? ''),
+      (string)($row['entity_name'] ?? '')
+    );
     if ($stationName === '') {
       continue;
     }
