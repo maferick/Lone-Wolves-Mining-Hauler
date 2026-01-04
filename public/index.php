@@ -827,110 +827,62 @@ switch ($path) {
       <section class="card">
         <div class="card-header">
           <h2>Frequently Asked Questions</h2>
-          <p class="muted">A clear guide from quote to delivery.</p>
+          <p class="muted">Everything you need to submit a clean courier contract.</p>
         </div>
         <div class="content">
           <div class="stack">
-            <h3>How does the hauling request and contract process work?</h3>
-            <p>Our hauling process is designed to be clear, predictable, and easy to follow. Please complete each step carefully.</p>
+            <h3>How does the hauling process work?</h3>
             <ol>
-              <li><strong>Get Quote:</strong> Fill in the quote form to calculate the hauling price and parameters.</li>
-              <li><strong>Create Request:</strong> Review the quoted price and submit the request by selecting Create Request.</li>
-              <li><strong>View Contract Instructions:</strong> Open View Contract Instructions to see the final contract details. This page contains the authoritative values that must be used when creating the in-game courier contract.</li>
-              <li><strong>Create the In-Game Contract:</strong> Using the information from the Contract Instructions page, create a private courier contract in-game.</li>
-              <li><strong>Contract Validation:</strong> Submitted contracts are validated only on pickup system, destination system, collateral, reward, and volume limit. Contracts that do not match these values may be rejected.</li>
-              <li><strong>Hauling Execution:</strong> Once approved, the contract is accepted by a hauler and delivered to the destination.</li>
-              <li><strong>Track Progress:</strong> You can follow the status of your requests and contracts via My Contracts.</li>
+              <li><strong>Get Quote</strong> – Enter pickup, destination, volume, and options to calculate the price.</li>
+              <li><strong>Create Request</strong> – Confirm the quote to create a hauling request.</li>
+              <li><strong>Contract Instructions</strong> – Open View Contract Instructions to see the exact values you must use.</li>
+              <li><strong>Create In-Game Contract</strong> – Create a private courier contract using those values.</li>
+              <li><strong>Execution &amp; Tracking</strong> – A hauler accepts the contract in-game; progress updates automatically.</li>
             </ol>
           </div>
           <div class="stack">
-            <h3>Contract Instructions – Field Explanation</h3>
-            <p>The Contract Instructions page shows the final values required to create your courier contract. Each field is explained below, along with what you must do in-game.</p>
-            <div class="stack">
-              <h4>Request</h4>
-              <p>Internal request number and current status.</p>
-              <p><strong>In-game action:</strong> None. Reference only.</p>
-            </div>
-            <div class="stack">
-              <h4>Route</h4>
-              <p>Shows the pickup and destination systems (for example: Jita → Eldjaerin).</p>
-              <p><strong>In-game action:</strong></p>
-              <ul>
-                <li>Set the Start Location to the pickup system.</li>
-                <li>Set the End Location to the destination system.</li>
-                <li>Both systems must match exactly.</li>
-              </ul>
-            </div>
-            <div class="stack">
-              <h4>Contract Link State</h4>
-              <p>Indicates whether a contract has been linked to this request.</p>
-              <p><strong>In-game action:</strong> None.</p>
-            </div>
-            <div class="stack">
-              <h4>Contract ID</h4>
-              <p>Displays the in-game contract ID once a contract is linked.</p>
-              <p><strong>In-game action:</strong> None.</p>
-            </div>
-            <div class="stack">
-              <h4>Contract Status</h4>
-              <p>Shows the current processing status of the request or contract.</p>
-              <p><strong>In-game action:</strong> None.</p>
-            </div>
-            <div class="stack">
-              <h4>Issuer</h4>
-              <p>The organization providing the hauling service.</p>
-              <p><strong>In-game action:</strong> None.</p>
-            </div>
-            <div class="stack">
-              <h4>Private To</h4>
-              <p>Specifies who the contract must be issued to.</p>
-              <p><strong>In-game action:</strong></p>
-              <ul>
-                <li>Create a Private Courier Contract.</li>
-                <li>Set the recipient exactly as shown.</li>
-              </ul>
-            </div>
-            <div class="stack">
-              <h4>Collateral</h4>
-              <p>The ISK value paid out if the cargo is lost.</p>
-              <p><strong>In-game action:</strong></p>
-              <ul>
-                <li>Enter the Collateral amount exactly as shown.</li>
-                <li>This value is validated.</li>
-              </ul>
-            </div>
-            <div class="stack">
-              <h4>Reward</h4>
-              <p>The ISK paid to the hauler on successful delivery.</p>
-              <p><strong>In-game action:</strong></p>
-              <ul>
-                <li>Enter the Reward amount exactly as shown.</li>
-                <li>This value is validated.</li>
-              </ul>
-            </div>
-            <div class="stack">
-              <h4>Volume Limit</h4>
-              <p>The maximum allowed cargo volume for the contract.</p>
-              <p><strong>In-game action:</strong></p>
-              <ul>
-                <li>Ensure the total item volume does not exceed this limit.</li>
-                <li>Set the contract volume accordingly.</li>
-                <li>This value is validated.</li>
-              </ul>
-            </div>
-            <div class="stack">
-              <h4>Contract Description Template</h4>
-              <p>A reference string used to identify the contract (for example: Quote 0b30dbe99ede1189f4b499ca837d4756).</p>
-              <p><strong>In-game action:</strong> Copy this text into the Contract Description field when creating the contract.</p>
-            </div>
-            <div class="stack">
-              <h4>Important Notes</h4>
-              <ul>
-                <li>The Contract Instructions page is the single source of truth.</li>
-                <li>Only the listed fields are validated during review.</li>
-                <li>Exact matches are required to avoid rejection or delays.</li>
-              </ul>
-            </div>
+            <h3>What is validated on my contract?</h3>
+            <p class="muted">Only these fields are validated against the request:</p>
+            <ul>
+              <li>Pickup system</li>
+              <li>Destination system</li>
+              <li>Collateral</li>
+              <li>Reward</li>
+              <li>Volume limit</li>
+            </ul>
+            <p>If any of these do not match exactly, the contract may be rejected or delayed.</p>
+          </div>
+          <div class="stack">
+            <h3>What do I need to do in-game?</h3>
+            <ul>
+              <li>Create a <strong>Private Courier Contract</strong>.</li>
+              <li>Set <strong>Start Location</strong> and <strong>End Location</strong> exactly as shown.</li>
+              <li>Enter <strong>Collateral</strong> and <strong>Reward</strong> exactly as listed.</li>
+              <li>Ensure total item volume is within the <strong>Volume Limit</strong>.</li>
+              <li>Copy the <strong>Contract Description Template</strong> into the description field.</li>
+            </ul>
+            <p class="muted">Everything else is informational.</p>
+          </div>
+          <div class="stack">
+            <h3>What is the Contract Description Template?</h3>
+            <p>A reference string (for example: <strong>Quote a6da9f5422cda4afc5574f1f0d2064c8</strong>) used to link your in-game contract to the request. Always copy it exactly into the contract description.</p>
+          </div>
+          <div class="stack">
+            <h3>How do I track my haul?</h3>
+            <p>Use <strong>My Contracts</strong> on the site:</p>
+            <ul>
+              <li>Status updates come from in-game contract state (ESI).</li>
+              <li><strong>Picked up / En route</strong> means the contract has been accepted in-game.</li>
+              <li>Delivery, failure, or expiry are updated automatically.</li>
+            </ul>
+          </div>
+          <div class="alert alert-warning">
+            <strong>Important</strong>
+            <ul>
+              <li>The Contract Instructions page is the single source of truth.</li>
+              <li>Exact matches prevent delays.</li>
+              <li>In-game status always overrides manual tracking.</li>
+            </ul>
           </div>
           <a class="btn ghost" href="{$dashboardUrl}">Back to dashboard</a>
         </div>
