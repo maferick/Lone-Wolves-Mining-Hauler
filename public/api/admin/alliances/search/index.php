@@ -25,6 +25,32 @@ if ($query === '' || mb_strlen($query) < 2) {
   api_send_json(['ok' => true, 'alliances' => []]);
 }
 
+$alliances = [];
+$seenIds = [];
+
+$localRows = $db->select(
+  "SELECT entity_id, name
+     FROM eve_entity
+    WHERE entity_type = 'alliance'
+      AND name LIKE ?
+    ORDER BY name
+    LIMIT 10",
+  [$query . '%']
+);
+foreach ($localRows as $row) {
+  $allianceId = (int)($row['entity_id'] ?? 0);
+  $name = trim((string)($row['name'] ?? ''));
+  if ($allianceId <= 0 || $name === '') {
+    continue;
+  }
+  $alliances[] = ['id' => $allianceId, 'name' => $name];
+  $seenIds[$allianceId] = true;
+}
+
+if (count($alliances) >= 10 || mb_strlen($query) < 3) {
+  api_send_json(['ok' => true, 'alliances' => $alliances]);
+}
+
 $resp = $services['esi_client']->get('/v2/search/', [
   'categories' => 'alliance',
   'search' => $query,
@@ -32,18 +58,22 @@ $resp = $services['esi_client']->get('/v2/search/', [
 ], null, 300);
 
 if (!$resp['ok'] || !is_array($resp['json'])) {
-  api_send_json(['ok' => false, 'error' => 'ESI search failed'], 502);
+  api_send_json([
+    'ok' => true,
+    'alliances' => $alliances,
+    'warning' => 'ESI search failed',
+  ]);
 }
 
 $ids = $resp['json']['alliance'] ?? [];
 if (!is_array($ids) || $ids === []) {
-  api_send_json(['ok' => true, 'alliances' => []]);
+  api_send_json(['ok' => true, 'alliances' => $alliances]);
 }
 
-$alliances = [];
-foreach (array_slice($ids, 0, 10) as $allianceId) {
+$limit = max(0, 10 - count($alliances));
+foreach (array_slice($ids, 0, $limit) as $allianceId) {
   $allianceId = (int)$allianceId;
-  if ($allianceId <= 0) {
+  if ($allianceId <= 0 || isset($seenIds[$allianceId])) {
     continue;
   }
   try {
