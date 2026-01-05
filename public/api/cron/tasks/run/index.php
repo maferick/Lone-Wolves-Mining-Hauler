@@ -13,8 +13,10 @@ Auth::requireLogin($authCtx);
 Auth::requirePerm($authCtx, 'esi.manage');
 
 $data = api_read_json();
-$taskKey = trim((string)($data['task_key'] ?? ''));
+$taskKey = trim((string)($data['task_key'] ?? ($data['taskKey'] ?? ($data['task'] ?? ''))));
 $taskKey = rtrim($taskKey, ';');
+$taskKey = strtolower($taskKey);
+$taskKey = preg_replace('/[^a-z0-9._-]/', '', (string)$taskKey);
 
 $jobQueue = new JobQueueService($db);
 $corpId = (int)($authCtx['corp_id'] ?? 0);
