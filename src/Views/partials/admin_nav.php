@@ -32,6 +32,7 @@ $navItems = [
   ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
   ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
   ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+  ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
   ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
   ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
 ];
