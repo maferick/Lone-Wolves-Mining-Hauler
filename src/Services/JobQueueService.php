@@ -409,6 +409,54 @@ final class JobQueueService
     return $this->getPendingJob($corpId, $jobType) !== null;
   }
 
+  public function expireStaleRunningJob(
+    ?int $corpId,
+    string $jobType,
+    int $maxAgeSeconds,
+    string $reason,
+    string $auditAction = 'cron.job.stale'
+  ): ?int {
+    if ($maxAgeSeconds <= 0) {
+      return null;
+    }
+    $params = [
+      'job_type' => $jobType,
+      'cutoff' => gmdate('Y-m-d H:i:s', time() - $maxAgeSeconds),
+    ];
+    $corpClause = 'corp_id IS NULL';
+    if ($corpId !== null) {
+      $corpClause = 'corp_id = :corp_id';
+      $params['corp_id'] = $corpId;
+    }
+
+    $job = $this->db->one(
+      "SELECT job_id, status
+         FROM job_queue
+        WHERE job_type = :job_type
+          AND {$corpClause}
+          AND status = 'running'
+          AND COALESCE(locked_at, started_at, created_at) <= :cutoff
+        ORDER BY COALESCE(locked_at, started_at, created_at) ASC, job_id ASC
+        LIMIT 1",
+      $params
+    );
+
+    if (!$job) {
+      return null;
+    }
+
+    $jobId = (int)$job['job_id'];
+    $this->markFailed(
+      $jobId,
+      $reason,
+      ['stale' => true],
+      $auditAction,
+      $reason
+    );
+
+    return $jobId;
+  }
+
   public function getPendingJob(?int $corpId, string $jobType): ?array
   {
     $params = ['job_type' => $jobType];
@@ -621,6 +669,7 @@ final class JobQueueService
     $this->db->execute(
       "UPDATE job_queue
           SET payload_json = :payload_json
+            , updated_at = UTC_TIMESTAMP()
         WHERE job_id = :job_id",
       [
         'payload_json' => Db::jsonEncode($payload),

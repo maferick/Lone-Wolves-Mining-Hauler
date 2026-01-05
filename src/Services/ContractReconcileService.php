@@ -20,8 +20,16 @@ final class ContractReconcileService
   ) {
   }
 
-  public function reconcile(int $corpId): array
+  public function reconcile(int $corpId, array $options = []): array
   {
+    $options = array_merge([
+      'max_runtime_seconds' => 0,
+      'on_progress' => null,
+    ], $options);
+    $progressCb = is_callable($options['on_progress'] ?? null) ? $options['on_progress'] : null;
+    $maxRuntimeSeconds = (int)($options['max_runtime_seconds'] ?? 0);
+    $startedAt = microtime(true);
+
     $summary = [
       'corp_id' => $corpId,
       'linked_requests' => 0,
@@ -37,6 +45,12 @@ final class ContractReconcileService
       'not_found' => 0,
       'pages' => 0,
       'timestamp' => gmdate('c'),
+      'duration_ms' => 0,
+      'db_ms' => 0,
+      'acceptor_resolves' => 0,
+      'acceptor_resolve_ms' => 0,
+      'stop_reason' => null,
+      'max_runtime_seconds' => $maxRuntimeSeconds,
     ];
 
     $requests = $this->db->select(
@@ -55,6 +69,8 @@ final class ContractReconcileService
     $summary['linked_requests'] = count($requests);
     $summary['scanned'] = $summary['linked_requests'];
     if ($requests === []) {
+      $summary['duration_ms'] = (microtime(true) - $startedAt) * 1000;
+      $summary['stop_reason'] = 'no_requests';
       return $summary;
     }
 
@@ -67,6 +83,8 @@ final class ContractReconcileService
     }
 
     if ($contractIds === []) {
+      $summary['duration_ms'] = (microtime(true) - $startedAt) * 1000;
+      $summary['stop_reason'] = 'no_contract_ids';
       return $summary;
     }
 
@@ -94,18 +112,21 @@ final class ContractReconcileService
 
     $entityResolver = new EntityResolveService($this->db, $this->esi);
 
+    $processedRequests = 0;
     foreach ($requests as $request) {
       $requestId = (int)($request['request_id'] ?? 0);
       $contractId = (int)($request['contract_id'] ?? 0);
       if ($requestId <= 0 || $contractId <= 0) {
         $summary['skipped_requests']++;
         $summary['skipped']++;
+        $processedRequests++;
         continue;
       }
 
       if (!isset($contractsById[$contractId])) {
         $summary['missing_contracts']++;
         $summary['not_found']++;
+        $processedRequests++;
         continue;
       }
 
@@ -120,7 +141,10 @@ final class ContractReconcileService
       $acceptorName = '';
       if ($acceptorId !== null) {
         try {
+          $resolveStart = microtime(true);
           $acceptorName = $entityResolver->resolveCharacterName($acceptorId);
+          $summary['acceptor_resolve_ms'] += (microtime(true) - $resolveStart) * 1000;
+          $summary['acceptor_resolves']++;
         } catch (\Throwable $e) {
           $summary['errors']++;
           $acceptorName = '';
@@ -203,6 +227,7 @@ final class ContractReconcileService
       if ($changes === []) {
         $summary['skipped_requests']++;
         $summary['skipped']++;
+        $processedRequests++;
         continue;
       }
 
@@ -215,15 +240,18 @@ final class ContractReconcileService
       $set[] = 'last_reconciled_at = UTC_TIMESTAMP()';
       $set[] = 'updated_at = UTC_TIMESTAMP()';
 
+      $dbStart = microtime(true);
       $this->db->execute(
         'UPDATE haul_request SET ' . implode(', ', $set) . ' WHERE request_id = :rid',
         $params
       );
+      $summary['db_ms'] += (microtime(true) - $dbStart) * 1000;
       $summary['updated_requests']++;
       $summary['updated']++;
 
       if ($newState !== $oldState) {
         $summary['state_transitions']++;
+        $dbStart = microtime(true);
         $this->db->insert('ops_event', [
           'corp_id' => $corpId,
           'request_id' => $requestId,
@@ -232,6 +260,7 @@ final class ContractReconcileService
           'new_state' => $newState,
           'acceptor_name' => $acceptorName,
         ]);
+        $summary['db_ms'] += (microtime(true) - $dbStart) * 1000;
 
         $eventKey = $this->eventKeyForState($newState);
         if ($eventKey !== null && $this->webhooks) {
@@ -260,8 +289,25 @@ final class ContractReconcileService
           );
         }
       }
+      $processedRequests++;
+
+      if ($maxRuntimeSeconds > 0 && (microtime(true) - $startedAt) >= $maxRuntimeSeconds) {
+        throw new \RuntimeException("Contracts reconcile exceeded {$maxRuntimeSeconds}s while processing requests.");
+      }
+      if ($progressCb && $processedRequests > 0 && ($processedRequests % 200 === 0)) {
+        $progressCb([
+          'label' => sprintf('Contracts reconcile processed %d/%d requests', $processedRequests, $summary['scanned']),
+          'stage' => 'contracts_reconcile',
+          'processed' => $processedRequests,
+          'total' => $summary['scanned'],
+        ]);
+      }
     }
 
+    $summary['duration_ms'] = (microtime(true) - $startedAt) * 1000;
+    if ($summary['stop_reason'] === null) {
+      $summary['stop_reason'] = 'completed';
+    }
     return $summary;
   }
 

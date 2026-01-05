@@ -85,6 +85,8 @@ $tokenRefreshInterval = $normalizeInterval((int)($_ENV['CRON_TOKEN_REFRESH_INTER
 $structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900), 900);
 $publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
+$contractsMaxRuntime = (int)($_ENV['CRON_CONTRACTS_MAX_RUNTIME'] ?? 60);
+$contractsMaxRuntime = max(10, $contractsMaxRuntime);
 $alliancesInterval = $normalizeInterval((int)($_ENV['CRON_ALLIANCES_INTERVAL'] ?? 86400), 86400);
 $npcStructuresInterval = $normalizeInterval((int)($_ENV['CRON_NPC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
@@ -368,6 +370,16 @@ foreach ($cronRows as $row) {
     $log("Contracts sync disabled for corp {$corpId}; skipping.");
   } elseif ($shouldRun($state['contracts'] ?? null, $corpContractsInterval, $now)) {
     try {
+      $staleJobId = $jobQueue->expireStaleRunningJob(
+        $corpId,
+        JobQueueService::CRON_CONTRACTS_JOB,
+        $contractsMaxRuntime,
+        "Contracts sync exceeded {$contractsMaxRuntime}s and was marked stale.",
+        'cron.contracts.stale'
+      );
+      if ($staleJobId) {
+        $log("Contracts sync job {$staleJobId} marked stale for corp {$corpId}.");
+      }
       if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_CONTRACTS_JOB)) {
         $log("Contracts sync job already queued for corp {$corpId}.");
         $state['contracts'] = gmdate('c', $now);
