@@ -495,6 +495,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   </div>
 </section>
 <?php
-$content = ob_get_clean();
+$body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
 ?>
