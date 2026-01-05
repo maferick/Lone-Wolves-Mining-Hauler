@@ -39,18 +39,18 @@ ob_start();
           <div>#<?= htmlspecialchars((string)$request['request_id'], ENT_QUOTES, 'UTF-8') ?> • Status: <?= htmlspecialchars((string)$request['status'], ENT_QUOTES, 'UTF-8') ?></div>
         </div>
         <div>
-          <div class="label">Route</div>
-          <div><?= htmlspecialchars((string)$routeSummary, ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="label label--checked">Route</div>
+          <div class="checked-value"><?= htmlspecialchars((string)$routeSummary, ENT_QUOTES, 'UTF-8') ?></div>
         </div>
       </div>
       <div class="row" style="margin-top:12px;">
         <div>
-          <div class="label">Pickup location</div>
-          <div><?= htmlspecialchars($pickupLabel !== '' ? $pickupLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="label label--checked">Pickup location</div>
+          <div class="checked-value"><?= htmlspecialchars($pickupLabel !== '' ? $pickupLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
         </div>
         <div>
-          <div class="label">Delivery location</div>
-          <div><?= htmlspecialchars($deliveryLabel !== '' ? $deliveryLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="label label--checked">Delivery location</div>
+          <div class="checked-value"><?= htmlspecialchars($deliveryLabel !== '' ? $deliveryLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
         </div>
       </div>
       <div class="row" style="margin-top:12px;">
@@ -113,33 +113,33 @@ ob_start();
 
       <div class="row" style="margin-top:16px;">
         <div>
-          <div class="label">Collateral</div>
-          <div><?= number_format((float)$request['collateral_isk'], 2) ?> ISK</div>
+          <div class="label label--checked">Collateral</div>
+          <div class="checked-value"><?= number_format((float)$request['collateral_isk'], 2) ?> ISK</div>
         </div>
         <div>
-          <div class="label">Reward</div>
-          <div><?= number_format((float)$request['reward_isk'], 2) ?> ISK</div>
+          <div class="label label--checked">Reward</div>
+          <div class="checked-value"><?= number_format((float)$request['reward_isk'], 2) ?> ISK</div>
         </div>
         <div>
-          <div class="label">Volume limit</div>
-          <div><?= number_format((float)$shipClassMax, 0) ?> m³</div>
+          <div class="label label--checked">Volume limit</div>
+          <div class="checked-value"><?= number_format((float)$shipClassMax, 0) ?> m³</div>
         </div>
       </div>
 
       <div class="row" style="margin-top:16px;">
         <div>
-          <div class="label">Contract expiration (required)</div>
-          <div>7 days</div>
+          <div class="label label--checked">Contract expiration (required)</div>
+          <div class="checked-value">7 days</div>
         </div>
         <div>
-          <div class="label">Days to complete (required)</div>
-          <div>2 days</div>
+          <div class="label label--checked">Days to complete (required)</div>
+          <div class="checked-value">2 days</div>
         </div>
       </div>
 
       <div style="margin-top:16px;">
-        <div class="label">Contract description template</div>
-        <textarea class="input" rows="4" readonly><?= htmlspecialchars($contractDescription, ENT_QUOTES, 'UTF-8') ?></textarea>
+        <div class="label label--checked">Contract description template</div>
+        <textarea class="input input--checked" rows="4" readonly><?= htmlspecialchars($contractDescription, ENT_QUOTES, 'UTF-8') ?></textarea>
       </div>
 
       <div style="margin-top:16px;">
