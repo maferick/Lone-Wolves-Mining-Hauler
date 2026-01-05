@@ -34,12 +34,16 @@ final class PricingService
   {
     $from = trim((string)($payload['pickup'] ?? $payload['pickup_system'] ?? $payload['from_system'] ?? ''));
     $to = trim((string)($payload['destination'] ?? $payload['destination_system'] ?? $payload['to_system'] ?? ''));
+    $pickupLocationId = (int)($payload['pickup_location_id'] ?? 0);
+    $pickupLocationType = (string)($payload['pickup_location_type'] ?? '');
+    $destinationLocationId = (int)($payload['destination_location_id'] ?? 0);
+    $destinationLocationType = (string)($payload['destination_location_type'] ?? '');
     $priority = (string)($payload['priority'] ?? $payload['route_priority'] ?? $payload['profile'] ?? '');
     $volume = (float)($payload['volume_m3'] ?? $payload['volume'] ?? 0);
     $collateral = (float)($payload['collateral_isk'] ?? $payload['collateral'] ?? 0);
 
-    if ($from === '' || $to === '') {
-      throw new \InvalidArgumentException('from_system and to_system are required.');
+    if (($from === '' && $pickupLocationId <= 0) || ($to === '' && $destinationLocationId <= 0)) {
+      throw new \InvalidArgumentException('pickup and delivery locations are required.');
     }
     if ($volume <= 0) {
       throw new \InvalidArgumentException('volume_m3 must be greater than zero.');
@@ -51,26 +55,42 @@ final class PricingService
     $allowStructures = $this->loadQuoteLocationMode($corpId);
     $structureAllowlist = $this->loadStructureAllowlist($corpId);
     $accessRules = $this->loadAccessRules($corpId);
-    $fromLocation = $this->resolveLocationEntry(
+    [$fromLocation, $pickupDebug] = $this->resolveLocationEntryWithDebug(
       $from,
-      (string)($payload['pickup_location_type'] ?? ''),
-      (int)($payload['pickup_location_id'] ?? 0),
+      $pickupLocationType,
+      $pickupLocationId,
       $allowStructures,
       'pickup',
       $structureAllowlist,
       $accessRules
     );
-    $toLocation = $this->resolveLocationEntry(
+    [$toLocation, $deliveryDebug] = $this->resolveLocationEntryWithDebug(
       $to,
-      (string)($payload['destination_location_type'] ?? ''),
-      (int)($payload['destination_location_id'] ?? 0),
+      $destinationLocationType,
+      $destinationLocationId,
       $allowStructures,
       'destination',
       $structureAllowlist,
       $accessRules
     );
     if ($fromLocation === null || $toLocation === null) {
-      throw new \InvalidArgumentException('Unknown location name.');
+      $debug = [
+        'pickup' => $pickupDebug,
+        'delivery' => $deliveryDebug,
+      ];
+      error_log('Quote location resolve failed: ' . json_encode($debug, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+      if ($fromLocation === null) {
+        throw new \InvalidArgumentException(sprintf(
+          'Unknown pickup location (id=%s, type=%s).',
+          $pickupLocationId ?: 'n/a',
+          $pickupLocationType !== '' ? $pickupLocationType : 'n/a'
+        ));
+      }
+      throw new \InvalidArgumentException(sprintf(
+        'Unknown delivery location (id=%s, type=%s).',
+        $destinationLocationId ?: 'n/a',
+        $destinationLocationType !== '' ? $destinationLocationType : 'n/a'
+      ));
     }
     $fromSystem = $fromLocation['system'];
     $toSystem = $toLocation['system'];
@@ -230,6 +250,50 @@ final class PricingService
     return $this->resolveLocationByName($locationName, $allowStructures, $type, $structureAllowlist, $accessRules);
   }
 
+  private function resolveLocationEntryWithDebug(
+    string $locationName,
+    string $locationType,
+    int $locationId,
+    bool $allowStructures,
+    string $type,
+    array $structureAllowlist,
+    array $accessRules
+  ): array {
+    $debug = [
+      'location_id' => $locationId > 0 ? $locationId : null,
+      'location_type' => $locationType !== '' ? $locationType : null,
+      'lookup' => null,
+      'found' => false,
+      'allowed' => null,
+      'system_id' => null,
+    ];
+
+    if ($locationId > 0 && $locationType !== '') {
+      $debug['lookup'] = 'id';
+      if ($locationType === 'structure' && !$allowStructures) {
+        $debug['allowed'] = false;
+        return [null, $debug];
+      }
+      $entry = $this->resolveLocationById($locationId, $locationType);
+      $debug['found'] = $entry !== null;
+      $debug['system_id'] = $entry['system']['system_id'] ?? $entry['location']['system_id'] ?? null;
+      $debug['allowed'] = $entry !== null
+        ? $this->isLocationAllowed($entry, $type, $structureAllowlist, $accessRules)
+        : null;
+      if ($entry !== null && $debug['allowed']) {
+        return [$entry, $debug];
+      }
+      return [null, $debug];
+    }
+
+    $debug['lookup'] = 'name';
+    $entry = $this->resolveLocationByName($locationName, $allowStructures, $type, $structureAllowlist, $accessRules);
+    $debug['found'] = $entry !== null;
+    $debug['system_id'] = $entry['system']['system_id'] ?? $entry['location']['system_id'] ?? null;
+    $debug['allowed'] = $entry !== null;
+    return [$entry, $debug];
+  }
+
   private function resolveLocationByName(
     string $locationName,
     bool $allowStructures,
@@ -241,18 +305,6 @@ final class PricingService
     if ($system !== null) {
       $entry = $this->buildSystemLocationEntry($system);
       return $this->isLocationAllowed($entry, $type, $structureAllowlist, $accessRules) ? $entry : null;
-    }
-
-    if ($allowStructures) {
-      $structure = $this->resolveStructureByName($locationName);
-      if ($structure !== null && $this->isLocationAllowed($structure, $type, $structureAllowlist, $accessRules)) {
-        return $structure;
-      }
-    }
-
-    $station = $this->resolveStationByName($locationName);
-    if ($station !== null && $this->isLocationAllowed($station, $type, $structureAllowlist, $accessRules)) {
-      return $station;
     }
 
     return null;
@@ -274,141 +326,6 @@ final class PricingService
       return $system ? $this->buildSystemLocationEntry($system) : null;
     }
     return null;
-  }
-
-  private function resolveStructureByName(string $structureName): ?array
-  {
-    $name = trim($structureName);
-    if ($name === '') {
-      return null;
-    }
-    $row = $this->db->one(
-      "SELECT es.structure_id AS location_id,
-              es.structure_name,
-              es.system_id,
-              COALESCE(ms.system_name, s.system_name) AS system_name,
-              COALESCE(ms.region_id, c.region_id) AS region_id
-         FROM eve_structure es
-         LEFT JOIN map_system ms ON ms.system_id = es.system_id
-         LEFT JOIN eve_system s ON s.system_id = es.system_id
-         LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-        WHERE LOWER(es.structure_name) = LOWER(:name)
-        LIMIT 1",
-      ['name' => $name]
-    );
-    if ($row === null) {
-      $candidateName = $this->stripLocationPrefix($name);
-      if ($candidateName !== null) {
-        $row = $this->db->one(
-          "SELECT es.structure_id AS location_id,
-                  es.structure_name,
-                  es.system_id,
-                  COALESCE(ms.system_name, s.system_name) AS system_name,
-                  COALESCE(ms.region_id, c.region_id) AS region_id
-             FROM eve_structure es
-             LEFT JOIN map_system ms ON ms.system_id = es.system_id
-             LEFT JOIN eve_system s ON s.system_id = es.system_id
-             LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-            WHERE LOWER(es.structure_name) = LOWER(:name)
-            LIMIT 1",
-          ['name' => $candidateName]
-        );
-      }
-    }
-    if ($row === null) {
-      return null;
-    }
-
-    return $this->buildLocationEntry(
-      (int)$row['location_id'],
-      'structure',
-      (string)($row['structure_name'] ?? ''),
-      (int)($row['system_id'] ?? 0),
-      (string)($row['system_name'] ?? ''),
-      (int)($row['region_id'] ?? 0)
-    );
-  }
-
-  private function resolveStationByName(string $stationName): ?array
-  {
-    $name = trim($stationName);
-    if ($name === '') {
-      return null;
-    }
-
-    $row = $this->db->one(
-      "SELECT st.station_id AS location_id,
-              st.station_name,
-              ea.alias AS alias_name,
-              ee.name AS entity_name,
-              st.system_id,
-              COALESCE(ms.system_name, s.system_name) AS system_name,
-              COALESCE(ms.region_id, c.region_id) AS region_id
-         FROM eve_station st
-         LEFT JOIN (
-           SELECT entity_id, MIN(alias) AS alias
-             FROM eve_entity_alias
-            WHERE entity_type = 'station'
-            GROUP BY entity_id
-         ) ea ON ea.entity_id = st.station_id
-         LEFT JOIN eve_entity ee ON ee.entity_id = st.station_id AND ee.entity_type = 'station'
-         LEFT JOIN map_system ms ON ms.system_id = st.system_id
-         LEFT JOIN eve_system s ON s.system_id = st.system_id
-         LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-        WHERE LOWER(st.station_name) = LOWER(:name)
-           OR LOWER(COALESCE(ea.alias, '')) = LOWER(:name)
-           OR LOWER(COALESCE(ee.name, '')) = LOWER(:name)
-        LIMIT 1",
-      ['name' => $name]
-    );
-    if ($row === null) {
-      $candidateName = $this->stripLocationPrefix($name);
-      if ($candidateName !== null) {
-        $row = $this->db->one(
-          "SELECT st.station_id AS location_id,
-                  st.station_name,
-                  ea.alias AS alias_name,
-                  ee.name AS entity_name,
-                  st.system_id,
-                  COALESCE(ms.system_name, s.system_name) AS system_name,
-                  COALESCE(ms.region_id, c.region_id) AS region_id
-             FROM eve_station st
-             LEFT JOIN (
-               SELECT entity_id, MIN(alias) AS alias
-                 FROM eve_entity_alias
-                WHERE entity_type = 'station'
-                GROUP BY entity_id
-             ) ea ON ea.entity_id = st.station_id
-             LEFT JOIN eve_entity ee ON ee.entity_id = st.station_id AND ee.entity_type = 'station'
-             LEFT JOIN map_system ms ON ms.system_id = st.system_id
-             LEFT JOIN eve_system s ON s.system_id = st.system_id
-             LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-            WHERE LOWER(st.station_name) = LOWER(:name)
-               OR LOWER(COALESCE(ea.alias, '')) = LOWER(:name)
-               OR LOWER(COALESCE(ee.name, '')) = LOWER(:name)
-            LIMIT 1",
-          ['name' => $candidateName]
-        );
-      }
-    }
-    if ($row === null) {
-      return null;
-    }
-
-    $resolvedName = $this->resolveStationName(
-      (string)($row['station_name'] ?? ''),
-      (string)($row['alias_name'] ?? ''),
-      (string)($row['entity_name'] ?? '')
-    );
-
-    return $this->buildLocationEntry(
-      (int)$row['location_id'],
-      'npc_station',
-      $resolvedName,
-      (int)($row['system_id'] ?? 0),
-      (string)($row['system_name'] ?? ''),
-      (int)($row['region_id'] ?? 0)
-    );
   }
 
   private function resolveStationById(int $stationId): ?array
@@ -560,23 +477,6 @@ final class PricingService
       }
     }
     return $stationName;
-  }
-
-  private function stripLocationPrefix(string $value): ?string
-  {
-    if (str_contains($value, ' — ')) {
-      [$systemPart, $namePart] = explode(' — ', $value, 2);
-      if ($namePart !== '' && $this->resolveSystemByName(trim($systemPart)) !== null) {
-        return trim($namePart);
-      }
-    }
-    if (str_contains($value, ' - ')) {
-      [$systemPart, $namePart] = explode(' - ', $value, 2);
-      if ($namePart !== '' && $this->resolveSystemByName(trim($systemPart)) !== null) {
-        return trim($namePart);
-      }
-    }
-    return null;
   }
 
   private function isLocationAllowed(array $entry, string $type, array $structureAllowlist, array $accessRules): bool
