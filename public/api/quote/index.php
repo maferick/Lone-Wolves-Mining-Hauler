@@ -115,6 +115,9 @@ try {
     'blocked_count_soft' => $details['blocked_count_soft'] ?? null,
     'message' => $e->getMessage(),
   ];
+  if (!empty($config['app']['debug']) && !empty($details['access'])) {
+    $responseDetails['access_debug'] = $details['access'];
+  }
   error_log('Route failure: ' . json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
   api_send_json([
     'ok' => false,

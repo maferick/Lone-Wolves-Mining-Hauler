@@ -97,11 +97,20 @@ final class PricingService
 
     $priority = $this->normalizePriority($priority);
     $routeProfile = 'balanced';
+    $routeContext = array_merge(
+      $context,
+      $accessRules,
+      [
+        'access_location_ids' => $structureAllowlist,
+        'pickup_location' => $fromLocation['location'] ?? null,
+        'destination_location' => $toLocation['location'] ?? null,
+      ]
+    );
     $route = $this->routeService->findRoute(
       $fromSystem['system_name'],
       $toSystem['system_name'],
       $routeProfile,
-      array_merge($context, $accessRules)
+      $routeContext
     );
 
     $ship = $this->chooseShipClass($volume, $route);
