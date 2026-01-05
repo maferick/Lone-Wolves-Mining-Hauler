@@ -44,7 +44,12 @@ try {
   $pullResult = $db->tx(fn($db) => $esi->contracts()->pull($corpId, $charId));
   $reconcileResult = $esi->contractReconcile()->reconcile($corpId);
 
-  $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
+  $matcher = new ContractMatchService(
+    $db,
+    $config,
+    $services['discord_webhook'] ?? null,
+    $services['discord_events'] ?? null
+  );
   $matchResult = $matcher->matchOpenRequests($corpId);
 
   echo json_encode([

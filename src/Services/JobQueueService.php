@@ -17,6 +17,7 @@ final class JobQueueService
   public const CONTRACT_MATCH_JOB = 'cron.contract_match';
   public const WEBHOOK_DELIVERY_JOB = 'cron.webhook_delivery';
   public const WEBHOOK_REQUEUE_JOB = 'cron.webhook_requeue';
+  public const DISCORD_DELIVERY_JOB = 'cron.discord_delivery';
 
   public function __construct(private Db $db)
   {
@@ -295,6 +296,49 @@ final class JobQueueService
       $auditContext['actor_user_id'] ?? null,
       $auditContext['actor_character_id'] ?? null,
       'cron.webhook_delivery.queued',
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
+  }
+
+  public function enqueueDiscordDelivery(int $limit, array $auditContext = []): int
+  {
+    $payload = [
+      'limit' => $limit,
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => 'Discord delivery queued.',
+        ],
+      ],
+    ];
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => null,
+      'job_type' => self::DISCORD_DELIVERY_JOB,
+      'priority' => 88,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      null,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      'cron.discord_delivery.queued',
       'job_queue',
       (string)$jobId,
       null,

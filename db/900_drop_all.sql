@@ -11,6 +11,11 @@ DROP TABLE IF EXISTS job_queue;
 
 DROP TABLE IF EXISTS webhook_delivery;
 DROP TABLE IF EXISTS discord_webhook;
+DROP TABLE IF EXISTS discord_outbox;
+DROP TABLE IF EXISTS discord_channel_map;
+DROP TABLE IF EXISTS discord_template;
+DROP TABLE IF EXISTS discord_config;
+DROP TABLE IF EXISTS discord_user_link;
 
 DROP TABLE IF EXISTS esi_corp_contract_item;
 DROP TABLE IF EXISTS esi_corp_contract;

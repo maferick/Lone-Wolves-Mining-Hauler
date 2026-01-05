@@ -64,4 +64,11 @@ return [
     ],
     'api_key' => getenv('API_KEY') ?: '',
   ],
+  'discord' => [
+    'bot_token' => getenv('DISCORD_BOT_TOKEN') ?: '',
+    'application_id' => getenv('DISCORD_APPLICATION_ID') ?: '',
+    'public_key' => getenv('DISCORD_PUBLIC_KEY') ?: '',
+    'guild_id' => getenv('DISCORD_GUILD_ID') ?: '',
+    'api_base' => getenv('DISCORD_API_BASE') ?: 'https://discord.com/api/v10',
+  ],
 ];

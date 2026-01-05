@@ -250,8 +250,11 @@ $services = [];
     $esiRouteService = new \App\Services\EsiRouteService($esiClient, $config);
     $routeService = new \App\Services\RouteService($db, $config, $esiRouteService);
     $discordWebhookService = new \App\Services\DiscordWebhookService($db, $config);
+    $discordRenderer = new \App\Services\DiscordMessageRenderer($db, $config);
+    $discordDelivery = new \App\Services\DiscordDeliveryService($db, $discordRenderer, $config);
+    $discordEvents = new \App\Services\DiscordEventService($db, $config);
     $services = [
-      'esi' => new \App\Services\EsiService($db, $config, $discordWebhookService),
+      'esi' => new \App\Services\EsiService($db, $config, $discordWebhookService, $discordEvents),
       'sso_login' => new \App\Services\EveSsoLoginService($db, $config),
       'esi_client' => $esiClient,
       'esi_route' => $esiRouteService,
@@ -259,7 +262,10 @@ $services = [];
       'route' => $routeService,
       'pricing' => new \App\Services\PricingService($db, $routeService, $config),
       'discord_webhook' => $discordWebhookService,
-      'haul_request' => new \App\Services\HaulRequestService($db, $discordWebhookService),
+      'discord_renderer' => $discordRenderer,
+      'discord_delivery' => $discordDelivery,
+      'discord_events' => $discordEvents,
+      'haul_request' => new \App\Services\HaulRequestService($db, $discordWebhookService, $discordEvents),
     ];
   } else {
   $services = [

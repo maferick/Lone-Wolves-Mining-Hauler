@@ -4,13 +4,13 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Db\Db;
-use App\Services\DiscordWebhookService;
 
 final class HaulRequestService
 {
   public function __construct(
     private Db $db,
-    private ?DiscordWebhookService $webhooks = null
+    private ?DiscordWebhookService $webhooks = null,
+    private ?DiscordEventService $discordEvents = null
   )
   {
   }
@@ -126,6 +126,16 @@ final class HaulRequestService
         $this->webhooks->enqueue($corpId, 'haul.request.created', $payload);
       } catch (\Throwable $e) {
         // Swallow webhook enqueue failures to avoid blocking the request flow.
+      }
+    }
+
+    if ($this->discordEvents) {
+      try {
+        $this->discordEvents->enqueueRequestCreated($corpId, $requestId, [
+          'status' => 'requested',
+        ]);
+      } catch (\Throwable $e) {
+        // Ignore Discord event enqueue failures to avoid blocking the request flow.
       }
     }
 

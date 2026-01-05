@@ -82,6 +82,7 @@ The script will:
 ## Cron scheduler
 Run the unified scheduler every minute. It triggers:
 - Discord webhook delivery
+- Discord outbox delivery
 - ESI cron sync (tokens, structures, contracts, universe)
 - Contract matching
 - Async cron job processing
@@ -122,6 +123,52 @@ Example endpoints:
 - `/hauling/api/jobs/webhooks?limit=25`
 
 All future automation (Discord webhooks, cron jobs, ESI pulls) should be added here.
+
+## Discord Integration
+The hauling app supports Discord webhooks for ops notifications and a Discord bot for slash commands.
+
+### Setup (Webhooks)
+1) Create a webhook in your Discord channel:
+   - Channel → Edit Channel → Integrations → Webhooks → New Webhook
+2) Copy the webhook URL.
+3) In **Admin → Discord → Channel Routing**, add a mapping for the event and paste the webhook URL.
+4) Click **Send Test Message** to queue a test notification.
+
+### Setup (Bot)
+1) Create a Discord application and bot at https://discord.com/developers/applications
+2) Copy the bot token and configure the environment variables:
+```
+DISCORD_BOT_TOKEN=...
+DISCORD_APPLICATION_ID=...
+DISCORD_PUBLIC_KEY=...
+DISCORD_GUILD_ID=...   # optional for guild-scoped command registration
+```
+3) OAuth2 scopes: `bot` + `applications.commands`
+4) Bot permissions:
+   - Send Messages
+   - Embed Links
+   - Read Message History
+5) In **Admin → Discord**, click **Register/Refresh Slash Commands**.
+
+### Slash Commands
+Available commands:
+- `/quote` — Quote a haul using local routing data.
+- `/request` — Lookup request status by ID or code.
+- `/myrequests` — Show your last 5 requests (requires Discord ↔ account link).
+- `/rates` — Snapshot of current rate plans.
+- `/help` — Quick usage hints.
+- `/ping` — Bot health check.
+
+### Cron job
+Ensure the delivery worker is enabled:
+```
+php bin/cron.php
+```
+
+### Security notes
+- Bot tokens are secrets and must never be stored in the database.
+- Interaction endpoint signatures are verified against `DISCORD_PUBLIC_KEY`.
+- Discord delivery runs async via the outbox worker with rate limits and retries.
 
 ## Import order gotcha (drop scripts)
 `db/900_drop_all.sql` is a utility script and **must not** be imported during normal setup.

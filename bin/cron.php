@@ -71,6 +71,10 @@ $webhookLimit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
 if ($webhookLimit <= 0) {
   $webhookLimit = 50;
 }
+$discordLimit = (int)($_ENV['CRON_DISCORD_LIMIT'] ?? 50);
+if ($discordLimit <= 0) {
+  $discordLimit = 50;
+}
 $webhookRequeueLimit = (int)($_ENV['CRON_WEBHOOK_REQUEUE_LIMIT'] ?? 200);
 if ($webhookRequeueLimit <= 0) {
   $webhookRequeueLimit = 200;
@@ -209,6 +213,23 @@ try {
   }
 } catch (Throwable $e) {
   $log("Webhook delivery error: {$e->getMessage()}");
+}
+
+try {
+  if (!$isTaskEnabled($globalTaskSettings, JobQueueService::DISCORD_DELIVERY_JOB)) {
+    $log('Discord delivery disabled; skipping.');
+  } elseif (!isset($services['discord_delivery'])) {
+    $log('Discord delivery service not configured.');
+  } else {
+    if ($jobQueue->hasPendingJob(null, JobQueueService::DISCORD_DELIVERY_JOB)) {
+      $log('Discord delivery job already queued.');
+    } else {
+      $jobId = $jobQueue->enqueueDiscordDelivery($discordLimit);
+      $log("Discord delivery job queued: {$jobId}.");
+    }
+  }
+} catch (Throwable $e) {
+  $log("Discord delivery error: {$e->getMessage()}");
 }
 
 try {
