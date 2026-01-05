@@ -15,6 +15,27 @@
     return resp.json();
   };
 
+  const showRatePlanError = (message) => {
+    const table = document.getElementById('rate-plan-table');
+    if (!table) return;
+    let notice = document.getElementById('rate-plan-error');
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'rate-plan-error';
+      notice.className = 'muted';
+      notice.style.marginTop = '8px';
+      table.insertAdjacentElement('afterend', notice);
+    }
+    notice.textContent = message;
+  };
+
+  const clearRatePlanError = () => {
+    const notice = document.getElementById('rate-plan-error');
+    if (notice) notice.textContent = '';
+  };
+
+  const allowedServiceClasses = new Set(['BR', 'DST', 'FREIGHTER', 'JF']);
+
   const loadPriorityFees = async () => {
     const data = await fetchJson(`${basePath}/api/admin/priority-fee/?corp_id=${corpId}`);
     if (!data.ok) return;
@@ -29,14 +50,16 @@
     const data = await fetchJson(`${basePath}/api/admin/rate-plan/?corp_id=${corpId}`);
     const tbody = document.querySelector('#rate-plan-table tbody');
     tbody.innerHTML = '';
+    clearRatePlanError();
     (data.rate_plans || []).forEach((plan) => {
       const row = document.createElement('tr');
+      row.dataset.serviceClass = plan.service_class || '';
       row.innerHTML = `
         <td>${plan.service_class}</td>
         <td><input class="input" data-field="rate_per_jump" type="number" step="0.01" value="${plan.rate_per_jump}" /></td>
         <td><input class="input" data-field="collateral_rate" type="number" step="0.0001" value="${plan.collateral_rate}" /></td>
         <td><input class="input" data-field="min_price" type="number" step="0.01" value="${plan.min_price}" /></td>
-        <td><button class="btn ghost" data-action="save" data-id="${plan.rate_plan_id}">Save</button></td>
+        <td><button class="btn ghost" data-action="save" data-id="${plan.rate_plan_id}" data-service-class="${plan.service_class}">Save</button></td>
       `;
       tbody.appendChild(row);
     });
@@ -121,8 +144,16 @@
     if (!(target instanceof HTMLElement) || target.dataset.action !== 'save') return;
     const row = target.closest('tr');
     if (!row) return;
+    clearRatePlanError();
     const inputs = row.querySelectorAll('input[data-field]');
-    const payload = { rate_plan_id: target.dataset.id };
+    const fallbackClass = row.querySelector('td')?.textContent?.trim() ?? '';
+    const rawServiceClass = target.dataset.serviceClass || row.dataset.serviceClass || fallbackClass;
+    const serviceClass = rawServiceClass.trim().toUpperCase();
+    if (!allowedServiceClasses.has(serviceClass)) {
+      showRatePlanError('Could not determine service class for this row. Refresh and try again.');
+      return;
+    }
+    const payload = { rate_plan_id: target.dataset.id, service_class: serviceClass };
     inputs.forEach((input) => {
       payload[input.dataset.field] = parseFloat(input.value || '0');
     });
