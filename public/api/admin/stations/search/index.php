@@ -22,12 +22,88 @@ if ($db === null || !isset($services['esi_client'])) {
 
 $query = trim((string)($_GET['q'] ?? ''));
 if ($query === '' || mb_strlen($query) < 2) {
-  api_send_json(['ok' => true, 'items' => []]);
+  api_send_json(['items' => [], 'warning' => null]);
 }
 
 $stationPlaceholderPattern = '/^station\\s+\\d+$/i';
 $resolvedFromCache = 0;
 $resolvedFromEsi = 0;
+$esiAttempts = 0;
+$esiSuccess = 0;
+$placeholderCount = 0;
+$warning = null;
+$rateLimitRemaining = null;
+
+$esiBase = rtrim($config['esi']['endpoints']['esi_base'] ?? 'https://esi.evetech.net', '/');
+$defaultTtl = (int)($config['esi']['cache']['default_ttl_seconds'] ?? 300);
+
+$parseCacheTtl = static function(array $headers, int $fallback): int {
+  $cacheControl = strtolower((string)($headers['cache-control'] ?? ''));
+  if ($cacheControl !== '' && preg_match('/max-age=(\\d+)/', $cacheControl, $matches)) {
+    $maxAge = (int)$matches[1];
+    if ($maxAge > 0) {
+      return $maxAge;
+    }
+  }
+
+  $expires = trim((string)($headers['expires'] ?? ''));
+  if ($expires !== '') {
+    $expiresTs = strtotime($expires);
+    if ($expiresTs !== false) {
+      $ttl = $expiresTs - time();
+      if ($ttl > 0) {
+        return $ttl;
+      }
+    }
+  }
+
+  return $fallback;
+};
+
+$parseRateRemaining = static function(array $headers): ?int {
+  foreach (['x-ratelimit-remaining', 'x-rate-limit-remaining', 'x-esi-error-limit-remain'] as $name) {
+    $key = strtolower($name);
+    if (!array_key_exists($key, $headers)) {
+      continue;
+    }
+    $value = trim((string)$headers[$key]);
+    if ($value === '') {
+      continue;
+    }
+    return (int)$value;
+  }
+  return null;
+};
+
+$parseRetryAfter = static function(array $headers): ?int {
+  foreach (['retry-after', 'x-esi-error-limit-reset', 'x-rate-limit-reset'] as $name) {
+    $key = strtolower($name);
+    if (!array_key_exists($key, $headers)) {
+      continue;
+    }
+    $value = trim((string)$headers[$key]);
+    if ($value === '') {
+      continue;
+    }
+    return max(1, (int)$value);
+  }
+  return null;
+};
+
+$shouldRetry = static function(int $status): bool {
+  return in_array($status, [420, 429], true) || $status >= 500;
+};
+
+$backoffSleep = static function(array $headers, int $attempt) use ($parseRetryAfter): void {
+  $retryAfter = $parseRetryAfter($headers);
+  $base = 0.5 * (2 ** $attempt);
+  $wait = $retryAfter !== null ? max($retryAfter, $base) : $base;
+  $jitter = random_int(0, 250) / 1000;
+  $sleepSeconds = min(10.0, $wait + $jitter);
+  if ($sleepSeconds > 0) {
+    usleep((int)round($sleepSeconds * 1000000));
+  }
+};
 
 $rows = $db->select(
   "SELECT st.station_id, st.station_name, st.system_id, st.station_type_id,
@@ -67,6 +143,92 @@ $fetchSystemName = static function (int $systemId) use ($db): string {
 $items = [];
 $seen = [];
 
+$resolveStation = static function (int $stationId) use (
+  $services,
+  $db,
+  $esiBase,
+  $defaultTtl,
+  $parseCacheTtl,
+  $shouldRetry,
+  $backoffSleep,
+  &$esiAttempts,
+  &$esiSuccess,
+  &$resolvedFromCache,
+  &$resolvedFromEsi,
+  &$warning,
+  &$rateLimitRemaining,
+  $parseRateRemaining
+): ?array {
+  $path = "/latest/universe/stations/{$stationId}/";
+  $ttlSeconds = max(60, $defaultTtl);
+  $maxRetries = 2;
+  $attempt = 0;
+
+  while (true) {
+    $esiAttempts += 1;
+    $resp = $services['esi_client']->get($path, null, null, $ttlSeconds);
+    $status = (int)($resp['status'] ?? 0);
+
+    if (!empty($resp['headers']) && is_array($resp['headers'])) {
+      $headerRemaining = $parseRateRemaining($resp['headers']);
+      if ($headerRemaining !== null) {
+        $rateLimitRemaining = $headerRemaining;
+      }
+    }
+
+    if (!empty($resp['ok']) && is_array($resp['json'])) {
+      $esiSuccess += 1;
+      if (!empty($resp['from_cache'])) {
+        $resolvedFromCache += 1;
+      } else {
+        $resolvedFromEsi += 1;
+      }
+      if (!empty($resp['warning']) && $warning === null) {
+        $warning = 'ESI temporarily unavailable; showing cached results.';
+      }
+
+      if (!empty($resp['headers']) && is_array($resp['headers'])) {
+        $ttlSeconds = $parseCacheTtl($resp['headers'], $ttlSeconds);
+        $url = $esiBase . $path;
+        $cacheKeyBin = App\Db\Db::esiCacheKey('GET', $url, null, null);
+        $raw = $resp['raw'] ?? null;
+        if (is_string($raw) && $raw !== '') {
+          $db->esiCachePut(
+            null,
+            $cacheKeyBin,
+            'GET',
+            $url,
+            null,
+            null,
+            200,
+            $resp['headers']['etag'] ?? null,
+            $resp['headers']['last-modified'] ?? null,
+            $ttlSeconds,
+            $raw,
+            null
+          );
+        }
+      }
+
+      return [
+        'data' => $resp['json'],
+        'from_cache' => !empty($resp['from_cache']),
+      ];
+    }
+
+    if ($shouldRetry($status) && $attempt < $maxRetries) {
+      $backoffSleep($resp['headers'] ?? [], $attempt);
+      $attempt += 1;
+      continue;
+    }
+
+    if ($warning === null) {
+      $warning = 'ESI temporarily unavailable; showing cached results.';
+    }
+    return null;
+  }
+};
+
 foreach ($rows as $row) {
   $stationId = (int)($row['station_id'] ?? 0);
   if ($stationId <= 0 || isset($seen[$stationId])) {
@@ -78,22 +240,22 @@ foreach ($rows as $row) {
   $systemId = (int)($row['system_id'] ?? 0);
   $systemName = trim((string)($row['system_name'] ?? ''));
 
-  $needsResolve = $stationName === ''
-    || preg_match($stationPlaceholderPattern, $stationName) === 1
-    || $stationTypeId === null;
+  $isPlaceholder = $stationName === '' || preg_match($stationPlaceholderPattern, $stationName) === 1;
+  $needsResolve = $isPlaceholder || $stationTypeId === null;
+
+  $itemSource = 'cache';
 
   if ($needsResolve) {
-    $resp = $services['esi_client']->get("/latest/universe/stations/{$stationId}/", null, null, 86400);
-    if (!empty($resp['ok']) && is_array($resp['json'])) {
-      $resolvedName = trim((string)($resp['json']['name'] ?? ''));
-      $resolvedSystemId = (int)($resp['json']['system_id'] ?? 0);
-      $resolvedTypeId = isset($resp['json']['type_id']) ? (int)$resp['json']['type_id'] : null;
-
-      if (!empty($resp['from_cache'])) {
-        $resolvedFromCache += 1;
-      } else {
-        $resolvedFromEsi += 1;
+    $placeholderCount += 1;
+    $resolved = $resolveStation($stationId);
+    if (is_array($resolved)) {
+      $resolvedData = $resolved['data'] ?? null;
+      if (!is_array($resolvedData)) {
+        $resolvedData = null;
       }
+      $resolvedName = trim((string)($resolvedData['name'] ?? ''));
+      $resolvedSystemId = (int)($resolvedData['system_id'] ?? 0);
+      $resolvedTypeId = isset($resolvedData['type_id']) ? (int)$resolvedData['type_id'] : null;
 
       if ($resolvedName !== '' && $resolvedSystemId > 0) {
         $db->execute(
@@ -110,17 +272,24 @@ foreach ($rows as $row) {
             'station_type_id' => $resolvedTypeId,
           ]
         );
-        $db->upsertEntity($stationId, 'station', $resolvedName, $resp['json'], null, 'esi');
+        $db->upsertEntity($stationId, 'station', $resolvedName, $resolvedData, null, 'esi');
         $stationName = $resolvedName;
         $systemId = $resolvedSystemId;
         $stationTypeId = $resolvedTypeId;
         $systemName = $fetchSystemName($systemId);
+        $isPlaceholder = false;
+        if (empty($resolved['from_cache'])) {
+          $itemSource = 'esi';
+        }
       }
     }
+
+    usleep(random_int(150000, 250000));
   }
 
-  if ($stationName === '' || preg_match($stationPlaceholderPattern, $stationName) === 1) {
-    continue;
+  if ($stationName === '') {
+    $stationName = "Station {$stationId}";
+    $isPlaceholder = true;
   }
 
   if ($systemName === '' && $systemId > 0) {
@@ -128,7 +297,6 @@ foreach ($rows as $row) {
   }
 
   $label = $systemName !== '' ? "{$systemName} — {$stationName}" : $stationName;
-
   $items[] = [
     'value' => $stationId,
     'label' => $label,
@@ -136,7 +304,8 @@ foreach ($rows as $row) {
     'station_name' => $stationName,
     'system_id' => $systemId,
     'system_name' => $systemName,
-    'station_type_id' => $stationTypeId,
+    'source' => $itemSource,
+    'is_placeholder' => $isPlaceholder,
   ];
   $seen[$stationId] = true;
 
@@ -146,11 +315,16 @@ foreach ($rows as $row) {
 }
 
 error_log(sprintf(
-  '[admin defaults station lookup] q="%s" results=%d resolved_cache=%d resolved_esi=%d',
+  '[admin defaults station lookup] q="%s" db_count=%d placeholders=%d esi_attempts=%d esi_success=%d final_count=%d ratelimit_remaining=%s resolved_cache=%d resolved_esi=%d',
   $query,
+  count($rows),
+  $placeholderCount,
+  $esiAttempts,
+  $esiSuccess,
   count($items),
+  $rateLimitRemaining === null ? 'n/a' : (string)$rateLimitRemaining,
   $resolvedFromCache,
   $resolvedFromEsi
 ));
 
-api_send_json(['ok' => true, 'items' => $items]);
+api_send_json(['items' => $items, 'warning' => $warning]);
