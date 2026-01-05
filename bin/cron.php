@@ -16,6 +16,7 @@ declare(strict_types=1);
  *  - CRON_STRUCTURES_INTERVAL (seconds, default 900)
  *  - CRON_PUBLIC_STRUCTURES_INTERVAL (seconds, default 86400)
  *  - CRON_CONTRACTS_INTERVAL (seconds, default 300)
+ *  - CRON_ALLIANCES_INTERVAL (seconds, default 86400)
  *  - CRON_MATCH_INTERVAL (seconds, default 300)
  *
  * Corp overrides:
@@ -83,6 +84,7 @@ $tokenRefreshInterval = $normalizeInterval((int)($_ENV['CRON_TOKEN_REFRESH_INTER
 $structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL'] ?? 900), 900);
 $publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
+$alliancesInterval = $normalizeInterval((int)($_ENV['CRON_ALLIANCES_INTERVAL'] ?? 86400), 86400);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
 $workerLimit = (int)($_ENV['CRON_WORKER_LIMIT'] ?? 3);
 if ($workerLimit <= 0) {
@@ -203,6 +205,21 @@ try {
   }
 } catch (Throwable $e) {
   $log("Webhook delivery error: {$e->getMessage()}");
+}
+
+try {
+  if (!$isTaskEnabled($globalTaskSettings, JobQueueService::CRON_ALLIANCES_JOB)) {
+    $log('Alliance sync disabled; skipping.');
+  } elseif ($jobQueue->hasPendingJob(null, JobQueueService::CRON_ALLIANCES_JOB)) {
+    $log('Alliance sync job already queued.');
+  } elseif (!$shouldRunGlobal($db, JobQueueService::CRON_ALLIANCES_JOB, $alliancesInterval, $now)) {
+    $log('Alliance sync interval not reached; skipping.');
+  } else {
+    $jobId = $jobQueue->enqueueAllianceSync();
+    $log("Alliance sync job queued: {$jobId}.");
+  }
+} catch (Throwable $e) {
+  $log("Alliance sync error: {$e->getMessage()}");
 }
 
 try {

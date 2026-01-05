@@ -12,6 +12,7 @@ final class JobQueueService
   public const CRON_STRUCTURES_JOB = 'cron.structures';
   public const CRON_PUBLIC_STRUCTURES_JOB = 'cron.public_structures';
   public const CRON_CONTRACTS_JOB = 'cron.contracts';
+  public const CRON_ALLIANCES_JOB = 'cron.alliances';
   public const CONTRACT_MATCH_JOB = 'cron.contract_match';
   public const WEBHOOK_DELIVERY_JOB = 'cron.webhook_delivery';
   public const WEBHOOK_REQUEUE_JOB = 'cron.webhook_requeue';
@@ -133,6 +134,48 @@ final class JobQueueService
       'cron.contracts.queued',
       $auditContext
     );
+  }
+
+  public function enqueueAllianceSync(array $auditContext = []): int
+  {
+    $payload = [
+      'progress' => [
+        'current' => 0,
+        'total' => 0,
+        'label' => 'Queued',
+        'stage' => 'queued',
+      ],
+      'log' => [
+        [
+          'time' => gmdate('c'),
+          'message' => 'Alliance sync queued.',
+        ],
+      ],
+    ];
+
+    $jobId = $this->db->insert('job_queue', [
+      'corp_id' => null,
+      'job_type' => self::CRON_ALLIANCES_JOB,
+      'priority' => 110,
+      'status' => 'queued',
+      'run_at' => gmdate('Y-m-d H:i:s'),
+      'payload_json' => Db::jsonEncode($payload),
+    ]);
+
+    $this->db->audit(
+      null,
+      $auditContext['actor_user_id'] ?? null,
+      $auditContext['actor_character_id'] ?? null,
+      'cron.alliances.queued',
+      'job_queue',
+      (string)$jobId,
+      null,
+      $payload,
+      $auditContext['ip_address'] ?? null,
+      $auditContext['user_agent'] ?? null
+    );
+
+    return $jobId;
   }
 
   public function enqueueContractMatch(int $corpId, array $auditContext = []): int
