@@ -129,7 +129,6 @@ ob_start();
           </div>
           <?php if (!empty($contractStats['last_fetched_at'])): ?>
             <div class="muted" style="margin-top:10px; font-size:12px;">
-              Last ESI sync: <?= htmlspecialchars((string)$contractStats['last_fetched_at'], ENT_QUOTES, 'UTF-8') ?> UTC
             </div>
           <?php endif; ?>
         </div>
