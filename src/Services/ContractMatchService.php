@@ -17,6 +17,8 @@ final class ContractMatchService
     'finished_issuer',
     'completed',
   ];
+  private const EXPECTED_EXPIRATION_DAYS = 7;
+  private const EXPECTED_DAYS_TO_COMPLETE = 2;
 
   public function __construct(
     private Db $db,
@@ -134,6 +136,7 @@ final class ContractMatchService
     $contracts = $this->db->select(
       "SELECT c.contract_id, c.type, c.status, c.start_location_id, c.end_location_id,
               c.volume_m3, c.collateral_isk, c.reward_isk, c.title, c.raw_json,
+              c.date_issued, c.date_expired, c.days_to_complete,
               COALESCE(ms.system_id, es.system_id, est.system_id, 0) AS start_system_id,
               COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) AS end_system_id
          FROM esi_corp_contract c
@@ -232,6 +235,28 @@ final class ContractMatchService
       $mismatches['reward_isk'] = [
         'expected' => $requestReward,
         'actual' => $contractReward,
+      ];
+    }
+
+    $contractDaysToComplete = isset($contract['days_to_complete']) ? (int)$contract['days_to_complete'] : null;
+    $flags['days_to_complete'] = $contractDaysToComplete === self::EXPECTED_DAYS_TO_COMPLETE;
+    if (!$flags['days_to_complete']) {
+      $mismatches['days_to_complete'] = [
+        'expected' => self::EXPECTED_DAYS_TO_COMPLETE,
+        'actual' => $contractDaysToComplete,
+      ];
+    }
+
+    $issuedAt = $contract['date_issued'] ?? null;
+    $expiredAt = $contract['date_expired'] ?? null;
+    $expirationDays = $this->daysBetween($issuedAt, $expiredAt);
+    $flags['expiration_days'] = $expirationDays === self::EXPECTED_EXPIRATION_DAYS;
+    if (!$flags['expiration_days']) {
+      $mismatches['expiration_days'] = [
+        'expected' => self::EXPECTED_EXPIRATION_DAYS,
+        'actual' => $expirationDays,
+        'date_issued' => $issuedAt,
+        'date_expired' => $expiredAt,
       ];
     }
 
@@ -360,6 +385,7 @@ final class ContractMatchService
     $row = $this->db->one(
       "SELECT c.contract_id, c.type, c.status, c.start_location_id, c.end_location_id,
               c.volume_m3, c.collateral_isk, c.reward_isk, c.title, c.raw_json,
+              c.date_issued, c.date_expired, c.days_to_complete,
               COALESCE(ms.system_id, es.system_id, est.system_id, 0) AS start_system_id,
               COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) AS end_system_id
          FROM esi_corp_contract c
@@ -435,6 +461,23 @@ final class ContractMatchService
   {
     $epsilon = 0.01;
     return abs($actual - $expected) <= ($tolerance + $epsilon);
+  }
+
+  private function daysBetween($issuedAt, $expiredAt): ?int
+  {
+    if (!$issuedAt || !$expiredAt) {
+      return null;
+    }
+    $issuedTs = strtotime((string)$issuedAt);
+    $expiredTs = strtotime((string)$expiredAt);
+    if ($issuedTs === false || $expiredTs === false) {
+      return null;
+    }
+    $diffSeconds = $expiredTs - $issuedTs;
+    if ($diffSeconds < 0) {
+      return null;
+    }
+    return (int)round($diffSeconds / 86400);
   }
 
   private function loadRewardTolerance(int $corpId): array
