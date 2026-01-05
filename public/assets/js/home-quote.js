@@ -13,16 +13,14 @@
   }
   const buybackEnabled = root.dataset.buybackEnabled === '1';
 
-  const getDisplayLabel = (item) => item?.name || item?.label || '';
-
   const buildOptions = (listEl, items, value) => {
     listEl.innerHTML = '';
     if (!value || value.length < minChars) return;
     for (const item of items || []) {
-      const displayLabel = getDisplayLabel(item);
-      if (!displayLabel) continue;
+      const displayName = item?.name;
+      if (!displayName) continue;
       const option = document.createElement('option');
-      option.value = displayLabel;
+      option.value = displayName;
       listEl.appendChild(option);
     }
   };
@@ -68,9 +66,9 @@
     const targetMap = type === 'pickup' ? pickupSuggestionMap : deliverySuggestionMap;
     targetMap.clear();
     for (const item of items || []) {
-      const displayLabel = getDisplayLabel(item);
-      if (!displayLabel) continue;
-      targetMap.set(normalizeLabel(displayLabel), item);
+      const displayName = item?.name;
+      if (!displayName) continue;
+      targetMap.set(normalizeLabel(displayName), item);
     }
   };
 
@@ -103,7 +101,13 @@
     }
 
     if (!inputEl) return;
-    if (item || !lookup) {
+    if (item) {
+      inputEl.classList.remove('input--error');
+      return;
+    }
+    if (lookup) {
+      inputEl.classList.add('input--error');
+    } else {
       inputEl.classList.remove('input--error');
     }
   };
@@ -122,7 +126,6 @@
       if (!data || !data.ok) return;
       storeLocations(type, data.items || []);
       buildOptions(listEl, data.items || [], value);
-      applyLocationSelection(type, value);
     } catch (err) {
       if (queryId !== locationQueryIds[type]) return;
       listEl.innerHTML = '';
@@ -133,7 +136,6 @@
     if (locationTimers.pickup) {
       clearTimeout(locationTimers.pickup);
     }
-    applyLocationSelection('pickup', pickupInput.value);
     locationTimers.pickup = setTimeout(() => {
       fetchLocations(pickupInput.value, 'pickup', pickupList);
     }, 150);
@@ -144,7 +146,6 @@
     if (locationTimers.destination) {
       clearTimeout(locationTimers.destination);
     }
-    applyLocationSelection('destination', destinationInput.value);
     locationTimers.destination = setTimeout(() => {
       fetchLocations(destinationInput.value, 'destination', destinationList);
     }, 150);
