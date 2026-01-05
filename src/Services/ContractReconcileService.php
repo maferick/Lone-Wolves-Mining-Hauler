@@ -289,7 +289,6 @@ final class ContractReconcileService
           );
         }
       }
-      }
       $processedRequests++;
 
       if ($maxRuntimeSeconds > 0 && (microtime(true) - $startedAt) >= $maxRuntimeSeconds) {
