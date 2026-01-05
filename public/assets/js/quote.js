@@ -42,6 +42,8 @@
   const requestStatus = document.getElementById('quote-request-status');
   const buybackBtn = document.getElementById('buyback-haulage-btn');
   let currentQuoteId = null;
+  const locationQueryIds = { pickup: 0, destination: 0 };
+  const locationTimers = { pickup: null, destination: null };
 
   const showError = (msg) => {
     if (!errorEl) return;
@@ -104,25 +106,41 @@
     breakdownCard.style.display = items.length ? 'block' : 'none';
   };
 
-  const fetchLocations = async (term, targetList) => {
-    if (!term || term.length < minChars) {
-      targetList.innerHTML = '';
-      return [];
+  const fetchLocations = async (value, type, listEl) => {
+    if (!value || value.length < minChars) {
+      listEl.innerHTML = '';
+      return;
     }
-    const resp = await fetch(`${basePath}/api/locations/search/?q=${encodeURIComponent(term)}`);
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return data.items || [];
+    const queryId = ++locationQueryIds[type];
+    const url = `${basePath}/api/locations/search/?prefix=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (queryId !== locationQueryIds[type]) return;
+      if (!data || !data.ok) return;
+      buildOptions(listEl, data.items || [], value);
+    } catch (err) {
+      if (queryId !== locationQueryIds[type]) return;
+      listEl.innerHTML = '';
+    }
   };
 
-  const updateLocationOptions = async (inputEl, listEl) => {
-    const term = inputEl?.value?.trim() || '';
-    const items = await fetchLocations(term, listEl);
-    buildOptions(listEl, items, term);
-  };
-
-  pickupInput?.addEventListener('input', () => updateLocationOptions(pickupInput, pickupList));
-  destinationInput?.addEventListener('input', () => updateLocationOptions(destinationInput, destinationList));
+  pickupInput?.addEventListener('input', () => {
+    if (locationTimers.pickup) {
+      clearTimeout(locationTimers.pickup);
+    }
+    locationTimers.pickup = setTimeout(() => {
+      fetchLocations(pickupInput.value, 'pickup', pickupList);
+    }, 150);
+  });
+  destinationInput?.addEventListener('input', () => {
+    if (locationTimers.destination) {
+      clearTimeout(locationTimers.destination);
+    }
+    locationTimers.destination = setTimeout(() => {
+      fetchLocations(destinationInput.value, 'destination', destinationList);
+    }, 150);
+  });
 
   const fetchQuote = async (payload, fallbackError) => {
     hideError();
