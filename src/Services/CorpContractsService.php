@@ -57,8 +57,21 @@ final class CorpContractsService
    *
    * $characterOwnerId is the EVE character_id that owns the token.
    */
-  public function pull(int $corpId, int $characterOwnerId, int $pageLimit = 50, int $lookbackHours = 24): array
-  {
+  public function pull(
+    int $corpId,
+    int $characterOwnerId,
+    int $pageLimit = 50,
+    int $lookbackHours = 24,
+    array $options = []
+  ): array {
+    $options = array_merge([
+      'max_runtime_seconds' => 0,
+      'on_progress' => null,
+    ], $options);
+    $progressCb = is_callable($options['on_progress'] ?? null) ? $options['on_progress'] : null;
+    $maxRuntimeSeconds = (int)($options['max_runtime_seconds'] ?? 0);
+    $startedAt = microtime(true);
+
     $token = $this->sso->getToken('character', $corpId, $characterOwnerId);
     if (!$token) {
       throw new \RuntimeException("No sso_token found for corp_id={$corpId}, character_id={$characterOwnerId}");
@@ -74,10 +87,19 @@ final class CorpContractsService
     $fetchedContracts = 0;
     $upsertedContracts = 0;
     $upsertedItems = 0;
+    $esiMs = 0;
+    $dbMs = 0;
+    $itemCalls = 0;
+    $stopReason = null;
 
     $cutoffTs = time() - ($lookbackHours * 3600);
 
     while ($page <= $pageLimit) {
+      if ($maxRuntimeSeconds > 0 && (microtime(true) - $startedAt) >= $maxRuntimeSeconds) {
+        throw new \RuntimeException("ESI contracts pull exceeded {$maxRuntimeSeconds}s at page {$page}.");
+      }
+      $pageStart = microtime(true);
+      $esiStart = microtime(true);
       $resp = $this->esiAuthedGetWithRefresh(
         $bearer,
         $tokenId,
@@ -86,10 +108,12 @@ final class CorpContractsService
         $corpId,
         60
       );
+      $esiMs += (microtime(true) - $esiStart) * 1000;
 
       if (!$resp['ok']) {
         // ESI returns 404 when paging past the last page.
         if ($resp['status'] === 404 && $page > 1) {
+          $stopReason = 'end_of_pages_404';
           break;
         }
         // If ESI returns 404/403 on page 1, likely insufficient corp roles or scopes
@@ -97,7 +121,10 @@ final class CorpContractsService
       }
 
       $contracts = is_array($resp['json']) ? $resp['json'] : [];
-      if (count($contracts) === 0) break; // no more pages
+      if (count($contracts) === 0) {
+        $stopReason = 'empty_page';
+        break;
+      }
 
       $totalPages = (int)($resp['headers']['x-pages'] ?? 0);
       $stopPaging = false;
@@ -112,11 +139,15 @@ final class CorpContractsService
         $contractId = (int)($c['contract_id'] ?? 0);
         if ($contractId <= 0) continue;
 
+        $dbStart = microtime(true);
         $this->upsertContract($corpId, $c, $resp['raw']);
+        $dbMs += (microtime(true) - $dbStart) * 1000;
         $upsertedContracts++;
 
         // Pull items only for non-courier? PushX-like usually cares about courier volume/collateral/reward.
         // Still: keep it comprehensive and pull items when endpoint returns data.
+        $itemCalls++;
+        $esiStart = microtime(true);
         $itemsResp = $this->esiAuthedGetWithRefresh(
           $bearer,
           $tokenId,
@@ -125,19 +156,41 @@ final class CorpContractsService
           $corpId,
           300
         );
+        $esiMs += (microtime(true) - $esiStart) * 1000;
 
         if ($itemsResp['ok'] && is_array($itemsResp['json'])) {
+          $dbStart = microtime(true);
           $upsertedItems += $this->upsertContractItems($corpId, $contractId, $itemsResp['json'], $itemsResp['raw']);
+          $dbMs += (microtime(true) - $dbStart) * 1000;
+        }
+        if ($maxRuntimeSeconds > 0 && (microtime(true) - $startedAt) >= $maxRuntimeSeconds) {
+          throw new \RuntimeException("ESI contracts pull exceeded {$maxRuntimeSeconds}s while processing items.");
         }
       }
 
       if ($stopPaging) {
+        $stopReason = 'cutoff_reached';
         break;
       }
       if ($totalPages > 0 && $page >= $totalPages) {
+        $stopReason = 'last_page';
         break;
       }
+      if ($progressCb) {
+        $progressCb([
+          'label' => sprintf('Contracts pull page %d (%d fetched)', $page, $fetchedContracts),
+          'stage' => 'contracts_pull',
+          'page' => $page,
+          'fetched_contracts' => $fetchedContracts,
+          'upserted_contracts' => $upsertedContracts,
+          'upserted_items' => $upsertedItems,
+          'page_ms' => (microtime(true) - $pageStart) * 1000,
+        ]);
+      }
       $page++;
+    }
+    if ($stopReason === null && $page > $pageLimit) {
+      $stopReason = 'page_limit';
     }
 
     return [
@@ -147,6 +200,12 @@ final class CorpContractsService
       'upserted_contracts' => $upsertedContracts,
       'upserted_items' => $upsertedItems,
       'pages' => $page - 1,
+      'duration_ms' => (microtime(true) - $startedAt) * 1000,
+      'esi_ms' => $esiMs,
+      'db_ms' => $dbMs,
+      'item_calls' => $itemCalls,
+      'stop_reason' => $stopReason ?? 'completed',
+      'max_runtime_seconds' => $maxRuntimeSeconds,
     ];
   }
 

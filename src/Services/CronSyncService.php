@@ -41,6 +41,10 @@ final class CronSyncService
       'ttl_contracts' => 300,
       'ttl_structures' => 900,
       'ttl_public_structures' => 86400,
+      'contracts_max_runtime' => (int)($_ENV['CRON_CONTRACTS_MAX_RUNTIME'] ?? 60),
+      'contracts_page_limit' => 50,
+      'contracts_lookback_hours' => 24,
+      'contracts_reconcile_max_runtime' => 60,
       'sync_public_structures' => true,
       'steps' => null,
       'on_progress' => null,
@@ -270,8 +274,74 @@ final class CronSyncService
     if (!$runContractsStep) {
       $results['contracts'] = $this->skipPayload($stats, 'contracts', $contractsEmpty, 'scope');
     } elseif ($this->shouldRun($stats, 'contracts', (int)$options['ttl_contracts'], $force, $contractsEmpty)) {
-      $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull($corpId, $characterId));
-      $results['contracts_reconcile'] = $this->esi->contractReconcile()->reconcile($corpId);
+      $contractsMaxRuntime = max(10, (int)$options['contracts_max_runtime']);
+      $contractsReconcileMaxRuntime = max(10, (int)$options['contracts_reconcile_max_runtime']);
+      $pullStart = microtime(true);
+      $results['contracts'] = $this->db->tx(fn($db) => $this->esi->contracts()->pull(
+        $corpId,
+        $characterId,
+        (int)$options['contracts_page_limit'],
+        (int)$options['contracts_lookback_hours'],
+        [
+          'max_runtime_seconds' => $contractsMaxRuntime,
+          'on_progress' => function (array $progress) use ($progressCb, $currentStep, $totalSteps): void {
+            if (!$progressCb) {
+              return;
+            }
+            $label = $progress['label'] ?? 'Contracts pull progress';
+            $progressCb([
+              'current' => $currentStep,
+              'total' => $totalSteps,
+              'label' => $label,
+              'stage' => $progress['stage'] ?? 'contracts',
+            ]);
+          },
+        ]
+      ));
+      $pullMs = (microtime(true) - $pullStart) * 1000;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => sprintf(
+          'Contracts pulled: %d fetched, %d upserted, %d items, %d pages in %.0fms (stop: %s)',
+          (int)($results['contracts']['fetched_contracts'] ?? 0),
+          (int)($results['contracts']['upserted_contracts'] ?? 0),
+          (int)($results['contracts']['upserted_items'] ?? 0),
+          (int)($results['contracts']['pages'] ?? 0),
+          $pullMs,
+          (string)($results['contracts']['stop_reason'] ?? 'unknown')
+        ),
+        'stage' => 'contracts',
+      ]);
+      $reconcileStart = microtime(true);
+      $results['contracts_reconcile'] = $this->esi->contractReconcile()->reconcile($corpId, [
+        'max_runtime_seconds' => $contractsReconcileMaxRuntime,
+        'on_progress' => function (array $progress) use ($progressCb, $currentStep, $totalSteps): void {
+          if (!$progressCb) {
+            return;
+          }
+          $label = $progress['label'] ?? 'Contracts reconcile progress';
+          $progressCb([
+            'current' => $currentStep,
+            'total' => $totalSteps,
+            'label' => $label,
+            'stage' => $progress['stage'] ?? 'contracts',
+          ]);
+        },
+      ]);
+      $reconcileMs = (microtime(true) - $reconcileStart) * 1000;
+      $this->reportProgress($progressCb, [
+        'current' => $currentStep,
+        'total' => $totalSteps,
+        'label' => sprintf(
+          'Contracts reconcile: %d updated, %d missing in %.0fms (stop: %s)',
+          (int)($results['contracts_reconcile']['updated'] ?? 0),
+          (int)($results['contracts_reconcile']['missing_contracts'] ?? 0),
+          $reconcileMs,
+          (string)($results['contracts_reconcile']['stop_reason'] ?? 'unknown')
+        ),
+        'stage' => 'contracts',
+      ]);
       $stats['contracts'] = gmdate('c');
       if ($this->webhooks) {
         try {
