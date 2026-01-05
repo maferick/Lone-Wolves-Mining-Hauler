@@ -98,12 +98,98 @@ try {
     }
   }
 
+  $characterCorpId = $corpId;
+  $characterCorpName = $corpName;
+  $characterAllianceId = $allianceId;
+  $characterAllianceName = $allianceName;
+
+  $accessConfig = [
+    'scope' => 'corp',
+    'alliances' => [],
+  ];
+  $accessRow = $db->one(
+    "SELECT corp_id, setting_json
+       FROM app_setting
+      WHERE setting_key = 'access.login'
+      ORDER BY updated_at DESC
+      LIMIT 1"
+  );
+  if ($accessRow && !empty($accessRow['setting_json'])) {
+    $decoded = json_decode((string)$accessRow['setting_json'], true);
+    if (is_array($decoded)) {
+      $accessConfig = array_merge($accessConfig, $decoded);
+    }
+  }
+
+  $homeCorpId = (int)($accessRow['corp_id'] ?? $characterCorpId);
+  $homeCorp = $db->one(
+    "SELECT corp_id, corp_name, alliance_id, alliance_name
+       FROM corp WHERE corp_id = :cid LIMIT 1",
+    ['cid' => $homeCorpId]
+  );
+  if (!$homeCorp) {
+    $homeCorpId = $characterCorpId;
+    $homeCorp = [
+      'corp_id' => $characterCorpId,
+      'corp_name' => $characterCorpName,
+      'alliance_id' => $characterAllianceId,
+      'alliance_name' => $characterAllianceName,
+    ];
+  }
+
+  $homeAllianceId = $homeCorp['alliance_id'] !== null ? (int)$homeCorp['alliance_id'] : null;
+  $allowedScopes = ['corp', 'alliance', 'alliances', 'public'];
+  $accessScope = in_array($accessConfig['scope'] ?? '', $allowedScopes, true)
+    ? (string)$accessConfig['scope']
+    : 'corp';
+
+  $allowedAllianceIds = [];
+  foreach (($accessConfig['alliances'] ?? []) as $row) {
+    $id = (int)($row['id'] ?? 0);
+    if ($id > 0) {
+      $allowedAllianceIds[] = $id;
+    }
+  }
+  $allowedAllianceIds = array_values(array_unique($allowedAllianceIds));
+
+  $accessAllowed = false;
+  switch ($accessScope) {
+    case 'public':
+      $accessAllowed = true;
+      break;
+    case 'alliance':
+      $accessAllowed = $characterCorpId === $homeCorpId
+        || ($characterAllianceId !== null && $homeAllianceId !== null && $characterAllianceId === $homeAllianceId);
+      break;
+    case 'alliances':
+      $accessAllowed = $characterCorpId === $homeCorpId
+        || ($characterAllianceId !== null && in_array($characterAllianceId, $allowedAllianceIds, true));
+      break;
+    case 'corp':
+    default:
+      $accessAllowed = $characterCorpId === $homeCorpId;
+      break;
+  }
+
+  if (!$accessAllowed) {
+    $base = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+    $loginUrl = ($base ?: '') . '/login/';
+    http_response_code(403);
+    echo "Access restricted. <a href=\"" . htmlspecialchars($loginUrl, ENT_QUOTES, 'UTF-8') . "\">Back to login</a>";
+    exit;
+  }
+
+  $appCorpId = $homeCorpId;
+  $appCorpName = (string)($homeCorp['corp_name'] ?? ('Corp ' . $homeCorpId));
+  $appAllianceId = $homeAllianceId;
+  $appAllianceName = $homeCorp['alliance_name'] ?? null;
+
   $expiresIn = (int)($tokens['expires_in'] ?? 0);
   $expiresAt = gmdate('Y-m-d H:i:s', time() + max(60, $expiresIn));
   $storeToken = $mode === 'esi';
 
   $isAdmin = false;
-  $db->tx(function(Db $db) use (&$isAdmin, $corpId, $corpName, $allianceId, $allianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes, $storeToken) {
+  $db->tx(function(Db $db) use (&$isAdmin, $appCorpId, $appCorpName, $appAllianceId, $appAllianceName, $characterId, $characterName, $tokens, $expiresAt, $scopes, $storeToken) {
 
     // Ensure corp row
     $db->execute(
@@ -111,10 +197,10 @@ try {
        VALUES (:cid, :cname, :aid, :aname, 1)
        ON DUPLICATE KEY UPDATE corp_name=VALUES(corp_name), alliance_id=VALUES(alliance_id), alliance_name=VALUES(alliance_name), is_active=1",
       [
-        'cid' => $corpId,
-        'cname' => $corpName,
-        'aid' => $allianceId,
-        'aname' => $allianceName,
+        'cid' => $appCorpId,
+        'cname' => $appCorpName,
+        'aid' => $appAllianceId,
+        'aname' => $appAllianceName,
       ]
     );
 
@@ -132,7 +218,7 @@ try {
          VALUES (:corp_id, :role_key, :role_name, :desc, :is_system)
          ON DUPLICATE KEY UPDATE role_name=VALUES(role_name), description=VALUES(description)",
         [
-          'corp_id' => $corpId,
+          'corp_id' => $appCorpId,
           'role_key' => $rk[0],
           'role_name' => $rk[1],
           'desc' => $rk[2],
@@ -168,11 +254,11 @@ try {
     $totalUsers = (int)$db->scalar("SELECT COUNT(*) FROM app_user WHERE character_id IS NOT NULL AND character_id > 0");
     $corpUsers = (int)$db->scalar(
       "SELECT COUNT(*) FROM app_user WHERE corp_id = :cid AND character_id IS NOT NULL AND character_id > 0",
-      ['cid' => $corpId]
+      ['cid' => $appCorpId]
     );
 
     // Upsert user
-    $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$corpId,'chid'=>$characterId]);
+    $existing = $db->one("SELECT user_id FROM app_user WHERE corp_id=:cid AND character_id=:chid LIMIT 1", ['cid'=>$appCorpId,'chid'=>$characterId]);
     if ($existing) {
       $userId = (int)$existing['user_id'];
       $db->execute(
@@ -185,7 +271,7 @@ try {
       $userId = (int)$db->insert(
         "INSERT INTO app_user (corp_id, character_id, character_name, display_name, status, last_login_at)
          VALUES (:cid, :chid, :cn, :dn, 'active', UTC_TIMESTAMP())",
-        ['cid'=>$corpId,'chid'=>$characterId,'cn'=>$characterName,'dn'=>$characterName]
+        ['cid'=>$appCorpId,'chid'=>$characterId,'cn'=>$characterName,'dn'=>$characterName]
       );
     }
 
@@ -204,7 +290,7 @@ try {
            last_error=NULL,
            last_refreshed_at=UTC_TIMESTAMP()",
         [
-          'cid'=>$corpId,
+          'cid'=>$appCorpId,
           'oid'=>$characterId,
           'oname'=>$characterName,
           'at'=>$tokens['access_token'],
@@ -221,14 +307,14 @@ try {
     // - else requester by default
     $roleToAssign = ($totalUsers === 0 || $corpUsers === 0) ? 'admin' : 'requester';
 
-    $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk LIMIT 1", ['cid'=>$corpId,'rk'=>$roleToAssign]);
+    $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk LIMIT 1", ['cid'=>$appCorpId,'rk'=>$roleToAssign]);
     if ($roleId > 0) {
       $db->execute("INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)", ['uid'=>$userId,'rid'=>$roleId]);
     }
 
     // Admin gets all perms; subadmin default set (ops + ESI + webhooks + pricing + users optional)
     // Keep idempotent.
-    $adminRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='admin' LIMIT 1", ['cid'=>$corpId]);
+    $adminRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='admin' LIMIT 1", ['cid'=>$appCorpId]);
     if ($adminRoleId > 0) {
       $db->execute(
         "INSERT IGNORE INTO role_permission (role_id, perm_id, allow)
@@ -237,7 +323,7 @@ try {
       );
     }
 
-    $subRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='subadmin' LIMIT 1", ['cid'=>$corpId]);
+    $subRoleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key='subadmin' LIMIT 1", ['cid'=>$appCorpId]);
     if ($subRoleId > 0) {
       $db->execute(
         "INSERT IGNORE INTO role_permission (role_id, perm_id, allow)
@@ -253,11 +339,11 @@ try {
        VALUES (:cid, 'corp.profile', JSON_OBJECT('corp_id', :cid_profile, 'corp_name', :cname, 'alliance_id', :aid, 'alliance_name', :aname))
        ON DUPLICATE KEY UPDATE setting_json=VALUES(setting_json)",
       [
-        'cid' => $corpId,
-        'cid_profile' => $corpId,
-        'cname' => $corpName,
-        'aid' => $allianceId,
-        'aname' => $allianceName,
+        'cid' => $appCorpId,
+        'cid_profile' => $appCorpId,
+        'cname' => $appCorpName,
+        'aid' => $appAllianceId,
+        'aname' => $appAllianceName,
       ]
     );
 

@@ -49,6 +49,10 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
             <div class="label">Corp</div>
             <a class="btn" href="<?= ($basePath ?: '') ?>/admin/settings/">Manage corp & alliance</a>
           </div>
+          <div>
+            <div class="label">Access</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/access/">Login access rules</a>
+          </div>
         <?php endif; ?>
         <?php if (Auth::can($authCtx, 'pricing.manage')): ?>
           <div>

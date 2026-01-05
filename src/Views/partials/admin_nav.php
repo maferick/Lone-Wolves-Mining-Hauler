@@ -27,6 +27,7 @@ if (!empty($authCtx['user_id'])) {
 $navItems = [
   ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
   ['label' => 'Corp', 'path' => '/admin/settings/', 'perm' => 'corp.manage'],
+  ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
   ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
   ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
   ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
