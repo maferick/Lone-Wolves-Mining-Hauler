@@ -57,6 +57,12 @@ try {
   $quote = $pricingService->quote([
     'pickup' => $payload['pickup'] ?? $payload['pickup_system'] ?? null,
     'destination' => $payload['destination'] ?? $payload['destination_system'] ?? null,
+    'pickup_location_id' => $payload['pickup_location_id'] ?? null,
+    'pickup_location_type' => $payload['pickup_location_type'] ?? null,
+    'pickup_system_id' => $payload['pickup_system_id'] ?? null,
+    'destination_location_id' => $payload['destination_location_id'] ?? null,
+    'destination_location_type' => $payload['destination_location_type'] ?? null,
+    'destination_system_id' => $payload['destination_system_id'] ?? null,
     'volume_m3' => $payload['volume_m3'] ?? $payload['volume'] ?? null,
     'collateral_isk' => $payload['collateral_isk'] ?? $payload['collateral'] ?? null,
     'priority' => $payload['priority'] ?? $payload['profile'] ?? $defaultPriority,
