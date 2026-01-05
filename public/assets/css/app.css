@@ -45,8 +45,17 @@ body.home,
 body.brand-bg{
   background:
     linear-gradient(180deg, rgba(5,7,12,.72), rgba(5,7,12,.86)),
-    url('../background.jpg') center/cover fixed no-repeat,
+    var(--brand-bg-image, url('../background.jpg')) center/cover fixed no-repeat,
     var(--bg);
+}
+@supports (background-image: image-set(url("") type("image/webp"))) {
+  body.home,
+  body.brand-bg{
+    background:
+      linear-gradient(180deg, rgba(5,7,12,.72), rgba(5,7,12,.86)),
+      var(--brand-bg-image-set, var(--brand-bg-image, url('../background.jpg'))) center/cover fixed no-repeat,
+      var(--bg);
+  }
 }
 
 a{color:inherit; text-decoration:none}

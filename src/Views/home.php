@@ -31,7 +31,13 @@ $logoPath = '/assets/logo.png';
 $logoDiskPath = __DIR__ . '/../../public/assets/logo.png';
 if (!file_exists($logoDiskPath)) {
   $logoPath = '/assets/logo.jpg';
+  $logoDiskPath = __DIR__ . '/../../public/assets/logo.jpg';
 }
+$logoWebpPath = '/assets/logo.webp';
+$logoWebpDiskPath = __DIR__ . '/../../public/assets/logo.webp';
+$hasLogoWebp = file_exists($logoWebpDiskPath);
+$logoWidth = 330;
+$logoHeight = 220;
 
 ob_start();
 ?>
@@ -39,7 +45,21 @@ ob_start();
   <div class="stack">
     <div class="card hero-card">
       <div class="hero-banner">
-        <img class="hero-logo" src="<?= ($basePath ?: '') . $logoPath ?>" alt="Lone Wolves Logistics logo" />
+        <picture>
+          <?php if ($hasLogoWebp): ?>
+            <source srcset="<?= ($basePath ?: '') . $logoWebpPath ?>" type="image/webp" />
+          <?php endif; ?>
+          <img
+            class="hero-logo"
+            src="<?= ($basePath ?: '') . $logoPath ?>"
+            alt="Lone Wolves Logistics logo"
+            width="<?= $logoWidth ?>"
+            height="<?= $logoHeight ?>"
+            loading="eager"
+            fetchpriority="high"
+            decoding="async"
+          />
+        </picture>
       </div>
       <div class="card-header">
         <h1>Lone Wolves Logistics</h1>
