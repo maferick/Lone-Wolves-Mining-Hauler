@@ -197,6 +197,9 @@
     const route = data.route || {};
     const ship = breakdown.ship_class || {};
     const security = breakdown.security_counts || {};
+    const securityMultipliers = breakdown.security_multipliers || {};
+    const flatRisk = breakdown.flat_risk_fees || {};
+    const volumePressure = breakdown.volume_pressure || {};
     const penalties = breakdown.penalties || {};
     const ratePlan = breakdown.rate_plan || {};
     const costs = breakdown.costs || {};
@@ -210,6 +213,25 @@
     const toLocation = breakdown.inputs?.to_location || {};
     const pickupLabel = fromLocation.display_name || fromLocation.location_name || fromLocation.system_name || first;
     const deliveryLabel = toLocation.display_name || toLocation.location_name || toLocation.system_name || last;
+    const securityParts = [
+      `HS ${security.high ?? 0}`,
+      `LS ${security.low ?? 0}`,
+      `NS ${security.null ?? 0}`,
+      `Pochven ${security.pochven ?? 0}`,
+      `Zarzakh ${security.zarzakh ?? 0}`,
+      `Thera ${security.thera ?? 0}`,
+    ];
+    const multiplierParts = [
+      `HS x${(securityMultipliers.high ?? 1).toFixed(2)}`,
+      `LS x${(securityMultipliers.low ?? 1).toFixed(2)}`,
+      `NS x${(securityMultipliers.null ?? 1).toFixed(2)}`,
+      `Pochven x${(securityMultipliers.pochven ?? 1).toFixed(2)}`,
+      `Zarzakh x${(securityMultipliers.zarzakh ?? 1).toFixed(2)}`,
+      `Thera x${(securityMultipliers.thera ?? 1).toFixed(2)}`,
+    ];
+    const volumeLabel = volumePressure?.applied
+      ? `+${volumePressure.applied.surcharge_pct}% (>${Math.round((volumePressure.applied.min_ratio || 0) * 100)}% cap)`
+      : 'None';
 
     const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
     breakdownContent.innerHTML = `
@@ -232,7 +254,7 @@
       <div class="row" style="margin-top:14px;">
         <div>
           <div class="label">Jumps</div>
-          <div>${route.jumps ?? 0} (HS ${security.high ?? 0} / LS ${security.low ?? 0} / NS ${security.null ?? 0})</div>
+          <div>${route.jumps ?? 0} (${securityParts.join(' / ')})</div>
         </div>
         <div>
           <div class="label">Rate plan</div>
@@ -255,18 +277,37 @@
       </div>
       <div class="row" style="margin-top:14px;">
         <div>
-          <div class="label">Penalties</div>
-          <div>Low-sec ${fmtIsk(penalties.lowsec || 0)} • Null-sec ${fmtIsk(penalties.nullsec || 0)} • Soft DNF ${fmtIsk(penalties.soft_dnf_total || 0)}</div>
+          <div class="label">Security multipliers</div>
+          <div>${multiplierParts.join(' / ')}</div>
         </div>
         <div>
+          <div class="label">Flat risk surcharges</div>
+          <div>Low-sec ${fmtIsk(flatRisk.lowsec || 0)} • Null-sec ${fmtIsk(flatRisk.nullsec || 0)} • Special ${fmtIsk(flatRisk.special || 0)}</div>
+        </div>
+        <div>
+          <div class="label">Volume pressure</div>
+          <div>${volumeLabel}</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <div>
           <div class="label">Costs</div>
-          <div>Jump ${fmtIsk(costs.jump_subtotal || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)} • Priority ${fmtIsk(costs.priority_fee || 0)}</div>
+          <div>Jump ${fmtIsk(costs.jump_security || 0)} • Soft DNF ${fmtIsk(costs.soft_dnf_penalty || 0)} • Flat risk ${fmtIsk(costs.flat_risk_fees || 0)}</div>
+        </div>
+        <div>
+          <div class="label">Totals</div>
+          <div>Haul ${fmtIsk(costs.haul_total || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)} • Priority ${fmtIsk(costs.priority_fee || 0)}</div>
         </div>
         <div>
           <div class="label">DNF notes</div>
           <div>${(penalties.soft_dnf || []).map(r => r.reason || 'Rule').join(', ') || 'None'}</div>
         </div>
       </div>
+      ${costs.min_price_applied ? `
+        <div class="row" style="margin-top:14px;">
+          <div class="alert alert-warning" style="margin:0;">Minimum price applied for this ship class.</div>
+        </div>
+      ` : ''}
     `;
 
     const toggleBtn = document.getElementById('toggle-route');

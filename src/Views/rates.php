@@ -5,7 +5,9 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $corpName = (string)($config['corp']['name'] ?? 'Corp');
 $ratePlans = $ratePlans ?? [];
 $priorityFees = $priorityFees ?? ['normal' => 0.0, 'high' => 0.0];
-$securityMultipliers = $securityMultipliers ?? ['low' => 0.5, 'null' => 1.0];
+$securityMultipliers = $securityMultipliers ?? ['high' => 1.0, 'low' => 1.5, 'null' => 2.5, 'pochven' => 3.0, 'zarzakh' => 3.5, 'thera' => 3.0];
+$flatRiskFees = $flatRiskFees ?? ['lowsec' => 0.0, 'nullsec' => 0.0, 'special' => 0.0];
+$volumePressure = $volumePressure ?? ['enabled' => false, 'thresholds' => []];
 $ratesUpdatedAt = $ratesUpdatedAt ?? null;
 
 $fmtIsk = static function ($value): string {
@@ -28,8 +30,10 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
         <div class="label">How pricing is calculated</div>
         <ul class="list">
           <li><span class="badge">Base</span> Jump cost = jumps × rate per jump (by ship class).</li>
-          <li><span class="badge">Security</span> Low-sec adds <?= $fmtPercent($securityMultipliers['low'] * 100, 0) ?> per low-sec jump; null-sec adds <?= $fmtPercent($securityMultipliers['null'] * 100, 0) ?> per null-sec jump.</li>
+          <li><span class="badge">Security</span> Each jump uses the security-class multiplier (high/low/null/special).</li>
           <li><span class="badge">Collateral</span> Collateral fee = collateral × collateral rate.</li>
+          <li><span class="badge">Risk</span> Optional flat surcharges apply if a route touches low-sec, null-sec, or special space.</li>
+          <li><span class="badge">Volume</span> Optional scaling applies when volume nears max hull capacity.</li>
           <li><span class="badge">Priority</span> Priority fee is added on top (normal/high).</li>
           <li><span class="badge">Minimum</span> Total is never below the minimum price for the ship class.</li>
         </ul>
@@ -81,6 +85,57 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
               <li><span class="badge">High</span> <?= $fmtIsk($priorityFees['high'] ?? 0) ?></li>
             </ul>
           </div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:16px;">
+        <div class="card card-subtle">
+          <div class="card-header">
+            <h3>Security multipliers</h3>
+            <p class="muted">Applied per jump after the base rate.</p>
+          </div>
+          <div class="content">
+            <ul class="list">
+              <li><span class="badge">High-sec</span> × <?= number_format((float)($securityMultipliers['high'] ?? 1.0), 2) ?></li>
+              <li><span class="badge">Low-sec</span> × <?= number_format((float)($securityMultipliers['low'] ?? 1.0), 2) ?></li>
+              <li><span class="badge">Null-sec</span> × <?= number_format((float)($securityMultipliers['null'] ?? 1.0), 2) ?></li>
+              <li><span class="badge">Pochven</span> × <?= number_format((float)($securityMultipliers['pochven'] ?? 1.0), 2) ?></li>
+              <li><span class="badge">Zarzakh</span> × <?= number_format((float)($securityMultipliers['zarzakh'] ?? 1.0), 2) ?></li>
+              <li><span class="badge">Thera</span> × <?= number_format((float)($securityMultipliers['thera'] ?? 1.0), 2) ?></li>
+            </ul>
+          </div>
+        </div>
+        <div class="card card-subtle">
+          <div class="card-header">
+            <h3>Flat risk surcharges</h3>
+            <p class="muted">Added once per route when present.</p>
+          </div>
+          <div class="content">
+            <ul class="list">
+              <li><span class="badge">Low-sec</span> <?= $fmtIsk($flatRiskFees['lowsec'] ?? 0) ?></li>
+              <li><span class="badge">Null-sec</span> <?= $fmtIsk($flatRiskFees['nullsec'] ?? 0) ?></li>
+              <li><span class="badge">Special</span> <?= $fmtIsk($flatRiskFees['special'] ?? 0) ?></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="card card-subtle" style="margin-top:16px;">
+        <div class="card-header">
+          <h3>Volume pressure scaling</h3>
+          <p class="muted">Surcharges when volume reaches a percentage of max hull capacity.</p>
+        </div>
+        <div class="content">
+          <?php if (empty($volumePressure['enabled'])): ?>
+            <p class="muted">Volume pressure scaling is disabled.</p>
+          <?php else: ?>
+            <ul class="list">
+              <?php foreach (($volumePressure['thresholds'] ?? []) as $threshold): ?>
+                <li>
+                  <span class="badge"><?= number_format((float)($threshold['threshold_pct'] ?? 0), 0) ?>%</span>
+                  +<?= $fmtPercent((float)($threshold['surcharge_pct'] ?? 0), 0) ?>
+                </li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endif; ?>
         </div>
       </div>
       <div class="card card-subtle" style="margin-top:16px;">

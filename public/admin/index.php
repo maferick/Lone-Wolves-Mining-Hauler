@@ -59,6 +59,16 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
             <div class="label">Defaults</div>
             <a class="btn" href="<?= ($basePath ?: '') ?>/admin/defaults/">Pricing & routing</a>
           </div>
+          <div>
+            <div class="label">Pricing</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/pricing/">Economic controls</a>
+          </div>
+        <?php endif; ?>
+        <?php if (Auth::can($authCtx, 'haul.request.manage')): ?>
+          <div>
+            <div class="label">Hauling</div>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/hauling/">Risk & routing</a>
+          </div>
         <?php endif; ?>
         <?php if (Auth::can($authCtx, 'user.manage')): ?>
           <div>

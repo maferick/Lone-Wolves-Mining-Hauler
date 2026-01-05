@@ -929,7 +929,61 @@ switch ($path) {
       }
     }
 
-    $securityMultipliers = ['low' => 0.5, 'null' => 1.0];
+    $securityMultipliers = [
+      'high' => 1.0,
+      'low' => 1.5,
+      'null' => 2.5,
+      'pochven' => 3.0,
+      'zarzakh' => 3.5,
+      'thera' => 3.0,
+    ];
+    $flatRiskFees = ['lowsec' => 0.0, 'nullsec' => 0.0, 'special' => 0.0];
+    $volumePressure = ['enabled' => false, 'thresholds' => []];
+    $securityRow = $db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.security_multipliers' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if (!$securityRow) {
+      $securityRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.security_multipliers' LIMIT 1"
+      );
+    }
+    if ($securityRow && !empty($securityRow['setting_json'])) {
+      $decoded = json_decode((string)$securityRow['setting_json'], true);
+      if (is_array($decoded)) {
+        $securityMultipliers = array_merge($securityMultipliers, $decoded);
+      }
+    }
+    $flatRow = $db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.flat_risk_fees' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if (!$flatRow) {
+      $flatRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.flat_risk_fees' LIMIT 1"
+      );
+    }
+    if ($flatRow && !empty($flatRow['setting_json'])) {
+      $decoded = json_decode((string)$flatRow['setting_json'], true);
+      if (is_array($decoded)) {
+        $flatRiskFees = array_merge($flatRiskFees, $decoded);
+      }
+    }
+    $volumeRow = $db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.volume_pressure' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if (!$volumeRow) {
+      $volumeRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.volume_pressure' LIMIT 1"
+      );
+    }
+    if ($volumeRow && !empty($volumeRow['setting_json'])) {
+      $decoded = json_decode((string)$volumeRow['setting_json'], true);
+      if (is_array($decoded)) {
+        $volumePressure = array_merge($volumePressure, $decoded);
+      }
+    }
     $ratesUpdatedAt = null;
     foreach ($ratePlans as $plan) {
       if (!empty($plan['updated_at'])) {
