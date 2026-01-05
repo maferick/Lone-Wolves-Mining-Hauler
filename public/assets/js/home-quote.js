@@ -17,9 +17,10 @@
     listEl.innerHTML = '';
     if (!value || value.length < minChars) return;
     for (const item of items || []) {
+      const label = item.label || item.name || '';
+      if (!label) continue;
       const option = document.createElement('option');
-      option.value = item.name;
-      if (item.label) option.label = item.label;
+      option.value = label;
       listEl.appendChild(option);
     }
   };
@@ -51,20 +52,35 @@
   let currentRequestMode = 'standard';
   const locationQueryIds = { pickup: 0, destination: 0 };
   const locationTimers = { pickup: null, destination: null };
-  const locationCache = { pickup: new Map(), destination: new Map() };
+  const pickupSuggestionMap = new Map();
+  const deliverySuggestionMap = new Map();
+
+  const normalizeLabel = (value) => value
+    ?.toString()
+    .toLowerCase()
+    .replace(/[—–]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim() || '';
+
+  const setSuggestions = (type, items) => {
+    const targetMap = type === 'pickup' ? pickupSuggestionMap : deliverySuggestionMap;
+    targetMap.clear();
+    for (const item of items || []) {
+      const label = item?.label || item?.name || '';
+      if (!label) continue;
+      targetMap.set(normalizeLabel(label), item);
+    }
+  };
 
   const storeLocations = (type, items) => {
-    const map = new Map();
-    for (const item of items || []) {
-      if (!item?.name) continue;
-      map.set(item.name.toLowerCase(), item);
-    }
-    locationCache[type] = map;
+    setSuggestions(type, items);
   };
 
   const applyLocationSelection = (type, value) => {
-    const lookup = value?.trim().toLowerCase() || '';
-    const item = lookup ? locationCache[type].get(lookup) : null;
+    const lookup = normalizeLabel(value);
+    const targetMap = type === 'pickup' ? pickupSuggestionMap : deliverySuggestionMap;
+    const item = lookup ? targetMap.get(lookup) : null;
+    const inputEl = type === 'pickup' ? pickupInput : destinationInput;
     const setFields = (idInput, typeInput, systemInput) => {
       if (!idInput || !typeInput || !systemInput) return;
       if (!item) {
@@ -82,6 +98,11 @@
       setFields(pickupLocationIdInput, pickupLocationTypeInput, pickupSystemIdInput);
     } else {
       setFields(deliveryLocationIdInput, deliveryLocationTypeInput, deliverySystemIdInput);
+    }
+
+    if (!inputEl) return;
+    if (item || !lookup) {
+      inputEl.classList.remove('input--error');
     }
   };
 
@@ -296,10 +317,12 @@
       return;
     }
     if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      pickupInput?.classList.add('input--error');
       showError('Please pick a pickup location from the list.');
       return;
     }
     if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      destinationInput?.classList.add('input--error');
       showError('Please pick a delivery location from the list.');
       return;
     }
@@ -418,10 +441,12 @@
       return;
     }
     if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      pickupInput?.classList.add('input--error');
       showError('Please pick a pickup location from the list.');
       return;
     }
     if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      destinationInput?.classList.add('input--error');
       showError('Please pick a delivery location from the list.');
       return;
     }
