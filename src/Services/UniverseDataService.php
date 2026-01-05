@@ -236,6 +236,23 @@ final class UniverseDataService
     ];
   }
 
+  public function syncNpcStations(): array
+  {
+    $this->ensureSdeFiles(['npcStations']);
+    $stationFile = $this->sdeFilePath('npcStations');
+    if ($stationFile === null) {
+      throw new \RuntimeException('Missing required SDE NPC station file.');
+    }
+
+    $stationsFetched = $this->importSdeStations($stationFile);
+    $this->markSdeImported();
+
+    return [
+      'stations_fetched' => $stationsFetched,
+      'source' => 'sde',
+    ];
+  }
+
   public function syncStargateGraph(int $ttlSeconds = 86400, bool $truncate = true): array
   {
     if ($this->isSdeEnabled()) {

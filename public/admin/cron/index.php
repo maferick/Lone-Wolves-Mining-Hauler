@@ -41,6 +41,7 @@ $structuresInterval = $normalizeInterval((int)($_ENV['CRON_STRUCTURES_INTERVAL']
 $publicStructuresInterval = $normalizeInterval((int)($_ENV['CRON_PUBLIC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $contractsInterval = $normalizeInterval((int)($_ENV['CRON_CONTRACTS_INTERVAL'] ?? 300), 300);
 $alliancesInterval = $normalizeInterval((int)($_ENV['CRON_ALLIANCES_INTERVAL'] ?? 86400), 86400);
+$npcStructuresInterval = $normalizeInterval((int)($_ENV['CRON_NPC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
 $webhookInterval = 60;
 $webhookRequeueInterval = $normalizeInterval((int)($_ENV['CRON_WEBHOOK_REQUEUE_INTERVAL'] ?? 900), 900);
@@ -252,6 +253,14 @@ $taskDefinitions = [
     'interval' => $alliancesInterval,
     'scope' => 'global',
     'description' => 'Prefills alliance name cache for the allowlist search.',
+    'runner' => 'task',
+  ],
+  JobQueueService::CRON_NPC_STRUCTURES_JOB => [
+    'key' => JobQueueService::CRON_NPC_STRUCTURES_JOB,
+    'name' => 'NPC Structures Cache',
+    'interval' => $npcStructuresInterval,
+    'scope' => 'global',
+    'description' => 'Prefills NPC structure data from the SDE for location search.',
     'runner' => 'task',
   ],
   JobQueueService::CONTRACT_MATCH_JOB => [

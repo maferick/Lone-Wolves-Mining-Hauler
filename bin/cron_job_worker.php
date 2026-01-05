@@ -10,6 +10,7 @@ use App\Services\CronSyncService;
 use App\Services\AllianceSyncService;
 use App\Services\EsiClient;
 use App\Services\JobQueueService;
+use App\Services\NpcStructureSyncService;
 
 function runCronJobWorker(Db $db, array $config, array $services, ?callable $logger = null): int
 {
@@ -42,6 +43,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
     JobQueueService::WEBHOOK_DELIVERY_JOB,
     JobQueueService::WEBHOOK_REQUEUE_JOB,
     JobQueueService::CRON_ALLIANCES_JOB,
+    JobQueueService::CRON_NPC_STRUCTURES_JOB,
     JobQueueService::CRON_SYNC_JOB,
     JobQueueService::CRON_TOKEN_REFRESH_JOB,
     JobQueueService::CRON_STRUCTURES_JOB,
@@ -124,6 +126,15 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         'log_complete' => 'Alliance sync completed.',
         'log_failed_prefix' => 'Alliance sync failed',
       ],
+      JobQueueService::CRON_NPC_STRUCTURES_JOB => [
+        'label' => 'Starting NPC structures sync',
+        'started' => 'cron.npc_structures.started',
+        'completed' => 'cron.npc_structures.completed',
+        'failed' => 'cron.npc_structures.failed',
+        'log_start' => 'NPC structures sync started.',
+        'log_complete' => 'NPC structures sync completed.',
+        'log_failed_prefix' => 'NPC structures sync failed',
+      ],
     ];
 
     switch ($jobType) {
@@ -179,6 +190,26 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         });
         $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
         $log("Alliance sync job {$jobId} completed.");
+        return 1;
+      case JobQueueService::CRON_NPC_STRUCTURES_JOB:
+        $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_NPC_STRUCTURES_JOB];
+        $jobQueue->updateProgress($jobId, [
+          'current' => 0,
+          'total' => 0,
+          'label' => $meta['label'],
+          'stage' => 'start',
+        ], $meta['log_start']);
+        $jobQueue->markStarted($jobId, $meta['started']);
+        $npcSync = new NpcStructureSyncService($db, $config);
+        $result = $npcSync->syncNpcStructures(function (array $progress) use ($jobQueue, $jobId): void {
+          $jobQueue->updateProgress(
+            $jobId,
+            $progress,
+            $progress['label'] ?? null
+          );
+        });
+        $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
+        $log("NPC structures sync job {$jobId} completed.");
         return 1;
       case JobQueueService::CONTRACT_MATCH_JOB:
         if ($corpId <= 0) {
@@ -290,6 +321,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
       case JobQueueService::CRON_PUBLIC_STRUCTURES_JOB:
       case JobQueueService::CRON_CONTRACTS_JOB:
       case JobQueueService::CRON_ALLIANCES_JOB:
+      case JobQueueService::CRON_NPC_STRUCTURES_JOB:
         $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_SYNC_JOB];
         $jobQueue->markFailed(
           $jobId,
