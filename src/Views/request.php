@@ -15,7 +15,11 @@ if (!empty($request['mismatch_reason_json'])) {
 
 ob_start();
 ?>
-<section class="card">
+<section
+  class="card js-contract-attach"
+  data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>"
+  data-quote-id="<?= (int)($request['quote_id'] ?? 0) ?>"
+>
   <div class="card-header">
     <h2>Contract Instructions</h2>
     <p class="muted">Use these values to create the courier contract in-game.</p>
@@ -132,48 +136,7 @@ ob_start();
 </section>
 
 <?php if (empty($error) && !empty($contractAttachEnabled)): ?>
-<script>
-  (() => {
-    const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
-    const attachBtn = document.getElementById('attach-contract');
-    const contractInput = document.getElementById('contract-id');
-    const statusEl = document.getElementById('attach-status');
-    const quoteId = <?= (int)$request['quote_id'] ?>;
-
-    attachBtn?.addEventListener('click', async () => {
-      const contractId = parseInt(contractInput?.value || '0', 10);
-      if (!contractId) {
-        statusEl.textContent = 'Contract ID required.';
-        return;
-      }
-      attachBtn.disabled = true;
-      statusEl.textContent = 'Validating contract via ESI...';
-
-      try {
-        const resp = await fetch(`${basePath}/api/contracts/attach/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            quote_id: quoteId,
-            contract_id: contractId,
-          }),
-        });
-        const data = await resp.json();
-        if (!data.ok) {
-          statusEl.textContent = data.error || 'Contract attach failed.';
-          return;
-        }
-        statusEl.textContent = 'Contract validated and queued. Discord webhook queued.';
-      } catch (err) {
-        statusEl.textContent = 'Contract attach failed.';
-      } finally {
-        attachBtn.disabled = false;
-      }
-    });
-  })();
-</script>
+  <script src="<?= ($basePath ?: '') ?>/assets/js/request.js" defer></script>
 <?php endif; ?>
 <?php
 $body = ob_get_clean();
