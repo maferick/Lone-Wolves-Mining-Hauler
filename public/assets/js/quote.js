@@ -29,8 +29,21 @@
   const volumeInput = document.querySelector('input[name="volume_m3"]');
   const collateralInput = document.querySelector('input[name="collateral"]');
   const priorityInput = document.querySelector('select[name="priority"]');
-  const pickupList = document.getElementById('pickup-location-list');
-  const destinationList = document.getElementById('destination-location-list');
+  const ensureDatalist = (id, input) => {
+    let listEl = document.getElementById(id);
+    if (!listEl) {
+      listEl = document.createElement('datalist');
+      listEl.id = id;
+      document.body.appendChild(listEl);
+    }
+    if (input && input.getAttribute('list') !== id) {
+      input.setAttribute('list', id);
+    }
+    return listEl;
+  };
+
+  const pickupList = ensureDatalist('pickup-location-list', pickupInput);
+  const destinationList = ensureDatalist('destination-location-list', destinationInput);
   const submitBtn = document.getElementById('quote-submit');
   const errorEl = document.getElementById('quote-error');
   const resultEl = document.getElementById('quote-result');
@@ -79,6 +92,19 @@
     return Number(value).toLocaleString('en-US', { maximumFractionDigits: digits });
   };
 
+  const parseIsk = (value) => {
+    if (!value) return null;
+    const clean = value.toString().trim().toLowerCase().replace(/[, ]+/g, '');
+    const match = clean.match(/^([0-9]+(?:\.[0-9]+)?)([kmb])?$/);
+    if (!match) return null;
+    const amount = parseFloat(match[1]);
+    const suffix = match[2];
+    const mult = suffix === 'b' ? 1e9 : suffix === 'm' ? 1e6 : suffix === 'k' ? 1e3 : 1;
+    return amount * mult;
+  };
+
+  const fmtIsk = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+
   const buildBreakdown = (breakdown, route) => {
     if (!breakdownContent || !breakdownCard) return;
     const items = [];
@@ -114,7 +140,7 @@
     const queryId = ++locationQueryIds[type];
     const url = `${basePath}/api/locations/search/?prefix=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
     try {
-      const resp = await fetch(url);
+      const resp = await fetch(url, { credentials: 'same-origin' });
       const data = await resp.json();
       if (queryId !== locationQueryIds[type]) return;
       if (!data || !data.ok) return;
@@ -172,11 +198,12 @@
   };
 
   submitBtn?.addEventListener('click', async () => {
+    const collateralValue = parseIsk(collateralInput?.value || '');
     const payload = {
       pickup_system: pickupInput?.value?.trim() || '',
       destination_system: destinationInput?.value?.trim() || '',
       volume_m3: parseFloat(volumeInput?.value || '0'),
-      collateral: collateralInput?.value?.trim() || '',
+      collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',
     };
     if (!payload.pickup_system || !payload.destination_system || !payload.volume_m3) {
@@ -221,32 +248,39 @@
 
   const buildBuybackPayload = () => {
     const volume = parseFloat(volumeInput?.value || '0');
+    const collateralValue = parseIsk(collateralInput?.value || '');
     return {
       pickup_system: pickupInput?.value?.trim() || '',
       destination_system: destinationInput?.value?.trim() || '',
       volume_m3: volume,
-      collateral: collateralInput?.value?.trim() || '',
+      collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',
     };
   };
 
-  const resolveBuybackTier = () => {
-    const volume = parseFloat(volumeInput?.value || '0');
-    if (!volume || !buybackTiers.length) return null;
-    return buybackTiers.find((tier) => volume >= tier.min_volume && volume <= tier.max_volume) || null;
+  const findBuybackPrice = (volume) => {
+    if (!Array.isArray(buybackTiers)) return 0;
+    const sorted = [...buybackTiers].sort((a, b) => (a.max_m3 ?? 0) - (b.max_m3 ?? 0));
+    for (const tier of sorted) {
+      const max = Number(tier.max_m3 ?? 0);
+      if (volume <= max) {
+        return Number(tier.price_isk ?? 0);
+      }
+    }
+    return 0;
   };
 
   const updateBuybackButton = () => {
-    if (!buybackBtn) return;
-    if (!buybackEnabled) return;
-    const tier = resolveBuybackTier();
-    if (!tier) {
+    if (!buybackBtn || !buybackEnabled) return;
+    const volume = parseFloat(volumeInput?.value || '0');
+    if (!volume || volume <= 0) {
       buybackBtn.textContent = 'Buyback haulage — volume based';
-      buybackBtn.disabled = true;
       return;
     }
-    buybackBtn.disabled = false;
-    buybackBtn.textContent = `Buyback haulage — ${tier.label}`;
+    const price = findBuybackPrice(volume);
+    buybackBtn.textContent = price > 0
+      ? `Buyback haulage — ${fmtIsk(price)} ISK`
+      : 'Buyback haulage — volume based';
   };
 
   updateBuybackButton();
