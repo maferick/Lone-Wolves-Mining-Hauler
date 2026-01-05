@@ -1061,10 +1061,7 @@ final class UniverseDataService
   private function writeSdeMeta(string $basePath, array $meta): void
   {
     $path = $basePath . DIRECTORY_SEPARATOR . self::SDE_META_FILENAME;
-    @file_put_contents(
-      $path,
-      Db::jsonEncode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-    );
+    @file_put_contents($path, Db::jsonEncode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
   }
 
   private function fetchSdeLatestMeta(): ?array
