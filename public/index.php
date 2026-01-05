@@ -207,8 +207,8 @@ switch ($path) {
     $contractStats['pending_volume'] = $pendingVolume;
 
     $quoteInput = [
-      'pickup_system' => '',
-      'destination_system' => '',
+      'pickup_location' => '',
+      'delivery_location' => '',
     ];
     $defaultPriority = 'normal';
     $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
@@ -258,8 +258,8 @@ switch ($path) {
     $title = $appName . ' • Quote';
     $basePathForViews = $basePath;
     $quoteInput = [
-      'pickup_system' => '',
-      'destination_system' => '',
+      'pickup_location' => '',
+      'delivery_location' => '',
     ];
     $defaultPriority = 'normal';
     $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));

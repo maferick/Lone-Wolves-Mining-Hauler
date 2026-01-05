@@ -6,7 +6,7 @@ $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
 $canBuybackHaulage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.buyback');
-$quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => ''];
+$quoteInput = $quoteInput ?? ['pickup_location' => '', 'delivery_location' => ''];
 $defaultPriority = $defaultPriority ?? 'normal';
 $buybackHaulageTiers = $buybackHaulageTiers ?? [];
 $buybackHaulageEnabled = $buybackHaulageEnabled ?? false;
@@ -19,7 +19,7 @@ ob_start();
     <div class="card quote-card" id="quote">
       <div class="card-header">
         <h2>Get Quote</h2>
-        <p class="muted">Enter pickup, destination, and volume to get an instant breakdown.</p>
+        <p class="muted">Enter pickup, delivery, and volume to get an instant breakdown.</p>
       </div>
       <div
         class="content js-quote-form"
@@ -29,12 +29,18 @@ ob_start();
       >
         <div class="form-grid">
           <label class="form-field">
-            <span class="form-label">Pickup system</span>
-            <input class="input" type="text" name="pickup_system" list="pickup-location-list" value="<?= htmlspecialchars($quoteInput['pickup_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Jita" autocomplete="off" />
+            <span class="form-label">Pickup location</span>
+            <input class="input" type="text" name="pickup_location" list="pickup-location-list" value="<?= htmlspecialchars($quoteInput['pickup_location'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Jita IV - Moon 4 - Caldari Navy Assembly Plant" autocomplete="off" />
+            <input type="hidden" name="pickup_location_id" value="" />
+            <input type="hidden" name="pickup_location_type" value="" />
+            <input type="hidden" name="pickup_system_id" value="" />
           </label>
           <label class="form-field">
-            <span class="form-label">Destination system</span>
-            <input class="input" type="text" name="destination_system" list="destination-location-list" value="<?= htmlspecialchars($quoteInput['destination_system'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Amarr" autocomplete="off" />
+            <span class="form-label">Delivery location</span>
+            <input class="input" type="text" name="delivery_location" list="destination-location-list" value="<?= htmlspecialchars($quoteInput['delivery_location'], ENT_QUOTES, 'UTF-8') ?>" placeholder="e.g. Amarr VIII (Oris) - Emperor Family Academy" autocomplete="off" />
+            <input type="hidden" name="delivery_location_id" value="" />
+            <input type="hidden" name="delivery_location_type" value="" />
+            <input type="hidden" name="delivery_system_id" value="" />
           </label>
           <label class="form-field">
             <span class="form-label">Volume (m³)</span>

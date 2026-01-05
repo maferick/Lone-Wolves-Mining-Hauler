@@ -24,8 +24,14 @@
     }
   };
 
-  const pickupInput = document.querySelector('input[name="pickup_system"]');
-  const destinationInput = document.querySelector('input[name="destination_system"]');
+  const pickupInput = document.querySelector('input[name="pickup_location"]');
+  const destinationInput = document.querySelector('input[name="delivery_location"]');
+  const pickupLocationIdInput = document.querySelector('input[name="pickup_location_id"]');
+  const pickupLocationTypeInput = document.querySelector('input[name="pickup_location_type"]');
+  const pickupSystemIdInput = document.querySelector('input[name="pickup_system_id"]');
+  const deliveryLocationIdInput = document.querySelector('input[name="delivery_location_id"]');
+  const deliveryLocationTypeInput = document.querySelector('input[name="delivery_location_type"]');
+  const deliverySystemIdInput = document.querySelector('input[name="delivery_system_id"]');
   const volumeInput = document.querySelector('input[name="volume_m3"]');
   const collateralInput = document.querySelector('input[name="collateral"]');
   const priorityInput = document.querySelector('select[name="priority"]');
@@ -44,6 +50,39 @@
   let currentQuoteId = null;
   const locationQueryIds = { pickup: 0, destination: 0 };
   const locationTimers = { pickup: null, destination: null };
+  const locationCache = { pickup: new Map(), destination: new Map() };
+
+  const storeLocations = (type, items) => {
+    const map = new Map();
+    for (const item of items || []) {
+      if (!item?.name) continue;
+      map.set(item.name.toLowerCase(), item);
+    }
+    locationCache[type] = map;
+  };
+
+  const applyLocationSelection = (type, value) => {
+    const lookup = value?.trim().toLowerCase() || '';
+    const item = lookup ? locationCache[type].get(lookup) : null;
+    const setFields = (idInput, typeInput, systemInput) => {
+      if (!idInput || !typeInput || !systemInput) return;
+      if (!item) {
+        idInput.value = '';
+        typeInput.value = '';
+        systemInput.value = '';
+        return;
+      }
+      idInput.value = item.location_id ?? '';
+      typeInput.value = item.location_type ?? '';
+      systemInput.value = item.system_id ?? '';
+    };
+
+    if (type === 'pickup') {
+      setFields(pickupLocationIdInput, pickupLocationTypeInput, pickupSystemIdInput);
+    } else {
+      setFields(deliveryLocationIdInput, deliveryLocationTypeInput, deliverySystemIdInput);
+    }
+  };
 
   const showError = (msg) => {
     if (!errorEl) return;
@@ -102,6 +141,10 @@
     const pathNames = path
       .map((p) => `${p.system_name} (${fmtSecurity(p.security)})`)
       .join(' → ');
+    const fromLocation = breakdown.inputs?.from_location || {};
+    const toLocation = breakdown.inputs?.to_location || {};
+    const pickupLabel = fromLocation.display_name || fromLocation.location_name || fromLocation.system_name || first;
+    const deliveryLabel = toLocation.display_name || toLocation.location_name || toLocation.system_name || last;
 
     const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
     breakdownContent.innerHTML = `
@@ -133,6 +176,16 @@
         <div>
           <div class="label">Minimum price</div>
           <div>${fmtIsk(ratePlan.min_price || 0)} ISK</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <div>
+          <div class="label">Pickup location</div>
+          <div>${pickupLabel || '—'}</div>
+        </div>
+        <div>
+          <div class="label">Delivery location</div>
+          <div>${deliveryLabel || '—'}</div>
         </div>
       </div>
       <div class="row" style="margin-top:14px;">
@@ -169,13 +222,15 @@
       return;
     }
     const queryId = ++locationQueryIds[type];
-    const url = `${basePath}/api/locations/search/?prefix=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
+    const url = `${basePath}/api/locations/search/?q=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
     try {
       const resp = await fetch(url, { credentials: 'same-origin' });
       const data = await resp.json();
       if (queryId !== locationQueryIds[type]) return;
       if (!data || !data.ok) return;
+      storeLocations(type, data.items || []);
       buildOptions(listEl, data.items || [], value);
+      applyLocationSelection(type, value);
     } catch (err) {
       if (queryId !== locationQueryIds[type]) return;
       listEl.innerHTML = '';
@@ -186,18 +241,24 @@
     if (locationTimers.pickup) {
       clearTimeout(locationTimers.pickup);
     }
+    applyLocationSelection('pickup', pickupInput.value);
     locationTimers.pickup = setTimeout(() => {
       fetchLocations(pickupInput.value, 'pickup', pickupList);
     }, 150);
   });
+  pickupInput?.addEventListener('change', () => applyLocationSelection('pickup', pickupInput.value));
+  pickupInput?.addEventListener('blur', () => applyLocationSelection('pickup', pickupInput.value));
   destinationInput?.addEventListener('input', () => {
     if (locationTimers.destination) {
       clearTimeout(locationTimers.destination);
     }
+    applyLocationSelection('destination', destinationInput.value);
     locationTimers.destination = setTimeout(() => {
       fetchLocations(destinationInput.value, 'destination', destinationList);
     }, 150);
   });
+  destinationInput?.addEventListener('change', () => applyLocationSelection('destination', destinationInput.value));
+  destinationInput?.addEventListener('blur', () => applyLocationSelection('destination', destinationInput.value));
 
   const fetchQuote = async (payload, fallbackError) => {
     hideError();
@@ -214,7 +275,7 @@
       if (!resp.ok || !data.ok) {
         let friendlyError = data.error || fallbackError;
         if (data.error && data.error.includes('location')) {
-          friendlyError = 'We could not match one of the locations. Check spelling or use system names.';
+          friendlyError = 'We could not match one of the locations. Check spelling or pick from the list.';
         }
         showError(friendlyError);
         return null;
@@ -233,12 +294,18 @@
     const payload = {
       pickup: pickupInput?.value?.trim() || '',
       destination: destinationInput?.value?.trim() || '',
+      pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
+      pickup_location_type: pickupLocationTypeInput?.value || null,
+      pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
+      destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
+      destination_location_type: deliveryLocationTypeInput?.value || null,
+      destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
       volume_m3: parseFloat(volumeInput?.value || '0'),
       collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',
     };
     if (!payload.pickup || !payload.destination || !payload.volume_m3) {
-      showError('Pickup, destination, and volume are required.');
+      showError('Pickup, delivery, and volume are required.');
       return;
     }
     if (payload.collateral_isk <= 0) {
@@ -288,6 +355,12 @@
     return {
       pickup: pickupInput?.value?.trim() || '',
       destination: destinationInput?.value?.trim() || '',
+      pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
+      pickup_location_type: pickupLocationTypeInput?.value || null,
+      pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
+      destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
+      destination_location_type: deliveryLocationTypeInput?.value || null,
+      destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
       volume_m3: volume,
       collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',

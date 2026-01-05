@@ -12,6 +12,11 @@ if (!empty($request['mismatch_reason_json'])) {
     $mismatchDetails = $decodedMismatch['mismatches'] ?? $decodedMismatch;
   }
 }
+$breakdown = $breakdown ?? [];
+$fromLocation = is_array($breakdown['inputs']['from_location'] ?? null) ? $breakdown['inputs']['from_location'] : [];
+$toLocation = is_array($breakdown['inputs']['to_location'] ?? null) ? $breakdown['inputs']['to_location'] : [];
+$pickupLabel = (string)($fromLocation['display_name'] ?? $fromLocation['location_name'] ?? $fromLocation['system_name'] ?? '');
+$deliveryLabel = (string)($toLocation['display_name'] ?? $toLocation['location_name'] ?? $toLocation['system_name'] ?? '');
 
 ob_start();
 ?>
@@ -36,6 +41,16 @@ ob_start();
         <div>
           <div class="label">Route</div>
           <div><?= htmlspecialchars((string)$routeSummary, ENT_QUOTES, 'UTF-8') ?></div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <div>
+          <div class="label">Pickup location</div>
+          <div><?= htmlspecialchars($pickupLabel !== '' ? $pickupLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
+        </div>
+        <div>
+          <div class="label">Delivery location</div>
+          <div><?= htmlspecialchars($deliveryLabel !== '' ? $deliveryLabel : '—', ENT_QUOTES, 'UTF-8') ?></div>
         </div>
       </div>
       <div class="row" style="margin-top:12px;">
