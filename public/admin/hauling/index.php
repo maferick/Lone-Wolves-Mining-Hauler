@@ -106,6 +106,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
 
     <div style="margin-top:20px;">
+      <h3>Operations Dispatch Sections</h3>
+      <div class="muted">Control whether Assign haulers and Update status show on the operations page.</div>
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Enable dispatch sections</span>
+          <input type="checkbox" id="operations-dispatch-enabled" />
+        </label>
+        <button class="btn" type="button" id="save-operations-dispatch">Save</button>
+      </div>
+      <div class="muted" id="operations-dispatch-note" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:20px;">
       <h3>Buyback Haulage</h3>
       <div class="muted">Set volume-based tiers for the buyback haulage button (4 steps, up to 950,000 m³).</div>
       <table class="table" id="buyback-tier-table" style="margin-top:10px;">
@@ -316,6 +329,20 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     }
   };
 
+  const loadOperationsDispatch = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/operations-sections/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const toggle = document.getElementById('operations-dispatch-enabled');
+    const note = document.getElementById('operations-dispatch-note');
+    const enabled = !!data.show_dispatch;
+    if (toggle) toggle.checked = enabled;
+    if (note) {
+      note.textContent = enabled
+        ? 'Dispatch sections are visible to operations users.'
+        : 'Dispatch sections are hidden from the operations page.';
+    }
+  };
+
   const loadTolerance = async () => {
     const data = await fetchJson(`${basePath}/api/admin/settings/?corp_id=${corpId}`);
     if (data.ok) {
@@ -457,6 +484,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     loadQuoteLocations();
   });
 
+  document.getElementById('save-operations-dispatch')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('operations-dispatch-enabled')?.checked ?? true;
+    await fetchJson(`${basePath}/api/admin/operations-sections/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        show_dispatch: enabled,
+      }),
+    });
+    loadOperationsDispatch();
+  });
+
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
     const type = document.getElementById('tolerance-type').value;
     const value = parseFloat(document.getElementById('tolerance-value').value || '0');
@@ -558,6 +597,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   loadPriorityFees();
   loadContractAttach();
   loadQuoteLocations();
+  loadOperationsDispatch();
   loadTolerance();
   loadBuyback();
   loadRatePlans();
