@@ -122,6 +122,10 @@ function resizeAndSaveImage(
       $srcImage = imagecreatefrompng($file['tmp_name']);
       break;
     case 'image/webp':
+      if (!function_exists('imagecreatefromwebp')) {
+        $errors[] = 'WebP uploads are not supported on this server.';
+        return false;
+      }
       $srcImage = imagecreatefromwebp($file['tmp_name']);
       break;
     default:
@@ -160,6 +164,12 @@ function resizeAndSaveImage(
       $saved = imagepng($targetImage, $destPath, 6);
       break;
     case 'webp':
+      if (!function_exists('imagewebp')) {
+        $errors[] = 'WebP output is not supported on this server.';
+        imagedestroy($srcImage);
+        imagedestroy($targetImage);
+        return false;
+      }
       $saved = imagewebp($targetImage, $destPath, 86);
       break;
     case 'jpg':
@@ -189,15 +199,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     'background_image' => [
       'path' => $brandDir . '/background.jpg',
       'label' => 'Background',
-      'maxWidth' => 2400,
-      'maxHeight' => 1400,
+      'maxWidth' => 1920,
+      'maxHeight' => 1080,
       'format' => 'jpg',
     ],
     'logo_image' => [
       'path' => $brandDir . '/logo.png',
       'label' => 'Logo',
-      'maxWidth' => 1400,
-      'maxHeight' => 900,
+      'maxWidth' => 660,
+      'maxHeight' => 440,
       'format' => 'png',
     ],
   ];
@@ -205,6 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   foreach ($uploads as $field => $meta) {
     if (!empty($_FILES[$field]['tmp_name'])) {
       $defaultPath = $brandDefaultsDir . '/' . basename($meta['path']);
+      $webpDefaultPath = $brandDefaultsDir . '/' . basename(preg_replace('/\.[^.]+$/', '.webp', $meta['path']));
       if (!is_dir($brandDefaultsDir)) {
         mkdir($brandDefaultsDir, 0775, true);
       }
@@ -217,6 +228,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if (!file_exists($defaultPath) && file_exists($meta['path'])) {
         copy($meta['path'], $defaultPath);
       }
+      if (!file_exists($webpDefaultPath)) {
+        $webpPath = preg_replace('/\.[^.]+$/', '.webp', $meta['path']);
+        if ($webpPath && file_exists($webpPath)) {
+          copy($webpPath, $webpDefaultPath);
+        }
+      }
 
       if (!resizeAndSaveImage(
         $_FILES[$field],
@@ -227,6 +244,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $meta['format']
       )) {
         $errors[] = $meta['label'] . ' image upload failed.';
+      } else {
+        $webpPath = preg_replace('/\.[^.]+$/', '.webp', $meta['path']);
+        if ($webpPath) {
+          if (!resizeAndSaveImage(
+            $_FILES[$field],
+            $webpPath,
+            $meta['maxWidth'],
+            $meta['maxHeight'],
+            $errors,
+            'webp'
+          )) {
+            $errors[] = $meta['label'] . ' WebP image upload failed.';
+          }
+        }
       }
     }
   }
@@ -261,8 +292,10 @@ if ($isResetRequest) {
   $resetErrors = [];
   $defaults = [
     $brandDefaultsDir . '/background.jpg' => $brandDir . '/background.jpg',
+    $brandDefaultsDir . '/background.webp' => $brandDir . '/background.webp',
     $brandDefaultsDir . '/logo.png' => $brandDir . '/logo.png',
     $brandDefaultsDir . '/logo.jpg' => $brandDir . '/logo.jpg',
+    $brandDefaultsDir . '/logo.webp' => $brandDir . '/logo.webp',
   ];
 
   foreach ($defaults as $defaultPath => $targetPath) {
@@ -270,7 +303,7 @@ if ($isResetRequest) {
       if (!copy($defaultPath, $targetPath)) {
         $resetErrors[] = 'Failed to restore ' . basename($targetPath) . '.';
       }
-    } else {
+    } elseif (!str_ends_with($defaultPath, '.webp')) {
       $resetErrors[] = 'Default ' . basename($targetPath) . ' not found.';
     }
   }

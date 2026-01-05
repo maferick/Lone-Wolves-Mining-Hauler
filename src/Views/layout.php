@@ -53,6 +53,26 @@ $bodyStyle = sprintf(
   '--card-alpha: %.3f;',
   $cardAlpha
 );
+$backgroundImagePath = '/assets/background.jpg';
+$backgroundDiskPath = __DIR__ . '/../../public/assets/background.jpg';
+if (!file_exists($backgroundDiskPath)) {
+  $backgroundImagePath = '/assets/background.png';
+  $backgroundDiskPath = __DIR__ . '/../../public/assets/background.png';
+}
+$backgroundWebpPath = '/assets/background.webp';
+$backgroundWebpDiskPath = __DIR__ . '/../../public/assets/background.webp';
+if (file_exists($backgroundDiskPath)) {
+  $backgroundUrl = ($basePath ?: '') . $backgroundImagePath;
+  $bodyStyle .= sprintf(' --brand-bg-image: url(\'%s\');', $backgroundUrl);
+  if (file_exists($backgroundWebpDiskPath)) {
+    $backgroundWebpUrl = ($basePath ?: '') . $backgroundWebpPath;
+    $bodyStyle .= sprintf(
+      ' --brand-bg-image-set: image-set(url(\'%s\') type(\'image/webp\'), url(\'%s\') type(\'image/jpeg\'));',
+      $backgroundWebpUrl,
+      $backgroundUrl
+    );
+  }
+}
 $backgroundAllPages = !empty($branding['background_all_pages']);
 if ($backgroundAllPages) {
   $bodyClass = trim($bodyClass . ' brand-bg');
@@ -79,7 +99,7 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
     <header class="topbar">
       <div class="brand">
         <?php if ($corpLogoUrl): ?>
-          <img class="brand-logo" src="<?= htmlspecialchars($corpLogoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="Corp logo" />
+          <img class="brand-logo" src="<?= htmlspecialchars($corpLogoUrl, ENT_QUOTES, 'UTF-8') ?>" alt="Corp logo" width="34" height="34" loading="lazy" decoding="async" />
         <?php else: ?>
           <div class="brand-dot"></div>
         <?php endif; ?>
