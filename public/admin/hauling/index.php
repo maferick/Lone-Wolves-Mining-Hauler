@@ -42,8 +42,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   data-dnf-region="<?= htmlspecialchars(json_encode(array_map(static fn($row) => ['id' => (int)$row['region_id'], 'name' => (string)$row['region_name']], $regionOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
 >
   <div class="card-header">
-    <h2>Routing & Pricing Controls</h2>
-    <p class="muted">Manage routing priority, reward tolerance, DNF rules, and rate plans.</p>
+    <h2>Routing & Risk Controls</h2>
+    <p class="muted">Manage routing policy, access safeguards, and risk controls.</p>
   </div>
   <div class="content">
     <?php if ($graphEmpty): ?>
@@ -73,16 +73,6 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <button class="btn" type="button" id="save-tolerance">Save</button>
         </div>
         <div class="muted" id="tolerance-note" style="margin-top:6px;"></div>
-      </div>
-    </div>
-
-    <div style="margin-top:20px;">
-      <h3>Priority surcharge</h3>
-      <div class="muted">Add an ISK surcharge for higher priority requests.</div>
-      <div class="row" style="margin-top:10px;">
-        <input class="input" id="priority-fee-normal" type="number" step="0.01" min="0" placeholder="Normal priority add-on" />
-        <input class="input" id="priority-fee-high" type="number" step="0.01" min="0" placeholder="High priority add-on" />
-        <button class="btn" type="button" id="save-priority-fee">Save</button>
       </div>
     </div>
 
@@ -143,43 +133,79 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <div class="muted" id="buyback-note" style="margin-top:6px;"></div>
     </div>
 
-    <div style="margin-top:20px;">
-      <h3>Rate Plans</h3>
-      <div class="muted">Set per-jump, collateral rate, and minimums per ship class.</div>
-      <table class="table" id="rate-plan-table" style="margin-top:10px;">
+    <div style="margin-top:24px;">
+      <h3>Security Class Definitions</h3>
+      <div class="muted">Configure how systems are categorized by security class.</div>
+      <div class="row" style="margin-top:10px;">
+        <input class="input" id="security-highsec-min" type="number" step="0.1" min="0" max="1" placeholder="High-sec min (0.5)" />
+        <input class="input" id="security-lowsec-min" type="number" step="0.1" min="0" max="1" placeholder="Low-sec min (0.1)" />
+        <button class="btn" type="button" id="save-security-classes">Save</button>
+      </div>
+      <div class="row" style="margin-top:10px; align-items:flex-start;">
+        <div style="flex:1;">
+          <label class="form-field">
+            <span class="form-label">Pochven regions</span>
+            <textarea class="input" id="special-pochven-regions" rows="2" placeholder="Pochven"></textarea>
+          </label>
+          <label class="form-field">
+            <span class="form-label">Enable Pochven</span>
+            <input type="checkbox" id="special-pochven-enabled" />
+          </label>
+        </div>
+        <div style="flex:1;">
+          <label class="form-field">
+            <span class="form-label">Zarzakh systems</span>
+            <textarea class="input" id="special-zarzakh-systems" rows="2" placeholder="Zarzakh"></textarea>
+          </label>
+          <label class="form-field">
+            <span class="form-label">Enable Zarzakh</span>
+            <input type="checkbox" id="special-zarzakh-enabled" />
+          </label>
+        </div>
+        <div style="flex:1;">
+          <label class="form-field">
+            <span class="form-label">Thera systems (optional)</span>
+            <textarea class="input" id="special-thera-systems" rows="2" placeholder="Thera"></textarea>
+          </label>
+          <label class="form-field">
+            <span class="form-label">Enable Thera</span>
+            <input type="checkbox" id="special-thera-enabled" />
+          </label>
+        </div>
+      </div>
+      <div class="muted" id="security-classes-note" style="margin-top:6px;"></div>
+    </div>
+
+    <div style="margin-top:24px;">
+      <h3>Security Routing Rules</h3>
+      <div class="muted">Control pickup, delivery, and transit access by security class.</div>
+      <table class="table" id="security-routing-table" style="margin-top:10px;">
         <thead>
           <tr>
             <th>Class</th>
-            <th>Rate / Jump</th>
-            <th>Collateral %</th>
-            <th>Minimum</th>
-            <th>Actions</th>
+            <th>Enabled</th>
+            <th>Allow pickup</th>
+            <th>Allow delivery</th>
+            <th>Requires acknowledgement</th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
       <div class="row" style="margin-top:10px;">
-        <select class="input" id="new-rate-class">
-          <option value="BR">BR</option>
-          <option value="DST">DST</option>
-          <option value="FREIGHTER">FREIGHTER</option>
-          <option value="JF">JF</option>
-        </select>
-        <input class="input" id="new-rate-per-jump" type="number" step="0.01" min="0" placeholder="Rate per jump" />
-        <input class="input" id="new-collateral-rate" type="number" step="0.0001" min="0" placeholder="Collateral rate" />
-        <input class="input" id="new-min-price" type="number" step="0.01" min="0" placeholder="Minimum price" />
-        <button class="btn" type="button" id="add-rate-plan">Add</button>
+        <button class="btn" type="button" id="save-security-routing">Save</button>
       </div>
+      <div class="muted" id="security-routing-note" style="margin-top:6px;"></div>
     </div>
 
     <div style="margin-top:24px;">
-      <h3>DNF Rules</h3>
+      <h3>Route Blocks</h3>
       <div class="muted">Hard blocks prevent route usage; soft rules add penalty.</div>
       <table class="table" id="dnf-table" style="margin-top:10px;">
         <thead>
           <tr>
             <th>Scope</th>
             <th>Target</th>
+            <th>Applies</th>
             <th>Severity</th>
             <th>Hard</th>
             <th>Reason</th>
@@ -196,6 +222,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         </select>
         <input class="input" id="dnf-name-a" type="text" placeholder="Target name" list="dnf-system-list" autocomplete="off" />
         <input class="input" id="dnf-severity" type="number" min="1" value="1" />
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Pickup</span>
+          <input type="checkbox" id="dnf-apply-pickup" checked />
+        </label>
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Delivery</span>
+          <input type="checkbox" id="dnf-apply-delivery" checked />
+        </label>
+        <label class="form-field" style="margin:0;">
+          <span class="form-label">Transit</span>
+          <input type="checkbox" id="dnf-apply-transit" checked />
+        </label>
         <label class="form-field" style="margin:0;">
           <span class="form-label">Hard</span>
           <input type="checkbox" id="dnf-hard" />

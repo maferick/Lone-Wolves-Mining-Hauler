@@ -51,6 +51,7 @@ final class RouteService
 
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();
+    $securityPolicy = $this->resolveSecurityPolicy($context);
     $dnfCounts = $this->countDnfRules($dnf);
     $hardAvoidSystemIds = $this->collectHardAvoidSystemIds($dnf, $graph['systems']);
     $avoidLowsec = $this->shouldAvoidLowsec($fromId, $toId, $graph['systems']);
@@ -78,6 +79,15 @@ final class RouteService
       ]);
     }
 
+    if ($this->securityPolicyBlocksSystem($fromId, $graph['systems'], $securityPolicy, 'pickup')
+      || $this->securityPolicyBlocksSystem($toId, $graph['systems'], $securityPolicy, 'delivery')) {
+      throw new RouteException('Pickup or destination blocked by security routing rules.', [
+        'reason' => 'pickup_destination_security_blocked',
+        'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'graph' => $graphHealth,
+      ]);
+    }
+
     if (!$graphReady) {
       $reason = $graphHealth['reason'] ?? 'graph_not_ready';
       if ($this->esiRouteService === null) {
@@ -96,6 +106,7 @@ final class RouteService
         $avoidSystemIds,
         $avoidCount,
         $avoidLowsec,
+        $securityPolicy,
         array_merge($context, ['graph_reason' => $reason])
       );
     }
@@ -110,11 +121,13 @@ final class RouteService
         $avoidSystemIds,
         $avoidCount,
         $avoidLowsec,
+        $securityPolicy,
         array_merge($context, ['graph_reason' => 'graph_missing_system'])
       );
     }
 
-    if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf) || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf)) {
+    if ($this->isSystemHardBlocked($fromId, $graph['systems'], $dnf, 'pickup')
+      || $this->isSystemHardBlocked($toId, $graph['systems'], $dnf, 'delivery')) {
       throw new RouteException('Pickup or destination blocked by DNF rules.', [
         'reason' => 'pickup_destination_blocked',
         'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
@@ -124,10 +137,10 @@ final class RouteService
       ]);
     }
 
-    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf, $avoidLowsec);
+    $result = $this->dijkstra($fromId, $toId, $profile, $graph, $dnf, $avoidLowsec, $securityPolicy);
     if ($result['found'] === false) {
       $dnfWithoutHard = $this->withoutHardRules($dnf);
-      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard, $avoidLowsec);
+      $fallbackResult = $this->dijkstra($fromId, $toId, $profile, $graph, $dnfWithoutHard, $avoidLowsec, $securityPolicy);
       if ($fallbackResult['found'] === true) {
         throw new RouteException('Route blocked by DNF rules.', [
           'reason' => 'blocked_by_dnf',
@@ -160,7 +173,7 @@ final class RouteService
       ];
     }
 
-    $counts = $this->countSecurityComposition($pathIds, $graph['systems']);
+    $counts = $this->countSecurityComposition($pathIds, $graph['systems'], $securityPolicy);
     $usedSoft = $this->collectSoftRules($pathIds, $graph['systems'], $dnf);
     $usedSoftFlag = !empty($usedSoft);
 
@@ -170,6 +183,7 @@ final class RouteService
       'hs_count' => $counts['high'],
       'ls_count' => $counts['low'],
       'ns_count' => $counts['null'],
+      'security_counts' => $counts,
       'used_soft_dnf' => $usedSoftFlag,
       'used_soft_dnf_rules' => array_values($usedSoft),
       'blocked_count_hard' => $dnfCounts['hard'],
@@ -423,7 +437,8 @@ final class RouteService
     string $profile,
     array $graph,
     array $dnf,
-    bool $avoidLowsec
+    bool $avoidLowsec,
+    array $securityPolicy
   ): array
   {
     $dist = [];
@@ -452,13 +467,16 @@ final class RouteService
 
       $neighbors = $graph['adjacency'][$currentId] ?? [];
       foreach ($neighbors as $neighborId => $_) {
-        if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf)) {
+        if ($this->securityPolicyBlocksSystem($neighborId, $graph['systems'], $securityPolicy, 'transit')) {
+          continue;
+        }
+        if ($this->isSystemHardBlocked($neighborId, $graph['systems'], $dnf, 'transit')) {
           continue;
         }
         if ($this->isProfileSecurityBlocked($neighborId, $graph['systems'], $profile, $avoidLowsec)) {
           continue;
         }
-        if ($this->isEdgeHardBlocked($currentId, $neighborId, $dnf)) {
+        if ($this->isEdgeHardBlocked($currentId, $neighborId, $dnf, 'transit')) {
           continue;
         }
 
@@ -569,7 +587,8 @@ final class RouteService
   private function loadDnfRules(): array
   {
     $rows = $this->db->select(
-      "SELECT dnf_rule_id, scope_type, id_a, id_b, severity, is_hard_block, reason
+      "SELECT dnf_rule_id, scope_type, id_a, id_b, severity, is_hard_block,
+              apply_pickup, apply_delivery, apply_transit, reason
          FROM dnf_rule
         WHERE active = 1"
     );
@@ -595,6 +614,9 @@ final class RouteService
         'id_b' => (int)$row['id_b'],
         'severity' => (int)$row['severity'],
         'is_hard_block' => (int)$row['is_hard_block'] === 1,
+        'apply_pickup' => array_key_exists('apply_pickup', $row) ? (int)$row['apply_pickup'] === 1 : true,
+        'apply_delivery' => array_key_exists('apply_delivery', $row) ? (int)$row['apply_delivery'] === 1 : true,
+        'apply_transit' => array_key_exists('apply_transit', $row) ? (int)$row['apply_transit'] === 1 : true,
         'reason' => (string)($row['reason'] ?? ''),
       ];
 
@@ -637,28 +659,32 @@ final class RouteService
     return $dnf;
   }
 
-  private function isSystemHardBlocked(int $systemId, array $systems, array $dnf): bool
+  private function isSystemHardBlocked(int $systemId, array $systems, array $dnf, string $phase): bool
   {
-    if (isset($dnf['hard']['system'][$systemId])) {
+    if (isset($dnf['hard']['system'][$systemId])
+      && $this->ruleAppliesTo($dnf['hard']['system'][$systemId], $phase)) {
       return true;
     }
     $system = $systems[$systemId] ?? null;
     if ($system === null) {
       return false;
     }
-    if (isset($dnf['hard']['constellation'][$system['constellation_id']])) {
+    if (isset($dnf['hard']['constellation'][$system['constellation_id']])
+      && $this->ruleAppliesTo($dnf['hard']['constellation'][$system['constellation_id']], $phase)) {
       return true;
     }
-    if (isset($dnf['hard']['region'][$system['region_id']])) {
+    if (isset($dnf['hard']['region'][$system['region_id']])
+      && $this->ruleAppliesTo($dnf['hard']['region'][$system['region_id']], $phase)) {
       return true;
     }
     return false;
   }
 
-  private function isEdgeHardBlocked(int $fromId, int $toId, array $dnf): bool
+  private function isEdgeHardBlocked(int $fromId, int $toId, array $dnf, string $phase): bool
   {
     $key = $this->edgeKey($fromId, $toId);
-    return isset($dnf['hard']['edge'][$key]);
+    return isset($dnf['hard']['edge'][$key])
+      && $this->ruleAppliesTo($dnf['hard']['edge'][$key], $phase);
   }
 
   private function countDnfRules(array $dnf): array
@@ -696,20 +722,20 @@ final class RouteService
     $penalty = 0.0;
     $system = $systems[$toId] ?? null;
     if ($system !== null) {
-      $penalty += $this->rulePenalty($dnf['soft']['system'][$toId] ?? null);
-      $penalty += $this->rulePenalty($dnf['soft']['constellation'][$system['constellation_id']] ?? null);
-      $penalty += $this->rulePenalty($dnf['soft']['region'][$system['region_id']] ?? null);
+      $penalty += $this->rulePenalty($dnf['soft']['system'][$toId] ?? null, 'transit');
+      $penalty += $this->rulePenalty($dnf['soft']['constellation'][$system['constellation_id']] ?? null, 'transit');
+      $penalty += $this->rulePenalty($dnf['soft']['region'][$system['region_id']] ?? null, 'transit');
     }
 
     $edgeKey = $this->edgeKey($fromId, $toId);
-    $penalty += $this->rulePenalty($dnf['soft']['edge'][$edgeKey] ?? null);
+    $penalty += $this->rulePenalty($dnf['soft']['edge'][$edgeKey] ?? null, 'transit');
 
     return $penalty;
   }
 
-  private function rulePenalty(?array $rule): float
+  private function rulePenalty(?array $rule, string $phase): float
   {
-    if ($rule === null) {
+    if ($rule === null || !$this->ruleAppliesTo($rule, $phase)) {
       return 0.0;
     }
     $severity = (int)($rule['severity'] ?? 1);
@@ -719,23 +745,151 @@ final class RouteService
     return 3.0 * $severity;
   }
 
-  private function countSecurityComposition(array $pathIds, array $systems): array
+  private function ruleAppliesTo(array $rule, string $phase): bool
   {
-    $counts = ['high' => 0, 'low' => 0, 'null' => 0];
-    foreach ($pathIds as $systemId) {
+    return match ($phase) {
+      'pickup' => !array_key_exists('apply_pickup', $rule) || !empty($rule['apply_pickup']),
+      'delivery' => !array_key_exists('apply_delivery', $rule) || !empty($rule['apply_delivery']),
+      default => !array_key_exists('apply_transit', $rule) || !empty($rule['apply_transit']),
+    };
+  }
+
+  private function resolveSecurityPolicy(array $context): array
+  {
+    $defaults = [
+      'thresholds' => [
+        'highsec_min' => self::SECURITY_HIGHSEC_MIN,
+        'lowsec_min' => self::SECURITY_LOWSEC_MIN,
+      ],
+      'special_system_ids' => [
+        'pochven' => [],
+        'zarzakh' => [],
+        'thera' => [],
+      ],
+      'special_region_ids' => [
+        'pochven' => [],
+        'zarzakh' => [],
+        'thera' => [],
+      ],
+      'rules' => [],
+    ];
+
+    $policy = $context['security_policy'] ?? [];
+    if (!is_array($policy)) {
+      return $defaults;
+    }
+
+    $thresholds = $policy['thresholds'] ?? [];
+    $thresholds = array_merge($defaults['thresholds'], is_array($thresholds) ? $thresholds : []);
+    $thresholds['highsec_min'] = (float)$thresholds['highsec_min'];
+    $thresholds['lowsec_min'] = (float)$thresholds['lowsec_min'];
+
+    $specialSystemIds = $policy['special_system_ids'] ?? [];
+    $specialRegionIds = $policy['special_region_ids'] ?? [];
+    $specialSystemIds = is_array($specialSystemIds) ? $specialSystemIds : [];
+    $specialRegionIds = is_array($specialRegionIds) ? $specialRegionIds : [];
+
+    $rules = $policy['rules'] ?? [];
+    $rules = is_array($rules) ? $rules : [];
+    $classes = ['high', 'low', 'null', 'pochven', 'zarzakh', 'thera'];
+    foreach ($classes as $class) {
+      $rule = is_array($rules[$class] ?? null) ? $rules[$class] : [];
+      $rules[$class] = [
+        'enabled' => array_key_exists('enabled', $rule) ? !empty($rule['enabled']) : true,
+        'allow_pickup' => array_key_exists('allow_pickup', $rule) ? !empty($rule['allow_pickup']) : true,
+        'allow_delivery' => array_key_exists('allow_delivery', $rule) ? !empty($rule['allow_delivery']) : true,
+        'requires_acknowledgement' => array_key_exists('requires_acknowledgement', $rule)
+          ? !empty($rule['requires_acknowledgement'])
+          : false,
+      ];
+    }
+
+    return [
+      'thresholds' => $thresholds,
+      'special_system_ids' => $specialSystemIds + $defaults['special_system_ids'],
+      'special_region_ids' => $specialRegionIds + $defaults['special_region_ids'],
+      'rules' => $rules,
+    ];
+  }
+
+  private function securityPolicyBlocksSystem(int $systemId, array $systems, array $securityPolicy, string $phase): bool
+  {
+    $system = $systems[$systemId] ?? null;
+    if ($system === null) {
+      return false;
+    }
+    $class = $this->classifySecurityClass($system, $securityPolicy);
+    return !$this->isSecurityClassAllowed($class, $phase, $securityPolicy);
+  }
+
+  private function classifySecurityClass(array $system, array $securityPolicy): string
+  {
+    $systemId = (int)($system['system_id'] ?? 0);
+    $regionId = (int)($system['region_id'] ?? 0);
+    foreach (['pochven', 'zarzakh', 'thera'] as $special) {
+      $systemIds = $securityPolicy['special_system_ids'][$special] ?? [];
+      $regionIds = $securityPolicy['special_region_ids'][$special] ?? [];
+      if (($systemId > 0 && in_array($systemId, $systemIds, true))
+        || ($regionId > 0 && in_array($regionId, $regionIds, true))) {
+        return $special;
+      }
+    }
+
+    $security = $this->normalizedSecurity((float)($system['security'] ?? 0.0));
+    $highMin = (float)($securityPolicy['thresholds']['highsec_min'] ?? self::SECURITY_HIGHSEC_MIN);
+    $lowMin = (float)($securityPolicy['thresholds']['lowsec_min'] ?? self::SECURITY_LOWSEC_MIN);
+
+    if ($security < $lowMin) {
+      return 'null';
+    }
+    if ($security < $highMin) {
+      return 'low';
+    }
+    return 'high';
+  }
+
+  private function isSecurityClassAllowed(string $class, string $phase, array $securityPolicy): bool
+  {
+    $rules = $securityPolicy['rules'] ?? [];
+    $rule = $rules[$class] ?? null;
+    if (!is_array($rule)) {
+      return true;
+    }
+    if (empty($rule['enabled'])) {
+      return false;
+    }
+    return match ($phase) {
+      'pickup' => !empty($rule['allow_pickup']),
+      'delivery' => !empty($rule['allow_delivery']),
+      default => true,
+    };
+  }
+
+  private function countSecurityComposition(array $pathIds, array $systems, array $securityPolicy): array
+  {
+    $counts = [
+      'high' => 0,
+      'low' => 0,
+      'null' => 0,
+      'pochven' => 0,
+      'zarzakh' => 0,
+      'thera' => 0,
+      'special' => 0,
+    ];
+    $count = count($pathIds);
+    for ($i = 1; $i < $count; $i++) {
+      $systemId = $pathIds[$i];
       $system = $systems[$systemId] ?? null;
       if ($system === null) {
         continue;
       }
-      $security = $this->normalizedSecurity((float)$system['security']);
-      if ($security < self::SECURITY_LOWSEC_MIN) {
-        $counts['null']++;
-      } elseif ($security < self::SECURITY_HIGHSEC_MIN) {
-        $counts['low']++;
-      } else {
-        $counts['high']++;
+      $class = $this->classifySecurityClass($system, $securityPolicy);
+      if (!isset($counts[$class])) {
+        $class = 'high';
       }
+      $counts[$class]++;
     }
+    $counts['special'] = $counts['pochven'] + $counts['zarzakh'] + $counts['thera'];
     return $counts;
   }
 
@@ -744,25 +898,26 @@ final class RouteService
     $used = [];
     $count = count($pathIds);
     for ($i = 0; $i < $count; $i++) {
+      $phase = $i === 0 ? 'pickup' : ($i === $count - 1 ? 'delivery' : 'transit');
       $systemId = $pathIds[$i];
       $system = $systems[$systemId] ?? null;
       if ($system !== null) {
-        $this->maybeAddRule($used, $dnf['soft']['system'][$systemId] ?? null);
-        $this->maybeAddRule($used, $dnf['soft']['constellation'][$system['constellation_id']] ?? null);
-        $this->maybeAddRule($used, $dnf['soft']['region'][$system['region_id']] ?? null);
+        $this->maybeAddRule($used, $dnf['soft']['system'][$systemId] ?? null, $phase);
+        $this->maybeAddRule($used, $dnf['soft']['constellation'][$system['constellation_id']] ?? null, $phase);
+        $this->maybeAddRule($used, $dnf['soft']['region'][$system['region_id']] ?? null, $phase);
       }
       if ($i > 0) {
         $prevId = $pathIds[$i - 1];
         $edgeKey = $this->edgeKey($prevId, $systemId);
-        $this->maybeAddRule($used, $dnf['soft']['edge'][$edgeKey] ?? null);
+        $this->maybeAddRule($used, $dnf['soft']['edge'][$edgeKey] ?? null, 'transit');
       }
     }
     return $used;
   }
 
-  private function maybeAddRule(array &$used, ?array $rule): void
+  private function maybeAddRule(array &$used, ?array $rule, string $phase): void
   {
-    if ($rule === null) {
+    if ($rule === null || !$this->ruleAppliesTo($rule, $phase)) {
       return;
     }
     $ruleId = (int)$rule['dnf_rule_id'];
@@ -864,6 +1019,7 @@ final class RouteService
     array $avoidSystemIds,
     int $avoidCount,
     bool $avoidLowsec,
+    array $securityPolicy,
     array $context
   ): array {
     if ($this->esiRouteService === null) {
@@ -900,7 +1056,7 @@ final class RouteService
     }
 
     $systemLookup = $this->loadSystemDetails($routeIds);
-    if ($this->routeViolatesHardDnf($routeIds, $systemLookup, $dnf)) {
+    if ($this->routeViolatesHardDnf($routeIds, $systemLookup, $dnf, $securityPolicy)) {
       error_log('CCP route violated hard DNF rules.');
       throw new RouteException('No viable route found (local+CCP)', [
         'reason' => 'ccp_route_contains_hard_dnf',
@@ -941,7 +1097,7 @@ final class RouteService
       }
     }
 
-    $counts = $this->countSecurityComposition($routeIds, $systemLookup);
+    $counts = $this->countSecurityComposition($routeIds, $systemLookup, $securityPolicy);
 
     if ($this->isBackfillEnabled($corpId)) {
       $this->backfillRouteEdges($routeIds, $systemLookup, $context);
@@ -953,6 +1109,7 @@ final class RouteService
       'hs_count' => $counts['high'],
       'ls_count' => $counts['low'],
       'ns_count' => $counts['null'],
+      'security_counts' => $counts,
       'used_soft_dnf' => false,
       'used_soft_dnf_rules' => [],
       'blocked_count_hard' => $dnfCounts['hard'],
@@ -1113,17 +1270,19 @@ final class RouteService
     return array_values(array_unique($avoidSystemIds));
   }
 
-  private function routeViolatesHardDnf(array $routeIds, array $systems, array $dnf): bool
+  private function routeViolatesHardDnf(array $routeIds, array $systems, array $dnf, array $securityPolicy): bool
   {
-    foreach ($routeIds as $systemId) {
-      if ($this->isSystemHardBlocked($systemId, $systems, $dnf)) {
+    $count = count($routeIds);
+    for ($i = 0; $i < $count; $i++) {
+      $phase = $i === 0 ? 'pickup' : ($i === $count - 1 ? 'delivery' : 'transit');
+      $systemId = $routeIds[$i];
+      if ($this->isSystemHardBlocked($systemId, $systems, $dnf, $phase)) {
         return true;
       }
-    }
-
-    $count = count($routeIds);
-    for ($i = 1; $i < $count; $i++) {
-      if ($this->isEdgeHardBlocked($routeIds[$i - 1], $routeIds[$i], $dnf)) {
+      if ($this->securityPolicyBlocksSystem($systemId, $systems, $securityPolicy, $phase)) {
+        return true;
+      }
+      if ($i > 0 && $this->isEdgeHardBlocked($routeIds[$i - 1], $routeIds[$i], $dnf, 'transit')) {
         return true;
       }
     }

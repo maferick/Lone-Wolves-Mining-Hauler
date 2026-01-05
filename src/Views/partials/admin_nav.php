@@ -30,6 +30,7 @@ $navItems = [
   ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
   ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
   ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
+  ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
   ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
   ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
   ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],

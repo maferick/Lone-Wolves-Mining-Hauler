@@ -25,6 +25,9 @@ if ($method === 'GET') {
             dnf_rule.id_b,
             dnf_rule.severity,
             dnf_rule.is_hard_block,
+            dnf_rule.apply_pickup,
+            dnf_rule.apply_delivery,
+            dnf_rule.apply_transit,
             dnf_rule.reason,
             dnf_rule.active,
             dnf_rule.created_at,
@@ -135,6 +138,9 @@ if ($method === 'POST') {
   }
 
   $isHard = !empty($payload['is_hard_block']) ? 1 : 0;
+  $applyPickup = array_key_exists('apply_pickup', $payload) ? (!empty($payload['apply_pickup']) ? 1 : 0) : 1;
+  $applyDelivery = array_key_exists('apply_delivery', $payload) ? (!empty($payload['apply_delivery']) ? 1 : 0) : 1;
+  $applyTransit = array_key_exists('apply_transit', $payload) ? (!empty($payload['apply_transit']) ? 1 : 0) : 1;
   $active = array_key_exists('active', $payload) ? (!empty($payload['active']) ? 1 : 0) : 1;
   $reason = trim((string)($payload['reason'] ?? ''));
 
@@ -144,6 +150,9 @@ if ($method === 'POST') {
     'id_b' => $idB,
     'severity' => $severity,
     'is_hard_block' => $isHard,
+    'apply_pickup' => $applyPickup,
+    'apply_delivery' => $applyDelivery,
+    'apply_transit' => $applyTransit,
     'reason' => $reason !== '' ? $reason : null,
     'active' => $active,
   ]);
@@ -162,6 +171,9 @@ if ($method === 'POST') {
       'id_b' => $idB,
       'severity' => $severity,
       'is_hard_block' => $isHard,
+      'apply_pickup' => $applyPickup,
+      'apply_delivery' => $applyDelivery,
+      'apply_transit' => $applyTransit,
       'reason' => $reason,
       'active' => $active,
     ],
@@ -210,6 +222,18 @@ if ($method === 'PUT') {
   if (array_key_exists('is_hard_block', $payload)) {
     $fields[] = 'is_hard_block = :is_hard_block';
     $params['is_hard_block'] = !empty($payload['is_hard_block']) ? 1 : 0;
+  }
+  if (array_key_exists('apply_pickup', $payload)) {
+    $fields[] = 'apply_pickup = :apply_pickup';
+    $params['apply_pickup'] = !empty($payload['apply_pickup']) ? 1 : 0;
+  }
+  if (array_key_exists('apply_delivery', $payload)) {
+    $fields[] = 'apply_delivery = :apply_delivery';
+    $params['apply_delivery'] = !empty($payload['apply_delivery']) ? 1 : 0;
+  }
+  if (array_key_exists('apply_transit', $payload)) {
+    $fields[] = 'apply_transit = :apply_transit';
+    $params['apply_transit'] = !empty($payload['apply_transit']) ? 1 : 0;
   }
   if (array_key_exists('reason', $payload)) {
     $fields[] = 'reason = :reason';

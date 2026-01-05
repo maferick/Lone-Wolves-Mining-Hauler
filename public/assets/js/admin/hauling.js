@@ -11,6 +11,11 @@
       return [];
     }
   };
+  const parseList = (value) => (value || '')
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const formatList = (items) => (Array.isArray(items) ? items.join('\n') : '');
 
   const fetchJson = async (url, options = {}) => {
     const resp = await fetch(url, {
@@ -87,16 +92,6 @@
     }
   };
 
-  const loadPriorityFees = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/priority-fee/?corp_id=${corpId}`);
-    if (!data.ok) return;
-    const fees = data.priority_fee || {};
-    const normalInput = document.getElementById('priority-fee-normal');
-    const highInput = document.getElementById('priority-fee-high');
-    if (normalInput) normalInput.value = fees.normal ?? 0;
-    if (highInput) highInput.value = fees.high ?? 0;
-  };
-
   const loadContractAttach = async () => {
     const data = await fetchJson(`${basePath}/api/admin/contract-attach/?corp_id=${corpId}`);
     if (!data.ok) return;
@@ -144,6 +139,70 @@
     }
   };
 
+  const loadSecurityClasses = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/security-classes/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const thresholds = data.thresholds || {};
+    const special = data.special || {};
+    const highInput = document.getElementById('security-highsec-min');
+    const lowInput = document.getElementById('security-lowsec-min');
+    if (highInput) highInput.value = thresholds.highsec_min ?? 0.5;
+    if (lowInput) lowInput.value = thresholds.lowsec_min ?? 0.1;
+    const pochven = special.pochven || {};
+    const zarzakh = special.zarzakh || {};
+    const thera = special.thera || {};
+    const pochvenRegions = document.getElementById('special-pochven-regions');
+    const zarzakhSystems = document.getElementById('special-zarzakh-systems');
+    const theraSystems = document.getElementById('special-thera-systems');
+    if (pochvenRegions) pochvenRegions.value = formatList(pochven.region_names);
+    if (zarzakhSystems) zarzakhSystems.value = formatList(zarzakh.system_names);
+    if (theraSystems) theraSystems.value = formatList(thera.system_names);
+    const pochvenEnabled = document.getElementById('special-pochven-enabled');
+    const zarzakhEnabled = document.getElementById('special-zarzakh-enabled');
+    const theraEnabled = document.getElementById('special-thera-enabled');
+    if (pochvenEnabled) pochvenEnabled.checked = !!pochven.enabled;
+    if (zarzakhEnabled) zarzakhEnabled.checked = !!zarzakh.enabled;
+    if (theraEnabled) theraEnabled.checked = !!thera.enabled;
+    const note = document.getElementById('security-classes-note');
+    if (note) {
+      note.textContent = 'Security thresholds and special space lists are applied to routing classification.';
+    }
+  };
+
+  const loadSecurityRoutingRules = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/security-routing/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const rules = data.rules || {};
+    const tbody = document.querySelector('#security-routing-table tbody');
+    if (!tbody) return;
+    const classLabels = {
+      high: 'High-sec',
+      low: 'Low-sec',
+      null: 'Null-sec',
+      pochven: 'Pochven',
+      zarzakh: 'Zarzakh',
+      thera: 'Thera',
+    };
+    tbody.innerHTML = '';
+    Object.keys(classLabels).forEach((key) => {
+      const rule = rules[key] || {};
+      const row = document.createElement('tr');
+      row.dataset.classKey = key;
+      row.innerHTML = `
+        <td>${classLabels[key]}</td>
+        <td><input type="checkbox" data-field="enabled" ${rule.enabled ? 'checked' : ''} /></td>
+        <td><input type="checkbox" data-field="allow_pickup" ${rule.allow_pickup ? 'checked' : ''} /></td>
+        <td><input type="checkbox" data-field="allow_delivery" ${rule.allow_delivery ? 'checked' : ''} /></td>
+        <td><input type="checkbox" data-field="requires_acknowledgement" ${rule.requires_acknowledgement ? 'checked' : ''} /></td>
+      `;
+      tbody.appendChild(row);
+    });
+    const note = document.getElementById('security-routing-note');
+    if (note) {
+      note.textContent = 'Disable pickup/delivery to allow transit-only usage.';
+    }
+  };
+
   const loadBuyback = async () => {
     const data = await fetchJson(`${basePath}/api/admin/buyback-haulage/?corp_id=${corpId}`);
     if (!data.ok) return;
@@ -168,23 +227,6 @@
         ? 'Buyback haulage price is set by volume tier.'
         : 'Set at least one tier price to enable buyback haulage.';
     }
-  };
-
-  const loadRatePlans = async () => {
-    const data = await fetchJson(`${basePath}/api/admin/rate-plan/?corp_id=${corpId}`);
-    const tbody = document.querySelector('#rate-plan-table tbody');
-    tbody.innerHTML = '';
-    (data.rate_plans || []).forEach((plan) => {
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${plan.service_class}</td>
-        <td><input class="input" data-field="rate_per_jump" type="number" step="0.01" value="${plan.rate_per_jump}" /></td>
-        <td><input class="input" data-field="collateral_rate" type="number" step="0.0001" value="${plan.collateral_rate}" /></td>
-        <td><input class="input" data-field="min_price" type="number" step="0.01" value="${plan.min_price}" /></td>
-        <td><button class="btn ghost" data-action="save" data-id="${plan.rate_plan_id}">Save</button></td>
-      `;
-      tbody.appendChild(row);
-    });
   };
 
   const formatDnfTarget = (rule) => {
@@ -216,10 +258,16 @@
     const tbody = document.querySelector('#dnf-table tbody');
     tbody.innerHTML = '';
     (data.rules || []).forEach((rule) => {
+      const applies = [
+        rule.apply_pickup ? 'Pickup' : null,
+        rule.apply_delivery ? 'Delivery' : null,
+        rule.apply_transit ? 'Transit' : null,
+      ].filter(Boolean).join(', ') || 'None';
       const row = document.createElement('tr');
       row.innerHTML = `
         <td>${formatDnfScope(rule.scope_type)}</td>
         <td>${formatDnfTarget(rule)}</td>
+        <td>${applies}</td>
         <td>${rule.severity}</td>
         <td>${rule.is_hard_block ? 'Yes' : 'No'}</td>
         <td>${rule.reason || ''}</td>
@@ -236,20 +284,6 @@
       body: JSON.stringify({ corp_id: corpId, priority }),
     });
     loadPriority();
-  });
-
-  document.getElementById('save-priority-fee')?.addEventListener('click', async () => {
-    const normal = parseFloat(document.getElementById('priority-fee-normal')?.value || '0');
-    const high = parseFloat(document.getElementById('priority-fee-high')?.value || '0');
-    await fetchJson(`${basePath}/api/admin/priority-fee/`, {
-      method: 'POST',
-      body: JSON.stringify({
-        corp_id: corpId,
-        normal: Number.isFinite(normal) ? normal : 0,
-        high: Number.isFinite(high) ? high : 0,
-      }),
-    });
-    loadPriorityFees();
   });
 
   document.getElementById('save-contract-attach')?.addEventListener('click', async () => {
@@ -298,6 +332,58 @@
     loadTolerance();
   });
 
+  document.getElementById('save-security-classes')?.addEventListener('click', async () => {
+    const payload = {
+      corp_id: corpId,
+      thresholds: {
+        highsec_min: parseFloat(document.getElementById('security-highsec-min')?.value || '0.5'),
+        lowsec_min: parseFloat(document.getElementById('security-lowsec-min')?.value || '0.1'),
+      },
+      special: {
+        pochven: {
+          enabled: document.getElementById('special-pochven-enabled')?.checked ?? true,
+          region_names: parseList(document.getElementById('special-pochven-regions')?.value),
+          system_names: [],
+        },
+        zarzakh: {
+          enabled: document.getElementById('special-zarzakh-enabled')?.checked ?? true,
+          region_names: [],
+          system_names: parseList(document.getElementById('special-zarzakh-systems')?.value),
+        },
+        thera: {
+          enabled: document.getElementById('special-thera-enabled')?.checked ?? false,
+          region_names: [],
+          system_names: parseList(document.getElementById('special-thera-systems')?.value),
+        },
+      },
+    };
+    await fetchJson(`${basePath}/api/admin/security-classes/`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    loadSecurityClasses();
+  });
+
+  document.getElementById('save-security-routing')?.addEventListener('click', async () => {
+    const rows = document.querySelectorAll('#security-routing-table tbody tr');
+    const rules = {};
+    rows.forEach((row) => {
+      const key = row.dataset.classKey;
+      if (!key) return;
+      const inputs = row.querySelectorAll('input[data-field]');
+      const entry = {};
+      inputs.forEach((input) => {
+        entry[input.dataset.field] = input.checked;
+      });
+      rules[key] = entry;
+    });
+    await fetchJson(`${basePath}/api/admin/security-routing/`, {
+      method: 'POST',
+      body: JSON.stringify({ corp_id: corpId, rules }),
+    });
+    loadSecurityRoutingRules();
+  });
+
   document.getElementById('save-buyback')?.addEventListener('click', async () => {
     const tiers = [];
     const rows = document.querySelectorAll('#buyback-tier-table tbody tr');
@@ -321,38 +407,6 @@
     loadBuyback();
   });
 
-  document.getElementById('rate-plan-table')?.addEventListener('click', async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement) || target.dataset.action !== 'save') return;
-    const row = target.closest('tr');
-    if (!row) return;
-    const inputs = row.querySelectorAll('input[data-field]');
-    const payload = { rate_plan_id: target.dataset.id };
-    inputs.forEach((input) => {
-      payload[input.dataset.field] = parseFloat(input.value || '0');
-    });
-    await fetchJson(`${basePath}/api/admin/rate-plan/`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
-    loadRatePlans();
-  });
-
-  document.getElementById('add-rate-plan')?.addEventListener('click', async () => {
-    const payload = {
-      corp_id: corpId,
-      service_class: document.getElementById('new-rate-class').value,
-      rate_per_jump: parseFloat(document.getElementById('new-rate-per-jump').value || '0'),
-      collateral_rate: parseFloat(document.getElementById('new-collateral-rate').value || '0'),
-      min_price: parseFloat(document.getElementById('new-min-price').value || '0'),
-    };
-    await fetchJson(`${basePath}/api/admin/rate-plan/`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    loadRatePlans();
-  });
-
   document.getElementById('dnf-add')?.addEventListener('click', async () => {
     const scopeType = document.getElementById('dnf-scope').value;
     const selection = parseDnfSelection(document.getElementById('dnf-name-a').value, scopeType);
@@ -361,6 +415,9 @@
       name_a: selection.name,
       id_a: selection.id || undefined,
       severity: parseInt(document.getElementById('dnf-severity').value || '1', 10),
+      apply_pickup: document.getElementById('dnf-apply-pickup')?.checked ?? true,
+      apply_delivery: document.getElementById('dnf-apply-delivery')?.checked ?? true,
+      apply_transit: document.getElementById('dnf-apply-transit')?.checked ?? true,
       is_hard_block: document.getElementById('dnf-hard').checked,
       reason: document.getElementById('dnf-reason').value,
     };
@@ -386,13 +443,13 @@
   });
 
   loadPriority();
-  loadPriorityFees();
   loadContractAttach();
   loadQuoteLocations();
   loadOperationsDispatch();
   loadTolerance();
+  loadSecurityClasses();
+  loadSecurityRoutingRules();
   loadBuyback();
-  loadRatePlans();
   loadDnfRules();
   updateDnfListTarget();
 })();

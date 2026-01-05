@@ -18,9 +18,13 @@ final class PricingService
     'FREIGHTER' => 950000,
   ];
 
-  private const SECURITY_MULTIPLIERS = [
-    'low' => 0.5,
-    'null' => 1.0,
+  private const DEFAULT_SECURITY_MULTIPLIERS = [
+    'high' => 1.0,
+    'low' => 1.5,
+    'null' => 2.5,
+    'pochven' => 3.0,
+    'zarzakh' => 3.5,
+    'thera' => 3.0,
   ];
 
   public function __construct(Db $db, RouteService $routeService, array $config = [])
@@ -55,6 +59,9 @@ final class PricingService
     $allowStructures = $this->loadQuoteLocationMode($corpId);
     $structureAllowlist = $this->loadStructureAllowlist($corpId);
     $accessRules = $this->loadAccessRules($corpId);
+    $securityDefinitions = $this->loadSecurityClassDefinitions($corpId);
+    $securityRules = $this->loadSecurityRoutingRules($corpId);
+    $securityPolicy = $this->buildSecurityPolicy($securityDefinitions, $securityRules);
     [$fromLocation, $pickupDebug] = $this->resolveLocationEntryWithDebug(
       $from,
       $pickupLocationType,
@@ -102,6 +109,7 @@ final class PricingService
       $accessRules,
       [
         'access_location_ids' => $structureAllowlist,
+        'security_policy' => $securityPolicy,
         'pickup_location' => $fromLocation['location'] ?? null,
         'destination_location' => $toLocation['location'] ?? null,
       ]
@@ -116,24 +124,35 @@ final class PricingService
     $ship = $this->chooseShipClass($volume, $route);
     $ratePlan = $this->getRatePlan($corpId, $ship['service_class']);
     $priorityFees = $this->loadPriorityFees($corpId);
+    $securityMultipliers = $this->loadSecurityMultipliers($corpId);
+    $flatRiskFees = $this->loadFlatRiskSurcharges($corpId);
+    $volumePressure = $this->loadVolumePressureScaling($corpId);
     $priorityFee = (float)($priorityFees[$priority] ?? 0.0);
 
     $jumps = (int)$route['jumps'];
-    $hs = (int)$route['hs_count'];
-    $ls = (int)$route['ls_count'];
-    $ns = (int)$route['ns_count'];
+    $securityCounts = $route['security_counts'] ?? [
+      'high' => (int)($route['hs_count'] ?? 0),
+      'low' => (int)($route['ls_count'] ?? 0),
+      'null' => (int)($route['ns_count'] ?? 0),
+      'pochven' => 0,
+      'zarzakh' => 0,
+      'thera' => 0,
+      'special' => 0,
+    ];
 
     $ratePerJump = (float)($ratePlan['rate_per_jump'] ?? 0);
     $collateralRate = (float)($ratePlan['collateral_rate'] ?? 0);
     $minPrice = (float)($ratePlan['min_price'] ?? 0);
 
-    $baseJumpCost = $jumps * $ratePerJump;
-    $lowPenalty = $ls * $ratePerJump * self::SECURITY_MULTIPLIERS['low'];
-    $nullPenalty = $ns * $ratePerJump * self::SECURITY_MULTIPLIERS['null'];
+    $jumpCosts = $this->buildSecurityJumpCosts($securityCounts, $securityMultipliers, $ratePerJump);
+    $jumpSubtotal = $jumpCosts['total'];
     $softPenalty = $this->softDnfPenalty($route['used_soft_dnf_rules'] ?? [], $ratePerJump);
-    $jumpSubtotal = $baseJumpCost + $lowPenalty + $nullPenalty + $softPenalty['total'];
+    $flatRisk = $this->applyFlatRiskFees($securityCounts, $flatRiskFees);
+    $haulSubtotal = $jumpSubtotal + $softPenalty['total'] + $flatRisk['total'] + $priorityFee;
+    $volumeAdjustment = $this->applyVolumePressure($volume, (float)($ship['max_volume'] ?? 0), $haulSubtotal, $volumePressure);
+    $haulTotal = $haulSubtotal + $volumeAdjustment['surcharge'];
     $collateralFee = $collateral * $collateralRate;
-    $priceTotal = max($minPrice, $jumpSubtotal + $collateralFee + $priorityFee);
+    $priceTotal = max($minPrice, $haulTotal + $collateralFee);
 
     $breakdown = [
       'inputs' => [
@@ -147,14 +166,12 @@ final class PricingService
       'priority' => $priority,
       'ship_class' => $ship,
       'jumps' => $jumps,
-      'security_counts' => [
-        'high' => $hs,
-        'low' => $ls,
-        'null' => $ns,
-      ],
+      'security_counts' => $securityCounts,
+      'security_multipliers' => $securityMultipliers,
+      'security_jump_costs' => $jumpCosts['by_class'],
+      'flat_risk_fees' => $flatRisk,
+      'volume_pressure' => $volumeAdjustment,
       'penalties' => [
-        'lowsec' => $lowPenalty,
-        'nullsec' => $nullPenalty,
         'soft_dnf_total' => $softPenalty['total'],
         'soft_dnf' => $softPenalty['rules'],
         'priority_fee' => $priorityFee,
@@ -166,12 +183,13 @@ final class PricingService
         'min_price' => $minPrice,
       ],
       'costs' => [
-        'jump_base' => $baseJumpCost,
-        'lowsec_penalty' => $lowPenalty,
-        'nullsec_penalty' => $nullPenalty,
+        'jump_security' => $jumpSubtotal,
         'soft_dnf_penalty' => $softPenalty['total'],
         'priority_fee' => $priorityFee,
-        'jump_subtotal' => $jumpSubtotal,
+        'flat_risk_fees' => $flatRisk['total'],
+        'volume_pressure' => $volumeAdjustment['surcharge'],
+        'haul_subtotal' => $haulSubtotal,
+        'haul_total' => $haulTotal,
         'collateral_fee' => $collateralFee,
         'min_price_applied' => $priceTotal === $minPrice && $priceTotal > 0,
         'total' => $priceTotal,
@@ -600,6 +618,95 @@ final class PricingService
     ];
   }
 
+  private function buildSecurityJumpCosts(array $securityCounts, array $multipliers, float $ratePerJump): array
+  {
+    $classes = ['high', 'low', 'null', 'pochven', 'zarzakh', 'thera'];
+    $byClass = [];
+    $total = 0.0;
+    foreach ($classes as $class) {
+      $count = (int)($securityCounts[$class] ?? 0);
+      $multiplier = (float)($multipliers[$class] ?? 1.0);
+      $cost = $count * $ratePerJump * $multiplier;
+      $byClass[$class] = [
+        'count' => $count,
+        'multiplier' => $multiplier,
+        'cost' => $cost,
+      ];
+      $total += $cost;
+    }
+
+    return [
+      'total' => $total,
+      'by_class' => $byClass,
+    ];
+  }
+
+  private function applyFlatRiskFees(array $securityCounts, array $flatFees): array
+  {
+    $lowCount = (int)($securityCounts['low'] ?? 0);
+    $nullCount = (int)($securityCounts['null'] ?? 0);
+    $specialCount = (int)($securityCounts['special'] ?? 0);
+    $lowFee = $lowCount > 0 ? (float)($flatFees['lowsec'] ?? 0.0) : 0.0;
+    $nullFee = $nullCount > 0 ? (float)($flatFees['nullsec'] ?? 0.0) : 0.0;
+    $specialFee = $specialCount > 0 ? (float)($flatFees['special'] ?? 0.0) : 0.0;
+
+    return [
+      'lowsec' => $lowFee,
+      'nullsec' => $nullFee,
+      'special' => $specialFee,
+      'total' => $lowFee + $nullFee + $specialFee,
+    ];
+  }
+
+  private function applyVolumePressure(
+    float $volume,
+    float $maxVolume,
+    float $haulSubtotal,
+    array $volumePressure
+  ): array {
+    $thresholds = $volumePressure['thresholds'] ?? [];
+    if (empty($volumePressure['enabled']) || $maxVolume <= 0 || !is_array($thresholds) || $thresholds === []) {
+      return [
+        'enabled' => !empty($volumePressure['enabled']),
+        'thresholds' => [],
+        'applied' => null,
+        'surcharge' => 0.0,
+      ];
+    }
+
+    $ratio = $maxVolume > 0 ? $volume / $maxVolume : 0.0;
+    $applied = null;
+    foreach ($thresholds as $threshold) {
+      $minRatio = (float)($threshold['min_ratio'] ?? 0.0);
+      if ($ratio >= $minRatio) {
+        $applied = $threshold;
+      }
+    }
+    if ($applied === null) {
+      return [
+        'enabled' => !empty($volumePressure['enabled']),
+        'thresholds' => $thresholds,
+        'applied' => null,
+        'surcharge' => 0.0,
+      ];
+    }
+
+    $surchargePct = (float)($applied['surcharge_pct'] ?? 0.0);
+    $multiplier = 1 + ($surchargePct / 100);
+    $surcharge = $haulSubtotal * ($multiplier - 1);
+
+    return [
+      'enabled' => !empty($volumePressure['enabled']),
+      'thresholds' => $thresholds,
+      'applied' => [
+        'min_ratio' => $applied['min_ratio'],
+        'surcharge_pct' => $surchargePct,
+        'multiplier' => $multiplier,
+      ],
+      'surcharge' => $surcharge,
+    ];
+  }
+
   private function loadPriorityFees(int $corpId): array
   {
     $defaults = ['normal' => 0.0, 'high' => 0.0];
@@ -625,11 +732,287 @@ final class PricingService
     return $fees;
   }
 
+  private function loadSecurityMultipliers(int $corpId): array
+  {
+    $defaults = self::DEFAULT_SECURITY_MULTIPLIERS;
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.security_multipliers' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.security_multipliers' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return $defaults;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return $defaults;
+    }
+    $values = array_merge($defaults, $decoded);
+    foreach ($defaults as $key => $_value) {
+      $values[$key] = max(0.0, (float)($values[$key] ?? $defaults[$key]));
+    }
+    return $values;
+  }
+
+  private function loadFlatRiskSurcharges(int $corpId): array
+  {
+    $defaults = ['lowsec' => 0.0, 'nullsec' => 0.0, 'special' => 0.0];
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.flat_risk_fees' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.flat_risk_fees' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return $defaults;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return $defaults;
+    }
+    $values = array_merge($defaults, $decoded);
+    foreach ($defaults as $key => $_value) {
+      $values[$key] = max(0.0, (float)($values[$key] ?? 0.0));
+    }
+    return $values;
+  }
+
+  private function loadVolumePressureScaling(int $corpId): array
+  {
+    $defaults = ['enabled' => false, 'thresholds' => []];
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.volume_pressure' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.volume_pressure' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return $defaults;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return $defaults;
+    }
+    $enabled = !empty($decoded['enabled']);
+    $rawThresholds = $decoded['thresholds'] ?? (array_is_list($decoded) ? $decoded : []);
+    $thresholds = [];
+    foreach ($rawThresholds as $threshold) {
+      if (!is_array($threshold)) {
+        continue;
+      }
+      $thresholdPct = isset($threshold['threshold_pct']) ? (float)$threshold['threshold_pct'] : null;
+      $minRatio = isset($threshold['min_ratio']) ? (float)$threshold['min_ratio'] : null;
+      if ($minRatio === null && $thresholdPct !== null) {
+        $minRatio = $thresholdPct / 100;
+      }
+      if ($minRatio === null) {
+        continue;
+      }
+      $minRatio = max(0.0, min(1.0, $minRatio));
+      $surchargePct = isset($threshold['surcharge_pct']) ? (float)$threshold['surcharge_pct'] : 0.0;
+      if ($surchargePct <= 0) {
+        continue;
+      }
+      $thresholds[] = [
+        'min_ratio' => $minRatio,
+        'threshold_pct' => $thresholdPct ?? ($minRatio * 100),
+        'surcharge_pct' => $surchargePct,
+      ];
+    }
+    usort($thresholds, static fn($a, $b) => $a['min_ratio'] <=> $b['min_ratio']);
+    return [
+      'enabled' => $enabled,
+      'thresholds' => $thresholds,
+    ];
+  }
+
+  private function loadSecurityClassDefinitions(int $corpId): array
+  {
+    $defaults = [
+      'thresholds' => [
+        'highsec_min' => 0.5,
+        'lowsec_min' => 0.1,
+      ],
+      'special' => [
+        'pochven' => [
+          'enabled' => true,
+          'region_names' => ['Pochven'],
+          'system_names' => [],
+        ],
+        'zarzakh' => [
+          'enabled' => true,
+          'region_names' => [],
+          'system_names' => ['Zarzakh'],
+        ],
+        'thera' => [
+          'enabled' => false,
+          'region_names' => [],
+          'system_names' => ['Thera'],
+        ],
+      ],
+    ];
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.security_classes' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.security_classes' LIMIT 1"
+      );
+    }
+    $decoded = (!$row || empty($row['setting_json']))
+      ? $defaults
+      : Db::jsonDecode((string)$row['setting_json'], []);
+
+    if (!is_array($decoded)) {
+      $decoded = $defaults;
+    }
+
+    $thresholds = array_merge($defaults['thresholds'], $decoded['thresholds'] ?? []);
+    $thresholds['highsec_min'] = (float)($thresholds['highsec_min'] ?? 0.5);
+    $thresholds['lowsec_min'] = (float)($thresholds['lowsec_min'] ?? 0.1);
+
+    $special = $decoded['special'] ?? [];
+    $special = is_array($special) ? $special : [];
+    $normalizedSpecial = [];
+    $specialSystemIds = ['pochven' => [], 'zarzakh' => [], 'thera' => []];
+    $specialRegionIds = ['pochven' => [], 'zarzakh' => [], 'thera' => []];
+
+    foreach (['pochven', 'zarzakh', 'thera'] as $key) {
+      $entry = array_merge($defaults['special'][$key], $special[$key] ?? []);
+      $enabled = !empty($entry['enabled']);
+      $regionNames = array_values(array_filter(array_map('trim', $entry['region_names'] ?? [])));
+      $systemNames = array_values(array_filter(array_map('trim', $entry['system_names'] ?? [])));
+      $normalizedSpecial[$key] = [
+        'enabled' => $enabled,
+        'region_names' => $regionNames,
+        'system_names' => $systemNames,
+      ];
+      if ($enabled) {
+        $specialRegionIds[$key] = $this->resolveRegionIdsByNames($regionNames);
+        $specialSystemIds[$key] = $this->resolveSystemIdsByNames($systemNames);
+      }
+    }
+
+    return [
+      'thresholds' => $thresholds,
+      'special' => $normalizedSpecial,
+      'special_system_ids' => $specialSystemIds,
+      'special_region_ids' => $specialRegionIds,
+    ];
+  }
+
+  private function loadSecurityRoutingRules(int $corpId): array
+  {
+    $defaults = [
+      'high' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+      'low' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+      'null' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+      'pochven' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+      'zarzakh' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+      'thera' => ['enabled' => true, 'allow_pickup' => true, 'allow_delivery' => true, 'requires_acknowledgement' => false],
+    ];
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.security_rules' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.security_rules' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return $defaults;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return $defaults;
+    }
+    $rules = [];
+    foreach ($defaults as $key => $default) {
+      $entry = is_array($decoded[$key] ?? null) ? $decoded[$key] : [];
+      $rules[$key] = [
+        'enabled' => array_key_exists('enabled', $entry) ? !empty($entry['enabled']) : $default['enabled'],
+        'allow_pickup' => array_key_exists('allow_pickup', $entry) ? !empty($entry['allow_pickup']) : $default['allow_pickup'],
+        'allow_delivery' => array_key_exists('allow_delivery', $entry) ? !empty($entry['allow_delivery']) : $default['allow_delivery'],
+        'requires_acknowledgement' => array_key_exists('requires_acknowledgement', $entry)
+          ? !empty($entry['requires_acknowledgement'])
+          : $default['requires_acknowledgement'],
+      ];
+    }
+
+    return $rules;
+  }
+
+  private function buildSecurityPolicy(array $definitions, array $rules): array
+  {
+    return [
+      'thresholds' => $definitions['thresholds'] ?? [],
+      'special_system_ids' => $definitions['special_system_ids'] ?? [],
+      'special_region_ids' => $definitions['special_region_ids'] ?? [],
+      'rules' => $rules,
+    ];
+  }
+
+  private function resolveRegionIdsByNames(array $names): array
+  {
+    $names = array_values(array_filter(array_map('trim', $names)));
+    if ($names === []) {
+      return [];
+    }
+    $params = [];
+    $placeholders = [];
+    foreach ($names as $idx => $name) {
+      $key = "name{$idx}";
+      $params[$key] = strtolower($name);
+      $placeholders[] = ':' . $key;
+    }
+    $rows = $this->db->select(
+      "SELECT region_id FROM eve_region WHERE LOWER(region_name) IN (" . implode(',', $placeholders) . ")",
+      $params
+    );
+    return array_values(array_map(static fn($row) => (int)$row['region_id'], $rows));
+  }
+
+  private function resolveSystemIdsByNames(array $names): array
+  {
+    $names = array_values(array_filter(array_map('trim', $names)));
+    if ($names === []) {
+      return [];
+    }
+    $params = [];
+    $placeholders = [];
+    foreach ($names as $idx => $name) {
+      $key = "name{$idx}";
+      $params[$key] = strtolower($name);
+      $placeholders[] = ':' . $key;
+    }
+    $rows = $this->db->select(
+      "SELECT system_id FROM eve_system WHERE LOWER(system_name) IN (" . implode(',', $placeholders) . ")",
+      $params
+    );
+    return array_values(array_map(static fn($row) => (int)$row['system_id'], $rows));
+  }
+
   private function chooseShipClass(float $volume, array $route): array
   {
-    $lowSec = (int)($route['ls_count'] ?? 0);
-    $nullSec = (int)($route['ns_count'] ?? 0);
-    $highSecOnly = $lowSec <= 0 && $nullSec <= 0;
+    $counts = $route['security_counts'] ?? [];
+    $lowSec = (int)($counts['low'] ?? ($route['ls_count'] ?? 0));
+    $nullSec = (int)($counts['null'] ?? ($route['ns_count'] ?? 0));
+    $special = (int)($counts['special'] ?? 0);
+    $highSecOnly = $lowSec <= 0 && $nullSec <= 0 && $special <= 0;
     $shipClasses = self::SHIP_CLASSES;
 
     if ($highSecOnly) {
