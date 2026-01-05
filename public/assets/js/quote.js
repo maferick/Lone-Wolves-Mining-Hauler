@@ -69,16 +69,6 @@
     resultEl.textContent = '';
   };
 
-  const formatCurrency = (value) => {
-    if (value === null || value === undefined || Number.isNaN(value)) return '—';
-    return Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ISK';
-  };
-
-  const formatNumber = (value, digits = 2) => {
-    if (value === null || value === undefined || Number.isNaN(value)) return '—';
-    return Number(value).toLocaleString('en-US', { maximumFractionDigits: digits });
-  };
-
   const parseIsk = (value) => {
     if (!value) return null;
     const clean = value.toString().trim().toLowerCase().replace(/[, ]+/g, '');
@@ -91,32 +81,86 @@
   };
 
   const fmtIsk = (value) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+  const fmtSecurity = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0.0';
+    return num.toFixed(1);
+  };
 
-  const buildBreakdown = (breakdown, route) => {
+  const renderQuoteBreakdownLikeHome = (data, basePath) => {
     if (!breakdownContent || !breakdownCard) return;
-    const items = [];
-    if (route && route.summary) {
-      items.push(`<div><strong>Route:</strong> ${route.summary}</div>`);
-    }
-    if (route && typeof route.jumps === 'number') {
-      items.push(`<div><strong>Jumps:</strong> ${formatNumber(route.jumps, 0)}</div>`);
-    }
-    if (breakdown && breakdown.ship_class) {
-      items.push(`<div><strong>Ship class:</strong> ${breakdown.ship_class.name || breakdown.ship_class.service_class || '—'}</div>`);
-    }
-    if (breakdown && breakdown.distance) {
-      items.push(`<div><strong>Distance:</strong> ${formatNumber(breakdown.distance.jumps || 0, 0)} jumps</div>`);
-    }
-    if (breakdown && breakdown.total) {
-      items.push(`<div><strong>Total:</strong> ${formatCurrency(breakdown.total.price_isk || breakdown.total.price_total)}</div>`);
-    }
-    const penalties = breakdown?.penalties || [];
-    if (penalties.length) {
-      const rows = penalties.map((penalty) => `<li>${penalty.label || 'Penalty'}: ${formatCurrency(penalty.amount_isk)}</li>`).join('');
-      items.push(`<div><strong>Penalties</strong><ul>${rows}</ul></div>`);
-    }
-    breakdownContent.innerHTML = items.join('');
-    breakdownCard.style.display = items.length ? 'block' : 'none';
+    const breakdown = data.breakdown || {};
+    const route = data.route || {};
+    const ship = breakdown.ship_class || {};
+    const security = breakdown.security_counts || {};
+    const penalties = breakdown.penalties || {};
+    const ratePlan = breakdown.rate_plan || {};
+    const costs = breakdown.costs || {};
+    const path = route.path || [];
+    const first = path[0]?.system_name || '—';
+    const last = path[path.length - 1]?.system_name || '—';
+    const pathNames = path
+      .map((p) => `${p.system_name} (${fmtSecurity(p.security)})`)
+      .join(' → ');
+
+    const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
+    breakdownContent.innerHTML = `
+      <div class="row">
+        <div>
+          <div class="label">Ship class</div>
+          <div>${ship.service_class || '—'} (max ${ship.max_volume || '—'} m³)</div>
+        </div>
+        <div>
+          <div class="label">Price total</div>
+          <div>${fmtIsk(totalPrice)} ISK</div>
+        </div>
+        <div>
+          <div class="label">Route</div>
+          <div>${first} → ${last}</div>
+          <button class="btn ghost" type="button" id="toggle-route">View route</button>
+          <div class="muted" id="route-path" style="display:none; margin-top:8px;">${pathNames}</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <div>
+          <div class="label">Jumps</div>
+          <div>${route.jumps ?? 0} (HS ${security.high ?? 0} / LS ${security.low ?? 0} / NS ${security.null ?? 0})</div>
+        </div>
+        <div>
+          <div class="label">Rate plan</div>
+          <div>${ratePlan.service_class || '—'} • ${fmtIsk(ratePlan.rate_per_jump || 0)} per jump • ${((ratePlan.collateral_rate || 0) * 100).toFixed(2)}% collateral</div>
+        </div>
+        <div>
+          <div class="label">Minimum price</div>
+          <div>${fmtIsk(ratePlan.min_price || 0)} ISK</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <div>
+          <div class="label">Penalties</div>
+          <div>Low-sec ${fmtIsk(penalties.lowsec || 0)} • Null-sec ${fmtIsk(penalties.nullsec || 0)} • Soft DNF ${fmtIsk(penalties.soft_dnf_total || 0)}</div>
+        </div>
+        <div>
+          <div class="label">Costs</div>
+          <div>Jump ${fmtIsk(costs.jump_subtotal || 0)} • Collateral ${fmtIsk(costs.collateral_fee || 0)} • Priority ${fmtIsk(costs.priority_fee || 0)}</div>
+        </div>
+        <div>
+          <div class="label">DNF notes</div>
+          <div>${(penalties.soft_dnf || []).map(r => r.reason || 'Rule').join(', ') || 'None'}</div>
+        </div>
+      </div>
+    `;
+
+    const toggleBtn = document.getElementById('toggle-route');
+    const routePath = document.getElementById('route-path');
+    toggleBtn?.addEventListener('click', () => {
+      if (!routePath) return;
+      const visible = routePath.style.display !== 'none';
+      routePath.style.display = visible ? 'none' : 'block';
+      toggleBtn.textContent = visible ? 'View route' : 'Hide route';
+    });
+
+    breakdownCard.style.display = 'block';
   };
 
   const fetchLocations = async (value, type, listEl) => {
@@ -187,21 +231,26 @@
   submitBtn?.addEventListener('click', async () => {
     const collateralValue = parseIsk(collateralInput?.value || '');
     const payload = {
-      pickup_system: pickupInput?.value?.trim() || '',
-      destination_system: destinationInput?.value?.trim() || '',
+      pickup: pickupInput?.value?.trim() || '',
+      destination: destinationInput?.value?.trim() || '',
       volume_m3: parseFloat(volumeInput?.value || '0'),
       collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',
     };
-    if (!payload.pickup_system || !payload.destination_system || !payload.volume_m3) {
+    if (!payload.pickup || !payload.destination || !payload.volume_m3) {
       showError('Pickup, destination, and volume are required.');
+      return;
+    }
+    if (payload.collateral_isk <= 0) {
+      showError('Collateral must be a valid ISK amount.');
       return;
     }
     const data = await fetchQuote(payload, 'Quote request failed.');
     if (!data) return;
     currentQuoteId = data.quote_id;
-    showResult(`Estimated haul price: ${formatCurrency(data.total_price_isk)}`);
-    buildBreakdown(data.breakdown, data.route);
+    const totalPrice = data.total_price_isk ?? data.price_total_isk ?? 0;
+    showResult(`Total price: ${fmtIsk(totalPrice)} ISK`);
+    renderQuoteBreakdownLikeHome(data, basePath);
     if (requestLink) requestLink.style.display = 'none';
     if (requestStatus) requestStatus.style.display = 'none';
   });
@@ -237,8 +286,8 @@
     const volume = parseFloat(volumeInput?.value || '0');
     const collateralValue = parseIsk(collateralInput?.value || '');
     return {
-      pickup_system: pickupInput?.value?.trim() || '',
-      destination_system: destinationInput?.value?.trim() || '',
+      pickup: pickupInput?.value?.trim() || '',
+      destination: destinationInput?.value?.trim() || '',
       volume_m3: volume,
       collateral_isk: collateralValue ?? 0,
       priority: priorityInput?.value || 'normal',
@@ -292,8 +341,9 @@
         return;
       }
       currentQuoteId = data.quote_id;
-      showResult(`Estimated buyback haul price: ${formatCurrency(data.total_price_isk)}`);
-      buildBreakdown(data.breakdown, data.route);
+      const totalPrice = data.reward_isk ?? data.total_price_isk ?? data.price_total_isk ?? 0;
+      showResult(`Buyback haulage price: ${fmtIsk(totalPrice)} ISK.`);
+      renderQuoteBreakdownLikeHome(data, basePath);
       if (requestLink) requestLink.style.display = 'none';
       if (requestStatus) requestStatus.style.display = 'none';
     } catch (err) {
