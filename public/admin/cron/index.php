@@ -59,7 +59,7 @@ if ($intervalSettingRow && !empty($intervalSettingRow['setting_json'])) {
 
 $intervalSettingsGlobal = [];
 $intervalSettingGlobalRow = $db->one(
-  "SELECT setting_json FROM app_setting WHERE corp_id IS NULL AND setting_key = 'cron.intervals' LIMIT 1"
+  "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'cron.intervals' LIMIT 1"
 );
 if ($intervalSettingGlobalRow && !empty($intervalSettingGlobalRow['setting_json'])) {
   $intervalSettingsGlobal = Db::jsonDecode((string)$intervalSettingGlobalRow['setting_json'], []);
@@ -354,7 +354,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $intervalSettingsGlobal[$taskKey] = $interval;
         $db->execute(
           "INSERT INTO app_setting (corp_id, setting_key, setting_json)
-           VALUES (NULL, 'cron.intervals', :json)
+           VALUES (0, 'cron.intervals', :json)
            ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_at = UTC_TIMESTAMP()",
           [
             'json' => Db::jsonEncode($intervalSettingsGlobal),
