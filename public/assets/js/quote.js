@@ -53,6 +53,8 @@
   const locationTimers = { pickup: null, destination: null };
   const pickupSuggestionMap = new Map();
   const deliverySuggestionMap = new Map();
+  const selectedLabels = { pickup: '', destination: '' };
+  const selectedKeys = { pickup: '', destination: '' };
 
   const normalizeLabel = (value) => value
     ?.toString()
@@ -73,6 +75,31 @@
 
   const storeLocations = (type, items) => {
     setSuggestions(type, items);
+  };
+
+  const setSelectionState = (type, item) => {
+    if (!item) {
+      selectedLabels[type] = '';
+      selectedKeys[type] = '';
+      return;
+    }
+    selectedLabels[type] = item.name || '';
+    selectedKeys[type] = normalizeLabel(item.name || '');
+  };
+
+  const clearHiddenFields = (type) => {
+    if (type === 'pickup') {
+      if (pickupLocationIdInput) pickupLocationIdInput.value = '';
+      if (pickupLocationTypeInput) pickupLocationTypeInput.value = '';
+      if (pickupSystemIdInput) pickupSystemIdInput.value = '';
+      pickupInput?.classList.remove('input--error');
+    } else {
+      if (deliveryLocationIdInput) deliveryLocationIdInput.value = '';
+      if (deliveryLocationTypeInput) deliveryLocationTypeInput.value = '';
+      if (deliverySystemIdInput) deliverySystemIdInput.value = '';
+      destinationInput?.classList.remove('input--error');
+    }
+    setSelectionState(type, null);
   };
 
   const applyLocationSelection = (type, value) => {
@@ -98,6 +125,8 @@
     } else {
       setFields(deliveryLocationIdInput, deliveryLocationTypeInput, deliverySystemIdInput);
     }
+
+    setSelectionState(type, item);
 
     if (!inputEl) return;
     if (item) {
@@ -261,6 +290,7 @@
       const data = await resp.json();
       if (queryId !== locationQueryIds[type]) return;
       if (!data || !data.ok) return;
+      if (!Array.isArray(data.items) || data.items.length === 0) return;
       storeLocations(type, data.items || []);
       buildOptions(listEl, data.items || [], value);
     } catch (err) {
@@ -269,23 +299,47 @@
     }
   };
 
-  pickupInput?.addEventListener('input', () => {
-    if (locationTimers.pickup) {
-      clearTimeout(locationTimers.pickup);
+  const shouldBlockFetch = (type, value) => {
+    if (!value) return false;
+    if (value.includes('—')) return true;
+    if (value === selectedLabels[type]) return true;
+    return normalizeLabel(value) === selectedKeys[type];
+  };
+
+  const handleLocationInput = (type, inputEl, listEl) => {
+    if (!inputEl) return;
+    if (locationTimers[type]) {
+      clearTimeout(locationTimers[type]);
+      locationTimers[type] = null;
     }
-    locationTimers.pickup = setTimeout(() => {
-      fetchLocations(pickupInput.value, 'pickup', pickupList);
+    const value = inputEl.value || '';
+    const lookup = normalizeLabel(value);
+    const targetMap = type === 'pickup' ? pickupSuggestionMap : deliverySuggestionMap;
+    const item = lookup ? targetMap.get(lookup) : null;
+    if (item) {
+      applyLocationSelection(type, value);
+      return;
+    }
+
+    clearHiddenFields(type);
+    if (shouldBlockFetch(type, value)) return;
+    if (value.length < minChars) {
+      listEl.innerHTML = '';
+      return;
+    }
+
+    locationTimers[type] = setTimeout(() => {
+      fetchLocations(value, type, listEl);
     }, 150);
+  };
+
+  pickupInput?.addEventListener('input', () => {
+    handleLocationInput('pickup', pickupInput, pickupList);
   });
   pickupInput?.addEventListener('change', () => applyLocationSelection('pickup', pickupInput.value));
   pickupInput?.addEventListener('blur', () => applyLocationSelection('pickup', pickupInput.value));
   destinationInput?.addEventListener('input', () => {
-    if (locationTimers.destination) {
-      clearTimeout(locationTimers.destination);
-    }
-    locationTimers.destination = setTimeout(() => {
-      fetchLocations(destinationInput.value, 'destination', destinationList);
-    }, 150);
+    handleLocationInput('destination', destinationInput, destinationList);
   });
   destinationInput?.addEventListener('change', () => applyLocationSelection('destination', destinationInput.value));
   destinationInput?.addEventListener('blur', () => applyLocationSelection('destination', destinationInput.value));
