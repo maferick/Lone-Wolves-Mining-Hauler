@@ -7,6 +7,8 @@ require __DIR__ . '/../src/bootstrap.php';
 use App\Db\Db;
 use App\Services\ContractMatchService;
 use App\Services\CronSyncService;
+use App\Services\AllianceSyncService;
+use App\Services\EsiClient;
 use App\Services\JobQueueService;
 
 function runCronJobWorker(Db $db, array $config, array $services, ?callable $logger = null): int
@@ -39,6 +41,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
   $job = $jobQueue->claimNextJob([
     JobQueueService::WEBHOOK_DELIVERY_JOB,
     JobQueueService::WEBHOOK_REQUEUE_JOB,
+    JobQueueService::CRON_ALLIANCES_JOB,
     JobQueueService::CRON_SYNC_JOB,
     JobQueueService::CRON_TOKEN_REFRESH_JOB,
     JobQueueService::CRON_STRUCTURES_JOB,
@@ -112,6 +115,15 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         'log_complete' => 'Contracts sync completed.',
         'log_failed_prefix' => 'Contracts sync failed',
       ],
+      JobQueueService::CRON_ALLIANCES_JOB => [
+        'label' => 'Starting alliance sync',
+        'started' => 'cron.alliances.started',
+        'completed' => 'cron.alliances.completed',
+        'failed' => 'cron.alliances.failed',
+        'log_start' => 'Alliance sync started.',
+        'log_complete' => 'Alliance sync completed.',
+        'log_failed_prefix' => 'Alliance sync failed',
+      ],
     ];
 
     switch ($jobType) {
@@ -147,6 +159,26 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $result = $services['discord_webhook']->requeueFailedDeliveries($limit, $minutes);
         $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_requeue.completed', 'Webhook requeue completed.');
         $log("Webhook requeue job {$jobId} completed.");
+        return 1;
+      case JobQueueService::CRON_ALLIANCES_JOB:
+        $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_ALLIANCES_JOB];
+        $jobQueue->updateProgress($jobId, [
+          'current' => 0,
+          'total' => 0,
+          'label' => $meta['label'],
+          'stage' => 'start',
+        ], $meta['log_start']);
+        $jobQueue->markStarted($jobId, $meta['started']);
+        $allianceSync = new AllianceSyncService($db, $services['esi_client'] ?? new EsiClient($db, $config));
+        $result = $allianceSync->syncAlliances(function (array $progress) use ($jobQueue, $jobId): void {
+          $jobQueue->updateProgress(
+            $jobId,
+            $progress,
+            $progress['label'] ?? null
+          );
+        });
+        $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
+        $log("Alliance sync job {$jobId} completed.");
         return 1;
       case JobQueueService::CONTRACT_MATCH_JOB:
         if ($corpId <= 0) {
@@ -257,6 +289,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
       case JobQueueService::CRON_STRUCTURES_JOB:
       case JobQueueService::CRON_PUBLIC_STRUCTURES_JOB:
       case JobQueueService::CRON_CONTRACTS_JOB:
+      case JobQueueService::CRON_ALLIANCES_JOB:
         $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_SYNC_JOB];
         $jobQueue->markFailed(
           $jobId,
