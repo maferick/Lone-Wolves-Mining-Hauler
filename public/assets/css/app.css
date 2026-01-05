@@ -119,6 +119,16 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .grid{display:grid; grid-template-columns: 1.25fr .75fr; gap:18px}
 @media (max-width: 960px){ .grid{grid-template-columns: 1fr} }
 
+.quote-page{
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  padding-top:24px;
+}
+.quote-card{
+  width:min(720px, 100%);
+}
+
 .stack{display:flex; flex-direction:column; gap:18px}
 
 .card{

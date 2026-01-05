@@ -39,6 +39,7 @@ if ($basePath === '') {
     '/docs',
     '/rates',
     '/faq',
+    '/quote',
     '/hall-of-fame',
     '/health',
     '/login',
@@ -250,6 +251,57 @@ switch ($path) {
     }
 
     require __DIR__ . '/../src/Views/home.php';
+    break;
+
+  case '/quote':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Quote';
+    $basePathForViews = $basePath;
+    $quoteInput = [
+      'pickup_system' => '',
+      'destination_system' => '',
+    ];
+    $defaultPriority = 'normal';
+    $corpIdForProfile = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    if ($dbOk && $db !== null && $corpIdForProfile > 0) {
+      $settingRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'routing.default_profile' LIMIT 1",
+        ['cid' => $corpIdForProfile]
+      );
+      if ($settingRow === null) {
+        $settingRow = $db->one(
+          "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'routing.default_profile' LIMIT 1"
+        );
+      }
+      if ($settingRow && !empty($settingRow['setting_json'])) {
+        $decoded = json_decode((string)$settingRow['setting_json'], true);
+        if (is_array($decoded)) {
+          $defaultPriority = (string)($decoded['priority'] ?? $decoded['profile'] ?? $defaultPriority);
+        } elseif (is_string($decoded)) {
+          $defaultPriority = $decoded;
+        }
+      }
+    }
+    $defaultPriority = strtolower(trim($defaultPriority)) === 'high' ? 'high' : 'normal';
+
+    $buybackHaulageTiers = BuybackHaulageService::defaultTiers();
+    $buybackHaulageEnabled = false;
+    $corpIdForBuyback = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+    if ($dbOk && $db !== null && $corpIdForBuyback > 0) {
+      $settingRow = $db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'buyback.haulage' LIMIT 1",
+        ['cid' => $corpIdForBuyback]
+      );
+      if ($settingRow && !empty($settingRow['setting_json'])) {
+        $decoded = json_decode((string)$settingRow['setting_json'], true);
+        if (is_array($decoded)) {
+          $buybackHaulageTiers = BuybackHaulageService::normalizeSetting($decoded);
+          $buybackHaulageEnabled = BuybackHaulageService::hasEnabledTier($buybackHaulageTiers);
+        }
+      }
+    }
+
+    require __DIR__ . '/../src/Views/quote.php';
     break;
 
   case '/health':
