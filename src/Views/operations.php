@@ -4,6 +4,7 @@ declare(strict_types=1);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
+$canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
 $canViewOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $canManageOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
 $canAssignOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.assign');
@@ -14,6 +15,7 @@ $haulers = $haulers ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
 $corpName = (string)($config['corp']['name'] ?? $config['app']['name'] ?? 'Corp Hauling');
 $userId = (int)($authCtx['user_id'] ?? 0);
+$showDispatchSections = $showDispatchSections ?? true;
 
 $buildRouteLabel = static function (array $req): string {
   $fromName = $req['from_name'] ?? $req['from_location_name'] ?? null;
@@ -189,6 +191,17 @@ ob_start();
           </div>
         </div>
       </div>
+      <?php if ($canAdmin): ?>
+        <div class="row" style="margin-bottom:14px; align-items:center;">
+          <div>
+            <div class="label">Admin controls</div>
+            <div class="muted">Toggle the Assign haulers and Update status sections.</div>
+          </div>
+          <button class="btn ghost" type="button" id="toggle-dispatch-sections" data-enabled="<?= $showDispatchSections ? '1' : '0' ?>">
+            <?= $showDispatchSections ? 'Hide dispatch sections' : 'Show dispatch sections' ?>
+          </button>
+        </div>
+      <?php endif; ?>
       <div class="row">
         <div class="card card-subtle">
           <div class="card-header">
@@ -209,26 +222,28 @@ ob_start();
           </div>
         </div>
       </div>
-      <div class="row" style="margin-top:14px;">
-        <div class="card card-subtle">
-          <div class="card-header">
-            <h2>Assign haulers</h2>
-            <p class="muted">Dispatch internal haulers and track assignments.</p>
+      <?php if ($showDispatchSections): ?>
+        <div class="row" style="margin-top:14px;">
+          <div class="card card-subtle">
+            <div class="card-header">
+              <h2>Assign haulers</h2>
+              <p class="muted">Dispatch internal haulers and track assignments.</p>
+            </div>
+            <div class="card-footer">
+              <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#assign', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
+            </div>
           </div>
-          <div class="card-footer">
-            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#assign', ENT_QUOTES, 'UTF-8') ?>">Assign jobs</a>
+          <div class="card card-subtle">
+            <div class="card-header">
+              <h2>Update status</h2>
+              <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
+            </div>
+            <div class="card-footer">
+              <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#status', ENT_QUOTES, 'UTF-8') ?>">Update activity</a>
+            </div>
           </div>
         </div>
-        <div class="card card-subtle">
-          <div class="card-header">
-            <h2>Update status</h2>
-            <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
-          </div>
-          <div class="card-footer">
-            <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/operations#status', ENT_QUOTES, 'UTF-8') ?>">Update activity</a>
-          </div>
-        </div>
-      </div>
+      <?php endif; ?>
     <?php endif; ?>
   </div>
 </section>
@@ -378,92 +393,94 @@ ob_start();
   </div>
 </section>
 
-<section class="card" id="assign">
-  <div class="card-header">
-    <h2>Assign haulers</h2>
-    <p class="muted">Dispatch internal haulers and track assignments.</p>
-  </div>
-  <div class="content">
-    <?php if (!$isLoggedIn): ?>
-      <p class="muted">Sign in to assign haulers.</p>
-    <?php elseif (!$canAssignOps): ?>
-      <p class="muted">You do not have permission to assign haulers.</p>
-    <?php elseif (!$requestsAvailable): ?>
-      <p class="muted">No hauling requests available for assignment.</p>
-    <?php else: ?>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Request</th>
-            <th>Route</th>
-            <th>Status</th>
-            <th>Assigned</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($requests as $req): ?>
-            <?php
-              $requestId = (int)($req['request_id'] ?? 0);
-              $haulerUserId = (int)($req['ops_assignee_id'] ?? $req['hauler_user_id'] ?? 0);
-              $assignedLabel = (string)($req['ops_assignee_name'] ?? $req['hauler_name'] ?? 'Unassigned');
-              $isAssignedToSelf = $haulerUserId > 0 && $haulerUserId === $userId;
-            ?>
+<?php if ($showDispatchSections): ?>
+  <section class="card" id="assign">
+    <div class="card-header">
+      <h2>Assign haulers</h2>
+      <p class="muted">Dispatch internal haulers and track assignments.</p>
+    </div>
+    <div class="content">
+      <?php if (!$isLoggedIn): ?>
+        <p class="muted">Sign in to assign haulers.</p>
+      <?php elseif (!$canAssignOps): ?>
+        <p class="muted">You do not have permission to assign haulers.</p>
+      <?php elseif (!$requestsAvailable): ?>
+        <p class="muted">No hauling requests available for assignment.</p>
+      <?php else: ?>
+        <table class="table">
+          <thead>
             <tr>
-              <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($assignedLabel, ENT_QUOTES, 'UTF-8') ?></td>
-              <td>
-                <?php if ($isAssignedToSelf): ?>
-                  <span class="pill subtle">Assigned to you</span>
-                <?php else: ?>
-                  <button class="btn ghost js-assign-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign to me</button>
-                <?php endif; ?>
-                <button class="btn ghost js-assign-other" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign…</button>
-              </td>
+              <th>Request</th>
+              <th>Route</th>
+              <th>Status</th>
+              <th>Assigned</th>
+              <th>Action</th>
             </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    <?php endif; ?>
-  </div>
-</section>
+          </thead>
+          <tbody>
+            <?php foreach ($requests as $req): ?>
+              <?php
+                $requestId = (int)($req['request_id'] ?? 0);
+                $haulerUserId = (int)($req['ops_assignee_id'] ?? $req['hauler_user_id'] ?? 0);
+                $assignedLabel = (string)($req['ops_assignee_name'] ?? $req['hauler_name'] ?? 'Unassigned');
+                $isAssignedToSelf = $haulerUserId > 0 && $haulerUserId === $userId;
+              ?>
+              <tr>
+                <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars((string)$req['status'], ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars($assignedLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                <td>
+                  <?php if ($isAssignedToSelf): ?>
+                    <span class="pill subtle">Assigned to you</span>
+                  <?php else: ?>
+                    <button class="btn ghost js-assign-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign to me</button>
+                  <?php endif; ?>
+                  <button class="btn ghost js-assign-other" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Assign…</button>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+  </section>
 
-<?php if ($canAssignOps && $requestsAvailable): ?>
-<div class="modal-backdrop" id="assign-modal" hidden>
-  <div class="modal">
-    <div class="modal-header">
-      <div>
-        <div class="label" id="assign-title">Assign hauler</div>
-        <p class="muted" style="margin:4px 0 0;">Search and select the hauler to assign.</p>
+  <?php if ($canAssignOps && $requestsAvailable): ?>
+  <div class="modal-backdrop" id="assign-modal" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="label" id="assign-title">Assign hauler</div>
+          <p class="muted" style="margin:4px 0 0;">Search and select the hauler to assign.</p>
+        </div>
+        <button class="btn ghost" type="button" id="assign-cancel">Close</button>
       </div>
-      <button class="btn ghost" type="button" id="assign-cancel">Close</button>
-    </div>
-    <div class="modal-body">
-      <input class="input" type="text" id="assign-search" placeholder="Search by name..." />
-      <div class="modal-list" id="assign-list">
-        <?php if (empty($haulers)): ?>
-          <div class="muted">No active members available.</div>
-        <?php else: ?>
-          <?php foreach ($haulers as $hauler): ?>
-            <?php
-              $haulerId = (int)($hauler['user_id'] ?? 0);
-              $displayName = (string)($hauler['display_name'] ?? 'Unknown');
-              $characterName = trim((string)($hauler['character_name'] ?? ''));
-              $label = $characterName !== '' ? $displayName . ' (' . $characterName . ')' : $displayName;
-            ?>
-            <button class="btn ghost js-assign-select" type="button"
-              data-hauler-id="<?= htmlspecialchars((string)$haulerId, ENT_QUOTES, 'UTF-8') ?>"
-              data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">
-              <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-            </button>
-          <?php endforeach; ?>
-        <?php endif; ?>
+      <div class="modal-body">
+        <input class="input" type="text" id="assign-search" placeholder="Search by name..." />
+        <div class="modal-list" id="assign-list">
+          <?php if (empty($haulers)): ?>
+            <div class="muted">No active members available.</div>
+          <?php else: ?>
+            <?php foreach ($haulers as $hauler): ?>
+              <?php
+                $haulerId = (int)($hauler['user_id'] ?? 0);
+                $displayName = (string)($hauler['display_name'] ?? 'Unknown');
+                $characterName = trim((string)($hauler['character_name'] ?? ''));
+                $label = $characterName !== '' ? $displayName . ' (' . $characterName . ')' : $displayName;
+              ?>
+              <button class="btn ghost js-assign-select" type="button"
+                data-hauler-id="<?= htmlspecialchars((string)$haulerId, ENT_QUOTES, 'UTF-8') ?>"
+                data-label="<?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>">
+                <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+              </button>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </div>
       </div>
     </div>
   </div>
-</div>
+  <?php endif; ?>
 <?php endif; ?>
 
 <?php if ($isLoggedIn): ?>
@@ -487,66 +504,68 @@ ob_start();
 </div>
 <?php endif; ?>
 
-<section class="card" id="status">
-  <div class="card-header">
-    <h2>Update status</h2>
-    <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
-  </div>
-  <div class="content">
-    <?php if (!$isLoggedIn): ?>
-      <p class="muted">Sign in to update haul status.</p>
-    <?php elseif (!$canExecuteOps): ?>
-      <p class="muted">You do not have permission to update request statuses.</p>
-    <?php elseif (!$requestsAvailable): ?>
-      <p class="muted">No hauling requests available for status updates.</p>
-    <?php else: ?>
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Request</th>
-            <th>Route</th>
-            <th>Status</th>
-            <th>Update</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($requests as $req): ?>
-            <?php
-              $requestId = (int)($req['request_id'] ?? 0);
-              $updateStatusOptions = [
-                'in_progress' => 'Picked up',
-                'in_transit' => 'In transit',
-                'delivered' => 'Delivered',
-              ];
-              $currentStatus = (string)($req['status'] ?? '');
-              $statusLabel = $updateStatusOptions[$currentStatus] ?? $currentStatus;
-              $selectedStatus = array_key_exists($currentStatus, $updateStatusOptions)
-                ? $currentStatus
-                : 'in_progress';
-            ?>
+<?php if ($showDispatchSections): ?>
+  <section class="card" id="status">
+    <div class="card-header">
+      <h2>Update status</h2>
+      <p class="muted">Mark pickup, in-transit, and delivery milestones.</p>
+    </div>
+    <div class="content">
+      <?php if (!$isLoggedIn): ?>
+        <p class="muted">Sign in to update haul status.</p>
+      <?php elseif (!$canExecuteOps): ?>
+        <p class="muted">You do not have permission to update request statuses.</p>
+      <?php elseif (!$requestsAvailable): ?>
+        <p class="muted">No hauling requests available for status updates.</p>
+      <?php else: ?>
+        <table class="table">
+          <thead>
             <tr>
-              <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars((string)$statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
-              <td>
-                <div class="row" style="gap:8px; align-items:center;">
-                  <select class="input js-status-select" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">
-                    <?php foreach ($updateStatusOptions as $value => $label): ?>
-                      <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>"<?= $value === $selectedStatus ? ' selected' : '' ?>>
-                        <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                  <button class="btn ghost js-update-status" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Update</button>
-                </div>
-              </td>
+              <th>Request</th>
+              <th>Route</th>
+              <th>Status</th>
+              <th>Update</th>
             </tr>
-          <?php endforeach; ?>
-        </tbody>
-      </table>
-    <?php endif; ?>
-  </div>
-</section>
+          </thead>
+          <tbody>
+            <?php foreach ($requests as $req): ?>
+              <?php
+                $requestId = (int)($req['request_id'] ?? 0);
+                $updateStatusOptions = [
+                  'in_progress' => 'Picked up',
+                  'in_transit' => 'In transit',
+                  'delivered' => 'Delivered',
+                ];
+                $currentStatus = (string)($req['status'] ?? '');
+                $statusLabel = $updateStatusOptions[$currentStatus] ?? $currentStatus;
+                $selectedStatus = array_key_exists($currentStatus, $updateStatusOptions)
+                  ? $currentStatus
+                  : 'in_progress';
+              ?>
+              <tr>
+                <td>#<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars($buildRouteLabel($req), ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars((string)$statusLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                <td>
+                  <div class="row" style="gap:8px; align-items:center;">
+                    <select class="input js-status-select" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">
+                      <?php foreach ($updateStatusOptions as $value => $label): ?>
+                        <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>"<?= $value === $selectedStatus ? ' selected' : '' ?>>
+                          <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <button class="btn ghost js-update-status" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Update</button>
+                  </div>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      <?php endif; ?>
+    </div>
+  </section>
+<?php endif; ?>
 
 <?php if ($isLoggedIn): ?>
 <script>
@@ -561,6 +580,23 @@ ob_start();
     });
     return resp.json();
   };
+
+  const corpId = <?= (int)($authCtx['corp_id'] ?? 0) ?>;
+  const dispatchToggle = document.getElementById('toggle-dispatch-sections');
+  dispatchToggle?.addEventListener('click', async () => {
+    const enabled = dispatchToggle.dataset.enabled === '1';
+    dispatchToggle.disabled = true;
+    const data = await sendJson(`${basePath}/api/admin/operations-sections/`, {
+      corp_id: corpId,
+      show_dispatch: !enabled,
+    });
+    if (!data.ok) {
+      alert(data.error || 'Update failed.');
+      dispatchToggle.disabled = false;
+      return;
+    }
+    window.location.reload();
+  });
 
   document.querySelectorAll('.js-delete-request').forEach((btn) => {
     btn.addEventListener('click', async () => {

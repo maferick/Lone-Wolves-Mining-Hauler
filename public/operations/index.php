@@ -4,6 +4,8 @@ declare(strict_types=1);
 // Standalone operations endpoint (works even if routing rules are bypassed)
 require_once __DIR__ . '/../../src/bootstrap.php';
 
+use App\Db\Db;
+
 $appName = $config['app']['name'];
 $title = $appName . ' • Operations';
 $queueStats = [
@@ -16,10 +18,24 @@ $requests = [];
 $haulers = [];
 $requestsAvailable = false;
 $dbOk = $health['db'] ?? false;
+$showDispatchSections = true;
 
 $canViewOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $canAssignOps = !empty($authCtx['user_id']) && \App\Auth\Auth::can($authCtx, 'haul.assign');
 $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
+
+if ($dbOk && $db !== null && $corpId > 0) {
+  $settingRow = $db->one(
+    "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'operations.dispatch_sections' LIMIT 1",
+    ['cid' => $corpId]
+  );
+  if ($settingRow && !empty($settingRow['setting_json'])) {
+    $decoded = Db::jsonDecode((string)$settingRow['setting_json'], []);
+    if (is_array($decoded) && array_key_exists('show_dispatch', $decoded)) {
+      $showDispatchSections = (bool)$decoded['show_dispatch'];
+    }
+  }
+}
 
 if ($dbOk && $db !== null && $canViewOps && $corpId > 0) {
   $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
