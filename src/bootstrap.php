@@ -151,6 +151,16 @@ try {
   $health['db_error'] = $e->getMessage();
 }
 
+if ($db !== null) {
+  $globalCorp = $db->one("SELECT corp_id FROM corp WHERE corp_id = 0");
+  if ($globalCorp === null) {
+    $db->execute(
+      "INSERT INTO corp (corp_id, corp_name, is_active)
+       VALUES (0, 'Global Defaults', 0)"
+    );
+  }
+}
+
 $authCtx = Auth::context($db);
 
 $brandingDefaults = [

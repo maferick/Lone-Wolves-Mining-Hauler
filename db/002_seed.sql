@@ -78,6 +78,11 @@ INSERT INTO app_user (corp_id, character_id, character_name, email, display_name
 VALUES (98746727, 0, 'SYSTEM', 'admin@example.local', 'Initial Admin', 'active')
 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name);
 
+-- Global defaults placeholder (corp_id 0 to satisfy app_setting FK)
+INSERT INTO corp (corp_id, corp_name, is_active)
+VALUES (0, 'Global Defaults', 0)
+ON DUPLICATE KEY UPDATE corp_name=VALUES(corp_name), is_active=VALUES(is_active);
+
 -- Assign admin role to initial admin user
 INSERT IGNORE INTO user_role (user_id, role_id)
 SELECT u.user_id, r.role_id
