@@ -2,6 +2,7 @@
   const root = document.querySelector('.js-quote-form');
   if (!root) return;
   const basePath = root.dataset.basePath || '';
+  const DEBUG = false;
   const minChars = 3;
   let buybackTiers = [];
   if (root.dataset.buybackTiers) {
@@ -56,6 +57,10 @@
   const deliverySuggestionMap = new Map();
   const selectedLabels = { pickup: '', destination: '' };
   const selectedKeys = { pickup: '', destination: '' };
+  const debugLog = (...args) => {
+    if (!DEBUG) return;
+    console.debug('[home-quote]', ...args);
+  };
 
   const normalizeLabel = (value) => value
     ?.toString()
@@ -131,6 +136,14 @@
     }
 
     setSelectionState(type, item);
+    if (item) {
+      debugLog('selection applied', type, {
+        location_id: item.location_id ?? null,
+        location_type: item.location_type ?? null,
+        system_id: item.system_id ?? null,
+        name: item.name ?? '',
+      });
+    }
 
     if (!inputEl) return;
     if (item) {
@@ -152,13 +165,14 @@
     const queryId = ++locationQueryIds[type];
     const url = `${basePath}/api/locations/search/?q=${encodeURIComponent(value)}&type=${encodeURIComponent(type)}`;
     try {
-      const resp = await fetch(url);
+      const resp = await fetch(url, { credentials: 'same-origin' });
       const data = await resp.json();
       if (queryId !== locationQueryIds[type]) return;
       if (!data || !data.ok) return;
       if (!Array.isArray(data.items) || data.items.length === 0) return;
       storeLocations(type, data.items || []);
       buildOptions(listEl, data.items || [], value);
+      debugLog('rendered suggestions', type, data.items.length);
     } catch (err) {
       if (queryId !== locationQueryIds[type]) return;
       listEl.innerHTML = '';
@@ -412,6 +426,20 @@
     const volume = parseFloat(volumeInput?.value || '0');
     const collateral = parseIsk(collateralInput?.value || '');
     const priority = priorityInput?.value || 'normal';
+    const payload = {
+      pickup,
+      destination,
+      pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
+      pickup_location_type: pickupLocationTypeInput?.value || null,
+      pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
+      destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
+      destination_location_type: deliveryLocationTypeInput?.value || null,
+      destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
+      volume_m3: volume,
+      collateral_isk: collateral,
+      priority,
+    };
+    debugLog('quote submit payload', payload);
 
     if (!pickup || !destination) {
       showError('Pickup and delivery locations are required.');
@@ -444,19 +472,7 @@
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          pickup,
-          destination,
-          pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
-          pickup_location_type: pickupLocationTypeInput?.value || null,
-          pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
-          destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
-          destination_location_type: deliveryLocationTypeInput?.value || null,
-          destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
-          volume_m3: volume,
-          collateral_isk: collateral,
-          priority,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -536,6 +552,20 @@
     const volume = parseFloat(volumeInput?.value || '0');
     const collateral = parseIsk(collateralInput?.value || '');
     const priority = priorityInput?.value || 'normal';
+    const payload = {
+      pickup,
+      destination,
+      pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
+      pickup_location_type: pickupLocationTypeInput?.value || null,
+      pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
+      destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
+      destination_location_type: deliveryLocationTypeInput?.value || null,
+      destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
+      volume_m3: volume,
+      collateral_isk: collateral,
+      priority,
+    };
+    debugLog('buyback submit payload', payload);
 
     if (!pickup || !destination) {
       showError('Pickup and delivery locations are required.');
@@ -569,19 +599,7 @@
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          pickup,
-          destination,
-          pickup_location_id: parseInt(pickupLocationIdInput?.value || '0', 10) || null,
-          pickup_location_type: pickupLocationTypeInput?.value || null,
-          pickup_system_id: parseInt(pickupSystemIdInput?.value || '0', 10) || null,
-          destination_location_id: parseInt(deliveryLocationIdInput?.value || '0', 10) || null,
-          destination_location_type: deliveryLocationTypeInput?.value || null,
-          destination_system_id: parseInt(deliverySystemIdInput?.value || '0', 10) || null,
-          volume_m3: volume,
-          collateral_isk: collateral,
-          priority,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
       if (!data.ok) {
