@@ -127,7 +127,7 @@
       payload[input.dataset.field] = parseFloat(input.value || '0');
     });
     await fetchJson(`${basePath}/api/admin/rate-plan/`, {
-      method: 'PUT',
+      method: 'POST',
       body: JSON.stringify(payload),
     });
     loadRatePlans();
