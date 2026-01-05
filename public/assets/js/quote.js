@@ -115,9 +115,12 @@
         systemInput.value = '';
         return;
       }
-      idInput.value = item.location_id ?? '';
-      typeInput.value = item.location_type ?? '';
-      systemInput.value = item.system_id ?? '';
+      const locationType = item.location_type ?? '';
+      const systemId = item.system_id ?? '';
+      const locationId = locationType === 'system' ? systemId : (item.location_id ?? '');
+      idInput.value = locationId;
+      typeInput.value = locationType;
+      systemInput.value = systemId;
     };
 
     if (type === 'pickup') {
