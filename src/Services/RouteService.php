@@ -56,8 +56,7 @@ final class RouteService
     $avoidLowsec = $this->shouldAvoidLowsec($fromId, $toId, $graph['systems']);
     $avoidSystemIds = $this->mergeSecurityAvoids($hardAvoidSystemIds, $profile, $graph['systems'], $avoidLowsec);
     $avoidCount = count($avoidSystemIds);
-    $accessAllowlist = $this->buildAccessAllowlist($graph['systems'], $context);
-    $hasAccessAllowlist = !empty($accessAllowlist);
+    $accessEvaluation = $this->evaluateAccessRules($fromId, $toId, $context, $graph['systems']);
 
     if ($profile === 'safest') {
       $fromSecurity = $this->normalizedSecurity((float)($graph['systems'][$fromId]['security'] ?? 0.0));
@@ -70,15 +69,24 @@ final class RouteService
       }
     }
 
-    if ($hasAccessAllowlist && (!$this->isSystemAllowed($fromId, $accessAllowlist) || !$this->isSystemAllowed($toId, $accessAllowlist))) {
+    if (!$accessEvaluation['allowed']) {
       throw new RouteException('Pickup or destination not allowed by access rules.', [
         'reason' => 'pickup_destination_not_allowed',
         'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+        'access' => $accessEvaluation['debug'],
+        'graph' => $graphHealth,
       ]);
     }
 
     if (!$graphReady) {
       $reason = $graphHealth['reason'] ?? 'graph_not_ready';
+      if ($this->esiRouteService === null) {
+        throw new RouteException('Routing graph not loaded.', [
+          'reason' => 'graph_not_loaded',
+          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+          'graph' => $graphHealth,
+        ]);
+      }
       return $this->fallbackToCcpRoute(
         $fromId,
         $toId,
@@ -112,6 +120,7 @@ final class RouteService
         'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
         'blocked_count_hard' => $dnfCounts['hard'],
         'blocked_count_soft' => $dnfCounts['soft'],
+        'graph' => $graphHealth,
       ]);
     }
 
@@ -125,6 +134,7 @@ final class RouteService
           'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
           'blocked_count_hard' => $dnfCounts['hard'],
           'blocked_count_soft' => $dnfCounts['soft'],
+          'graph' => $graphHealth,
         ]);
       }
       throw new RouteException('No viable route found (local).', [
@@ -132,6 +142,7 @@ final class RouteService
         'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
         'blocked_count_hard' => $dnfCounts['hard'],
         'blocked_count_soft' => $dnfCounts['soft'],
+        'graph' => $graphHealth,
       ]);
     }
 
@@ -484,36 +495,75 @@ final class RouteService
     return $path;
   }
 
-  private function buildAccessAllowlist(array $systems, array $context): array
+  private function evaluateAccessRules(int $fromId, int $toId, array $context, array $systems): array
   {
     $allowedSystemIds = array_values(array_filter(array_map('intval', $context['access_system_ids'] ?? [])));
     $allowedRegionIds = array_values(array_filter(array_map('intval', $context['access_region_ids'] ?? [])));
+    $locationAllowlist = $context['access_location_ids'] ?? [];
+    $allowedPickup = array_values(array_filter(array_map('intval', $locationAllowlist['pickup'] ?? [])));
+    $allowedDestination = array_values(array_filter(array_map('intval', $locationAllowlist['destination'] ?? [])));
+    $hasAllowlist = !empty($allowedSystemIds) || !empty($allowedRegionIds) || !empty($allowedPickup) || !empty($allowedDestination);
 
-    if (empty($allowedSystemIds) && empty($allowedRegionIds)) {
-      return [];
+    $pickup = $this->evaluateAccessForEndpoint($fromId, 'pickup', $context, $systems, $allowedPickup, $allowedSystemIds, $allowedRegionIds);
+    $destination = $this->evaluateAccessForEndpoint($toId, 'destination', $context, $systems, $allowedDestination, $allowedSystemIds, $allowedRegionIds);
+    if (!$hasAllowlist) {
+      $pickup['allowed'] = true;
+      $pickup['matched_rule'] = 'no_rules';
+      $destination['allowed'] = true;
+      $destination['matched_rule'] = 'no_rules';
     }
+    $allowed = !$hasAllowlist || ($pickup['allowed'] && $destination['allowed']);
 
-    $allow = [];
-    foreach ($allowedSystemIds as $systemId) {
-      $allow[$systemId] = true;
-    }
-    if (!empty($allowedRegionIds)) {
-      foreach ($systems as $systemId => $system) {
-        if (in_array((int)($system['region_id'] ?? 0), $allowedRegionIds, true)) {
-          $allow[(int)$systemId] = true;
-        }
-      }
-    }
-
-    return $allow;
+    return [
+      'allowed' => $allowed,
+      'debug' => [
+        'pickup' => $pickup,
+        'destination' => $destination,
+      ],
+    ];
   }
 
-  private function isSystemAllowed(int $systemId, array $allowlist): bool
-  {
-    if (empty($allowlist)) {
-      return true;
+  private function evaluateAccessForEndpoint(
+    int $systemId,
+    string $direction,
+    array $context,
+    array $systems,
+    array $allowedLocations,
+    array $allowedSystemIds,
+    array $allowedRegionIds
+  ): array {
+    $locationKey = $direction === 'destination' ? 'destination_location' : 'pickup_location';
+    $location = $context[$locationKey] ?? [];
+    $locationId = (int)($location['location_id'] ?? 0);
+    $locationType = (string)($location['location_type'] ?? '');
+    $locationRegionId = (int)($location['region_id'] ?? 0);
+    $regionId = $this->resolveRegionIdForAccess($systemId, $systems, $locationRegionId);
+
+    $byLocation = $locationId > 0 && in_array($locationId, $allowedLocations, true);
+    $bySystem = $systemId > 0 && in_array($systemId, $allowedSystemIds, true);
+    $byRegion = $regionId > 0 && in_array($regionId, $allowedRegionIds, true);
+
+    $matchedRule = null;
+    if ($byLocation) {
+      $matchedRule = $locationType === 'structure' ? 'structure_rule'
+        : ($locationType === 'npc_station' ? 'station_rule' : 'location_rule');
+    } elseif ($bySystem) {
+      $matchedRule = 'system_rule';
+    } elseif ($byRegion) {
+      $matchedRule = 'region_rule';
     }
-    return isset($allowlist[$systemId]);
+
+    return [
+      'system_id' => $systemId,
+      'region_id' => $regionId,
+      'location_id' => $locationId,
+      'location_type' => $locationType !== '' ? $locationType : null,
+      'by_location' => $byLocation,
+      'by_system' => $bySystem,
+      'by_region' => $byRegion,
+      'matched_rule' => $matchedRule,
+      'allowed' => $byLocation || $bySystem || $byRegion,
+    ];
   }
 
   private function loadDnfRules(): array
@@ -1110,6 +1160,21 @@ final class RouteService
     }
 
     return null;
+  }
+
+  private function resolveRegionIdForAccess(int $systemId, array $systems, int $fallbackRegionId): int
+  {
+    if ($fallbackRegionId > 0) {
+      return $fallbackRegionId;
+    }
+    if (isset($systems[$systemId]) && !empty($systems[$systemId]['region_id'])) {
+      return (int)$systems[$systemId]['region_id'];
+    }
+    if ($systemId <= 0) {
+      return 0;
+    }
+    $details = $this->loadSystemDetails([$systemId]);
+    return (int)($details[$systemId]['region_id'] ?? 0);
   }
 
   private function isBackfillEnabled(?int $corpId): bool
