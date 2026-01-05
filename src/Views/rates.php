@@ -89,7 +89,7 @@ $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
           <p class="muted">Generate a live quote with your route and collateral details.</p>
         </div>
         <div class="content">
-          <a class="btn" href="<?= $dashboardUrl ?>#quote">Go to Quote</a>
+          <a class="btn" href="<?= htmlspecialchars(($basePath ?: '') . '/quote', ENT_QUOTES, 'UTF-8') ?>">Go to Quote</a>
           <a class="btn ghost" href="<?= $dashboardUrl ?>">Back to dashboard</a>
         </div>
       </div>
