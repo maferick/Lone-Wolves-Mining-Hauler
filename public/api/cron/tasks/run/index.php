@@ -109,6 +109,18 @@ switch ($taskKey) {
       'time_utc' => gmdate('c'),
     ]);
     break;
+  case JobQueueService::CRON_NPC_STRUCTURES_JOB:
+    if ($jobQueue->hasPendingJob(null, JobQueueService::CRON_NPC_STRUCTURES_JOB)) {
+      api_send_json(['ok' => false, 'error' => 'NPC structures sync already queued.'], 409);
+    }
+    $jobId = $jobQueue->enqueueNpcStructuresSync($auditContext);
+    api_send_json([
+      'ok' => true,
+      'job_id' => $jobId,
+      'status' => 'queued',
+      'time_utc' => gmdate('c'),
+    ]);
+    break;
   case JobQueueService::CRON_TOKEN_REFRESH_JOB:
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
