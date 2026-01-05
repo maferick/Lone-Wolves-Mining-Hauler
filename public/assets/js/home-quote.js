@@ -13,14 +13,16 @@
   }
   const buybackEnabled = root.dataset.buybackEnabled === '1';
 
+  const getDisplayLabel = (item) => item?.name || item?.label || '';
+
   const buildOptions = (listEl, items, value) => {
     listEl.innerHTML = '';
     if (!value || value.length < minChars) return;
     for (const item of items || []) {
-      const label = item.label || item.name || '';
-      if (!label) continue;
+      const displayLabel = getDisplayLabel(item);
+      if (!displayLabel) continue;
       const option = document.createElement('option');
-      option.value = label;
+      option.value = displayLabel;
       listEl.appendChild(option);
     }
   };
@@ -66,9 +68,9 @@
     const targetMap = type === 'pickup' ? pickupSuggestionMap : deliverySuggestionMap;
     targetMap.clear();
     for (const item of items || []) {
-      const label = item?.label || item?.name || '';
-      if (!label) continue;
-      targetMap.set(normalizeLabel(label), item);
+      const displayLabel = getDisplayLabel(item);
+      if (!displayLabel) continue;
+      targetMap.set(normalizeLabel(displayLabel), item);
     }
   };
 
