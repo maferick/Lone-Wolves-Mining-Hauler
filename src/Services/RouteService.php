@@ -45,6 +45,9 @@ final class RouteService
     $graph = $this->loadGraph();
     $graphHealth = $graph['health'] ?? [];
     $graphReady = !empty($graphHealth['ready']);
+    $allowEsiFallback = array_key_exists('allow_esi_fallback', $context)
+      ? (bool)$context['allow_esi_fallback']
+      : true;
 
     $fromId = $this->resolveSystemIdByName($fromSystemName);
     $toId = $this->resolveSystemIdByName($toSystemName);
@@ -90,7 +93,7 @@ final class RouteService
 
     if (!$graphReady) {
       $reason = $graphHealth['reason'] ?? 'graph_not_ready';
-      if ($this->esiRouteService === null) {
+      if (!$allowEsiFallback || $this->esiRouteService === null) {
         throw new RouteException('Routing graph not loaded.', [
           'reason' => 'graph_not_loaded',
           'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
@@ -112,6 +115,13 @@ final class RouteService
     }
 
     if (!isset($graph['systems'][$fromId]) || !isset($graph['systems'][$toId])) {
+      if (!$allowEsiFallback || $this->esiRouteService === null) {
+        throw new RouteException('Routing graph missing system.', [
+          'reason' => 'graph_missing_system',
+          'resolved_ids' => ['pickup' => $fromId, 'destination' => $toId],
+          'graph' => $graphHealth,
+        ]);
+      }
       return $this->fallbackToCcpRoute(
         $fromId,
         $toId,

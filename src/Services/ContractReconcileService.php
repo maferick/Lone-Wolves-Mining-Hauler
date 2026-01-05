@@ -16,7 +16,8 @@ final class ContractReconcileService
     private Db $db,
     private array $config,
     private EsiClient $esi,
-    private ?DiscordWebhookService $webhooks = null
+    private ?DiscordWebhookService $webhooks = null,
+    private ?DiscordEventService $discordEvents = null
   ) {
   }
 
@@ -297,6 +298,35 @@ final class ContractReconcileService
             $requestId,
             $newState
           );
+        }
+
+        if ($this->discordEvents) {
+          try {
+            switch ($newState) {
+              case 'PICKED_UP':
+                $this->discordEvents->enqueueContractPickedUp($corpId, $requestId, $contractId, [
+                  'hauler' => $acceptorName ?? '',
+                ]);
+                break;
+              case 'DELIVERED':
+                $this->discordEvents->enqueueContractCompleted($corpId, $requestId, $contractId, [
+                  'hauler' => $acceptorName ?? '',
+                ]);
+                break;
+              case 'FAILED':
+                $this->discordEvents->enqueueContractFailed($corpId, $requestId, $contractId, [
+                  'hauler' => $acceptorName ?? '',
+                ]);
+                break;
+              case 'EXPIRED':
+                $this->discordEvents->enqueueContractExpired($corpId, $requestId, $contractId, [
+                  'hauler' => $acceptorName ?? '',
+                ]);
+                break;
+            }
+          } catch (\Throwable $e) {
+            // Ignore Discord event enqueue failures to avoid blocking reconciliation.
+          }
         }
       }
       $processedRequests++;

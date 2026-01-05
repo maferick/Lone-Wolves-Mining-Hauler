@@ -138,6 +138,23 @@ switch ($taskKey) {
       'time_utc' => gmdate('c'),
     ]);
     break;
+  case JobQueueService::DISCORD_DELIVERY_JOB:
+    if (!isset($services['discord_delivery'])) {
+      api_send_json(['ok' => false, 'error' => 'Discord delivery service not configured.'], 400);
+    }
+    $handlePendingJob($jobQueue, null, JobQueueService::DISCORD_DELIVERY_JOB, $force, 'Discord delivery');
+    $limit = (int)($_ENV['CRON_DISCORD_LIMIT'] ?? 50);
+    if ($limit <= 0) {
+      $limit = 50;
+    }
+    $jobId = $jobQueue->enqueueDiscordDelivery($limit, $auditContext);
+    api_send_json([
+      'ok' => true,
+      'job_id' => $jobId,
+      'status' => 'queued',
+      'time_utc' => gmdate('c'),
+    ]);
+    break;
   case JobQueueService::CRON_ALLIANCES_JOB:
     $handlePendingJob($jobQueue, null, JobQueueService::CRON_ALLIANCES_JOB, $force, 'Alliance sync');
     $jobId = $jobQueue->enqueueAllianceSync($auditContext);

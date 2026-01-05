@@ -44,6 +44,7 @@ $alliancesInterval = $normalizeInterval((int)($_ENV['CRON_ALLIANCES_INTERVAL'] ?
 $npcStructuresInterval = $normalizeInterval((int)($_ENV['CRON_NPC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
 $webhookInterval = 60;
+$discordInterval = 60;
 $webhookRequeueInterval = $normalizeInterval((int)($_ENV['CRON_WEBHOOK_REQUEUE_INTERVAL'] ?? 900), 900);
 $intervalSettings = [];
 $intervalSettingRow = $db->one(
@@ -288,6 +289,14 @@ $taskDefinitions = [
     'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::WEBHOOK_DELIVERY_JOB] ?? 0), $webhookInterval),
     'scope' => 'global',
     'description' => 'Flushes queued Discord webhook deliveries.',
+    'runner' => 'task',
+  ],
+  JobQueueService::DISCORD_DELIVERY_JOB => [
+    'key' => JobQueueService::DISCORD_DELIVERY_JOB,
+    'name' => 'Discord Delivery',
+    'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::DISCORD_DELIVERY_JOB] ?? 0), $discordInterval),
+    'scope' => 'global',
+    'description' => 'Flushes queued Discord outbox notifications.',
     'runner' => 'task',
   ],
   JobQueueService::WEBHOOK_REQUEUE_JOB => [

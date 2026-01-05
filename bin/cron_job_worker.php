@@ -42,6 +42,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
   $job = $jobQueue->claimNextJob([
     JobQueueService::WEBHOOK_DELIVERY_JOB,
     JobQueueService::WEBHOOK_REQUEUE_JOB,
+    JobQueueService::DISCORD_DELIVERY_JOB,
     JobQueueService::CRON_ALLIANCES_JOB,
     JobQueueService::CRON_NPC_STRUCTURES_JOB,
     JobQueueService::CRON_SYNC_JOB,
@@ -171,6 +172,22 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_requeue.completed', 'Webhook requeue completed.');
         $log("Webhook requeue job {$jobId} completed.");
         return 1;
+      case JobQueueService::DISCORD_DELIVERY_JOB:
+        if (!isset($services['discord_delivery'])) {
+          throw new RuntimeException('Discord delivery service not configured.');
+        }
+        $limit = (int)($payload['limit'] ?? 50);
+        $jobQueue->updateProgress($jobId, [
+          'current' => 0,
+          'total' => 0,
+          'label' => 'Sending Discord notifications',
+          'stage' => 'start',
+        ], 'Discord delivery started.');
+        $jobQueue->markStarted($jobId, 'cron.discord_delivery.started');
+        $result = $services['discord_delivery']->sendPending($limit);
+        $jobQueue->markSucceeded($jobId, $result, 'cron.discord_delivery.completed', 'Discord delivery completed.');
+        $log("Discord delivery job {$jobId} completed.");
+        return 1;
       case JobQueueService::CRON_ALLIANCES_JOB:
         $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_ALLIANCES_JOB];
         $jobQueue->updateProgress($jobId, [
@@ -222,7 +239,12 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
           'stage' => 'start',
         ], 'Contract match started.');
         $jobQueue->markStarted($jobId, 'cron.contract_match.started');
-        $matcher = new ContractMatchService($db, $config, $services['discord_webhook'] ?? null);
+        $matcher = new ContractMatchService(
+          $db,
+          $config,
+          $services['discord_webhook'] ?? null,
+          $services['discord_events'] ?? null
+        );
         $result = $matcher->matchOpenRequests($corpId);
         $jobQueue->markSucceeded($jobId, $result, 'cron.contract_match.completed', 'Contract match completed.');
         $log("Contract match job {$jobId} completed.");

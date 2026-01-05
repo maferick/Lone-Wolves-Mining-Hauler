@@ -17,12 +17,17 @@ final class EsiService
   private CorpContractsService $contracts;
   private ContractReconcileService $contractReconcile;
 
-  public function __construct(private Db $db, private array $config, ?DiscordWebhookService $webhooks = null)
+  public function __construct(
+    private Db $db,
+    private array $config,
+    ?DiscordWebhookService $webhooks = null,
+    ?DiscordEventService $discordEvents = null
+  )
   {
     $this->client = new EsiClient($db, $config);
     $this->sso = new SsoService($db, $config);
     $this->contracts = new CorpContractsService($db, $config, $this->client, $this->sso, $webhooks);
-    $this->contractReconcile = new ContractReconcileService($db, $config, $this->client, $webhooks);
+    $this->contractReconcile = new ContractReconcileService($db, $config, $this->client, $webhooks, $discordEvents);
   }
 
   public function ping(): array

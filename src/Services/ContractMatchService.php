@@ -23,7 +23,8 @@ final class ContractMatchService
   public function __construct(
     private Db $db,
     private array $config,
-    private ?DiscordWebhookService $webhooks = null
+    private ?DiscordWebhookService $webhooks = null,
+    private ?DiscordEventService $discordEvents = null
   ) {
   }
 
@@ -324,6 +325,18 @@ final class ContractMatchService
           "UPDATE haul_request SET contract_linked_notified_at = UTC_TIMESTAMP() WHERE request_id = :rid",
           ['rid' => $requestId]
         );
+      }
+    }
+
+    if ($newStatus === 'contract_linked' && $this->discordEvents) {
+      try {
+        $this->discordEvents->enqueueContractMatched(
+          (int)($request['corp_id'] ?? 0),
+          $requestId,
+          (int)($contract['contract_id'] ?? 0)
+        );
+      } catch (\Throwable $e) {
+        // Ignore Discord event enqueue failures to avoid blocking contract matching.
       }
     }
 

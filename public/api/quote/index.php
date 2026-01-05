@@ -115,6 +115,20 @@ try {
     'blocked_count_soft' => $details['blocked_count_soft'] ?? null,
     'message' => $e->getMessage(),
   ];
+  if (!empty($services['discord_events'])) {
+    try {
+      /** @var \App\Services\DiscordEventService $discordEvents */
+      $discordEvents = $services['discord_events'];
+      $discordEvents->enqueueAlert($corpId, 'Quote failed: no viable route.', [
+        'reason' => (string)($details['reason'] ?? 'no_viable_route'),
+        'request_id' => null,
+        'pickup' => (string)($payload['pickup'] ?? $payload['pickup_system'] ?? ''),
+        'delivery' => (string)($payload['destination'] ?? $payload['destination_system'] ?? ''),
+      ]);
+    } catch (\Throwable $e) {
+      // Ignore Discord event enqueue failures to avoid blocking the quote flow.
+    }
+  }
   if (!empty($config['app']['debug']) && !empty($details['access'])) {
     $responseDetails['access_debug'] = $details['access'];
   }

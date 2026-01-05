@@ -163,6 +163,21 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
   }
 }
 
+if (!empty($services['discord_events'])) {
+  try {
+    /** @var \App\Services\DiscordEventService $discordEvents */
+    $discordEvents = $services['discord_events'];
+    $discordEvents->enqueueRequestStatusChanged(
+      $corpId,
+      $requestId,
+      $status,
+      (string)($request['status'] ?? '')
+    );
+  } catch (\Throwable $e) {
+    // Ignore Discord event enqueue failures to avoid blocking the status flow.
+  }
+}
+
 api_send_json([
   'ok' => true,
   'request_id' => $requestId,
