@@ -17,12 +17,14 @@ final class NpcStructureSyncService
   public function syncNpcStructures(?callable $progress = null): array
   {
     $startedAt = gmdate('c');
-    $progress?([
-      'current' => 0,
-      'total' => 1,
-      'label' => 'Loading NPC structures',
-      'stage' => 'npc_structures',
-    ]);
+    if ($progress !== null) {
+      $progress([
+        'current' => 0,
+        'total' => 1,
+        'label' => 'Loading NPC structures',
+        'stage' => 'npc_structures',
+      ]);
+    }
 
     $esiClient = new EsiClient($this->db, $this->config);
     $sso = new SsoService($this->db, $this->config);
@@ -30,12 +32,14 @@ final class NpcStructureSyncService
     $universe->setForceSde(true);
     $result = $universe->syncNpcStations();
 
-    $progress?([
-      'current' => 1,
-      'total' => 1,
-      'label' => 'NPC structures synced',
-      'stage' => 'npc_structures',
-    ]);
+    if ($progress !== null) {
+      $progress([
+        'current' => 1,
+        'total' => 1,
+        'label' => 'NPC structures synced',
+        'stage' => 'npc_structures',
+      ]);
+    }
 
     return array_merge($result, [
       'started_at' => $startedAt,
