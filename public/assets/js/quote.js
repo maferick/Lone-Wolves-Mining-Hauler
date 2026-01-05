@@ -29,21 +29,8 @@
   const volumeInput = document.querySelector('input[name="volume_m3"]');
   const collateralInput = document.querySelector('input[name="collateral"]');
   const priorityInput = document.querySelector('select[name="priority"]');
-  const ensureDatalist = (id, input) => {
-    let listEl = document.getElementById(id);
-    if (!listEl) {
-      listEl = document.createElement('datalist');
-      listEl.id = id;
-      document.body.appendChild(listEl);
-    }
-    if (input && input.getAttribute('list') !== id) {
-      input.setAttribute('list', id);
-    }
-    return listEl;
-  };
-
-  const pickupList = ensureDatalist('pickup-location-list', pickupInput);
-  const destinationList = ensureDatalist('destination-location-list', destinationInput);
+  const pickupList = document.getElementById('pickup-location-list');
+  const destinationList = document.getElementById('destination-location-list');
   const submitBtn = document.getElementById('quote-submit');
   const errorEl = document.getElementById('quote-error');
   const resultEl = document.getElementById('quote-result');
