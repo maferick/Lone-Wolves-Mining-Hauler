@@ -17,7 +17,7 @@ $fmtPercent = static function ($value, int $precision = 2): string {
 
 $dashboardUrl = htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8');
 ?>
-<section class="card">
+<section class="card rates-page">
   <div class="card-header">
     <h2>Rates & Pricing</h2>
     <p class="muted">Transparent pricing pulled live from <?= htmlspecialchars($corpName, ENT_QUOTES, 'UTF-8') ?> hauling settings.</p>

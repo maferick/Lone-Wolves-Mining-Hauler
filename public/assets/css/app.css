@@ -246,6 +246,23 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   display:flex; align-items:center; justify-content:center;
   color: var(--text); font-weight:700; font-size:12px;
 }
+.rates-page .list{gap:12px}
+.rates-page .list li{
+  align-items:baseline;
+  flex-wrap:wrap;
+}
+.rates-page .badge{
+  width:auto;
+  height:auto;
+  min-height:24px;
+  padding:2px 10px;
+  border-radius:999px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1.2;
+  white-space:nowrap;
+}
 
 .content{padding:0 18px 18px}
 .content h3{margin:18px 0 8px; font-size:14px}
