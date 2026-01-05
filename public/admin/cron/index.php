@@ -297,11 +297,29 @@ foreach ($taskDefinitions as $taskKey => $taskDefinition) {
     $globalTaskKeys[] = $taskKey;
   }
 }
+$recentJobScopeParams = ['cid' => $corpId];
+$recentJobGlobalClause = '';
+if ($globalTaskKeys !== []) {
+  $placeholders = [];
+  foreach ($globalTaskKeys as $index => $taskKey) {
+    $param = 'global_' . $index;
+    $placeholders[] = ':' . $param;
+    $recentJobScopeParams[$param] = $taskKey;
+  }
+  $recentJobGlobalClause = ' OR (corp_id IS NULL AND job_type IN (' . implode(', ', $placeholders) . '))';
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
 
-  if ($action === 'toggle_task') {
+  if ($action === 'clear_recent_jobs') {
+    $db->execute(
+      "DELETE FROM job_queue
+        WHERE corp_id = :cid{$recentJobGlobalClause}",
+      $recentJobScopeParams
+    );
+    $notice = 'Cleared recent job history.';
+  } elseif ($action === 'toggle_task') {
     $taskKey = (string)($_POST['task_key'] ?? '');
     if (isset($taskDefinitions[$taskKey])) {
       $task = $taskDefinitions[$taskKey];
@@ -367,38 +385,39 @@ $cmdUniverseSde = sprintf('php bin/cron_sync.php %d --scope=universe --sde', $co
 
 $recentJobPage = max(1, (int)($_GET['page'] ?? 1));
 $recentJobPerPage = 10;
-$recentJobParams = ['cid' => $corpId];
-$recentJobGlobalClause = '';
-if ($globalTaskKeys !== []) {
-  $placeholders = [];
-  foreach ($globalTaskKeys as $index => $taskKey) {
-    $param = 'global_' . $index;
-    $placeholders[] = ':' . $param;
-    $recentJobParams[$param] = $taskKey;
-  }
-  $recentJobGlobalClause = ' OR (corp_id IS NULL AND job_type IN (' . implode(', ', $placeholders) . '))';
-}
+$recentJobMax = 999;
 
 $recentJobTotalRow = $db->one(
   "SELECT COUNT(*) AS total
      FROM job_queue
     WHERE corp_id = :cid{$recentJobGlobalClause}",
-  $recentJobParams
+  $recentJobScopeParams
 );
 $recentJobTotal = (int)($recentJobTotalRow['total'] ?? 0);
+if ($recentJobTotal > $recentJobMax) {
+  $recentJobTotal = $recentJobMax;
+}
 $recentJobTotalPages = max(1, (int)ceil($recentJobTotal / $recentJobPerPage));
 if ($recentJobPage > $recentJobTotalPages) {
   $recentJobPage = $recentJobTotalPages;
 }
 $recentJobOffset = ($recentJobPage - 1) * $recentJobPerPage;
 
-$recentJobParams['limit'] = $recentJobPerPage;
-$recentJobParams['offset'] = $recentJobOffset;
+$recentJobParams = $recentJobScopeParams + [
+  'scope_limit' => $recentJobMax,
+  'limit' => $recentJobPerPage,
+  'offset' => $recentJobOffset,
+];
 $recentJobs = $db->select(
   "SELECT job_id, corp_id, job_type, status, run_at, started_at, finished_at, created_at, payload_json, last_error
-     FROM job_queue
-    WHERE corp_id = :cid{$recentJobGlobalClause}
-    ORDER BY created_at DESC
+     FROM (
+       SELECT job_id, corp_id, job_type, status, run_at, started_at, finished_at, created_at, payload_json, last_error
+         FROM job_queue
+        WHERE corp_id = :cid{$recentJobGlobalClause}
+        ORDER BY created_at DESC, job_id DESC
+        LIMIT :scope_limit
+     ) AS recent_jobs
+    ORDER BY created_at DESC, job_id DESC
     LIMIT :limit OFFSET :offset",
   $recentJobParams
 );
@@ -605,6 +624,13 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <div class="cron-section">
       <h3>Recent jobs</h3>
+      <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <div class="muted">Showing up to the latest <?= htmlspecialchars((string)$recentJobMax, ENT_QUOTES, 'UTF-8') ?> entries.</div>
+        <form method="post">
+          <input type="hidden" name="action" value="clear_recent_jobs" />
+          <button class="btn ghost" type="submit">Clear recent jobs</button>
+        </form>
+      </div>
       <table class="table cron-table">
         <thead>
           <tr>
