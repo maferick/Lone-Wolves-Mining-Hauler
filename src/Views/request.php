@@ -111,6 +111,17 @@ ob_start();
         </div>
       </div>
 
+      <div class="row" style="margin-top:16px;">
+        <div>
+          <div class="label">Contract expiration (required)</div>
+          <div>7 days</div>
+        </div>
+        <div>
+          <div class="label">Days to complete (required)</div>
+          <div>2 days</div>
+        </div>
+      </div>
+
       <div style="margin-top:16px;">
         <div class="label">Contract description template</div>
         <textarea class="input" rows="4" readonly><?= htmlspecialchars($contractDescription, ENT_QUOTES, 'UTF-8') ?></textarea>
