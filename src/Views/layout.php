@@ -33,6 +33,14 @@ $corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/
 $appName = htmlspecialchars($appName ?? ($config['app']['name'] ?? 'Corp Hauling'), ENT_QUOTES, 'UTF-8');
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $title = htmlspecialchars($title ?? $appName, ENT_QUOTES, 'UTF-8');
+$rawMetaDescription = trim((string)($metaDescription ?? ($config['app']['meta_description'] ?? '')));
+if ($rawMetaDescription === '') {
+  $rawMetaDescription = sprintf(
+    '%s provides secure in-house hauling operations, routing, contracts, and dispatch for corp logistics.',
+    $appName
+  );
+}
+$metaDescription = htmlspecialchars($rawMetaDescription, ENT_QUOTES, 'UTF-8');
 $body = $body ?? '';
 $bodyClass = trim((string)($bodyClass ?? ''));
 $branding = $config['branding'] ?? [];
@@ -56,6 +64,7 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" />
+  <meta name="description" content="<?= $metaDescription ?>" />
   <title><?= $title ?></title>
   <?php if ($corpLogoUrl): ?>
     <link rel="icon" href="<?= htmlspecialchars($corpLogoUrl, ENT_QUOTES, 'UTF-8') ?>" />
