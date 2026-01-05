@@ -93,6 +93,7 @@ final class ContractReconcileService
     }
 
     $entityResolver = new EntityResolveService($this->db, $this->esi);
+    $acceptorNameCache = [];
 
     foreach ($requests as $request) {
       $requestId = (int)($request['request_id'] ?? 0);
@@ -117,13 +118,42 @@ final class ContractReconcileService
       $dateCompleted = $contract['date_completed'] ?? null;
       $dateExpired = $contract['date_expired'] ?? null;
 
+      $currentAcceptorLegacy = $request['contract_acceptor_id'] ?? null;
+      $currentAcceptorLegacy = $currentAcceptorLegacy !== null ? (int)$currentAcceptorLegacy : null;
+      $currentAcceptor = $request['acceptor_id'] ?? null;
+      $currentAcceptor = $currentAcceptor !== null ? (int)$currentAcceptor : null;
+      $currentEsiAcceptor = $request['esi_acceptor_id'] ?? null;
+      $currentEsiAcceptor = $currentEsiAcceptor !== null ? (int)$currentEsiAcceptor : null;
+      $currentNames = [
+        trim((string)($request['contract_acceptor_name'] ?? '')),
+        trim((string)($request['acceptor_name'] ?? '')),
+        trim((string)($request['esi_acceptor_name'] ?? '')),
+      ];
       $acceptorName = '';
+      $needsAcceptorName = false;
       if ($acceptorId !== null) {
-        try {
-          $acceptorName = $entityResolver->resolveCharacterName($acceptorId);
-        } catch (\Throwable $e) {
-          $summary['errors']++;
-          $acceptorName = '';
+        if ($currentAcceptorLegacy !== $acceptorId || $currentAcceptor !== $acceptorId || $currentEsiAcceptor !== $acceptorId) {
+          $needsAcceptorName = true;
+        } else {
+          foreach ($currentNames as $name) {
+            if ($name === '') {
+              $needsAcceptorName = true;
+              break;
+            }
+          }
+        }
+      }
+      if ($acceptorId !== null && $needsAcceptorName) {
+        if (array_key_exists($acceptorId, $acceptorNameCache)) {
+          $acceptorName = $acceptorNameCache[$acceptorId];
+        } else {
+          try {
+            $acceptorName = $entityResolver->resolveCharacterName($acceptorId);
+          } catch (\Throwable $e) {
+            $summary['errors']++;
+            $acceptorName = '';
+          }
+          $acceptorNameCache[$acceptorId] = $acceptorName;
         }
       }
 
@@ -157,18 +187,12 @@ final class ContractReconcileService
         $changes['last_contract_hash'] = $contractHash;
       }
 
-      $currentAcceptorLegacy = $request['contract_acceptor_id'] ?? null;
-      $currentAcceptorLegacy = $currentAcceptorLegacy !== null ? (int)$currentAcceptorLegacy : null;
       if ($currentAcceptorLegacy !== $acceptorId) {
         $changes['contract_acceptor_id'] = $acceptorId;
       }
-      $currentAcceptor = $request['acceptor_id'] ?? null;
-      $currentAcceptor = $currentAcceptor !== null ? (int)$currentAcceptor : null;
       if ($currentAcceptor !== $acceptorId) {
         $changes['acceptor_id'] = $acceptorId;
       }
-      $currentEsiAcceptor = $request['esi_acceptor_id'] ?? null;
-      $currentEsiAcceptor = $currentEsiAcceptor !== null ? (int)$currentEsiAcceptor : null;
       if ($currentEsiAcceptor !== $acceptorId) {
         $changes['esi_acceptor_id'] = $acceptorId;
       }
