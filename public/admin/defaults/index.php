@@ -544,6 +544,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         'name' => (string)$row['structure_name'],
         'system_name' => (string)($row['system_name'] ?? ''),
       ], $structureOptions), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
+      data-structure-search-url="<?= htmlspecialchars(($basePath ?: '') . '/api/admin/stations/search', ENT_QUOTES, 'UTF-8') ?>"
     ></div>
     <script src="<?= ($basePath ?: '') ?>/assets/js/admin/defaults.js" defer></script>
   </div>

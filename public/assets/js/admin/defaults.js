@@ -14,6 +14,7 @@
     region: parseData(root.dataset.accessRegions),
     structure: parseData(root.dataset.accessStructures),
   };
+  const structureSearchUrl = root.dataset.structureSearchUrl || '';
   const minChars = 2;
   const typeSelect = document.getElementById('access-rule-type');
   const valueInput = document.getElementById('access-rule-value');
@@ -46,12 +47,80 @@
     }
   };
 
+  const buildStructureOptions = (listEl, items) => {
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (!Array.isArray(items)) return;
+    let count = 0;
+    for (const item of items) {
+      const label = item.label || item.name || '';
+      const id = item.value ?? item.station_id ?? item.id;
+      if (!label || !id) continue;
+      const option = document.createElement('option');
+      option.value = `${label} [${id}]`;
+      listEl.appendChild(option);
+      count += 1;
+      if (count >= 10) break;
+    }
+  };
+
+  let structureSearchTimer = null;
+  let structureSearchSeq = 0;
+
+  const fetchStructureOptions = (value) => {
+    const listEl = listMap.structure;
+    if (!listEl) return;
+    if (!value || value.length < minChars) {
+      listEl.innerHTML = '';
+      return;
+    }
+    const query = value.trim();
+    if (!query) {
+      listEl.innerHTML = '';
+      return;
+    }
+    if (!structureSearchUrl) {
+      const fallbackItems = (accessData.structure || []).filter((item) => {
+        const name = item.name?.trim() ?? '';
+        return !/^station\s+\d+$/i.test(name);
+      });
+      buildOptions(listEl, fallbackItems, value);
+      return;
+    }
+    if (structureSearchTimer) {
+      clearTimeout(structureSearchTimer);
+    }
+    const requestId = ++structureSearchSeq;
+    structureSearchTimer = setTimeout(async () => {
+      try {
+        const resp = await fetch(`${structureSearchUrl}?q=${encodeURIComponent(query)}`, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        if (requestId !== structureSearchSeq) return;
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        buildStructureOptions(listEl, items);
+      } catch (err) {
+        const fallbackItems = (accessData.structure || []).filter((item) => {
+          const name = item.name?.trim() ?? '';
+          return !/^station\s+\d+$/i.test(name);
+        });
+        buildOptions(listEl, fallbackItems, value);
+      }
+    }, 200);
+  };
+
   const updateListTarget = () => {
     const type = typeSelect?.value || 'system';
     const listEl = listMap[type] || listMap.system;
     if (valueInput && listEl) {
       valueInput.setAttribute('list', listEl.id);
-      buildOptions(listEl, accessData[type], valueInput.value);
+      if (type === 'structure') {
+        fetchStructureOptions(valueInput.value);
+      } else {
+        buildOptions(listEl, accessData[type], valueInput.value);
+      }
     }
     if (structureFlags) {
       structureFlags.style.display = type === 'structure' ? 'block' : 'none';
@@ -61,7 +130,11 @@
   typeSelect?.addEventListener('change', updateListTarget);
   valueInput?.addEventListener('input', () => {
     const type = typeSelect?.value || 'system';
-    buildOptions(listMap[type], accessData[type], valueInput.value);
+    if (type === 'structure') {
+      fetchStructureOptions(valueInput.value);
+    } else {
+      buildOptions(listMap[type], accessData[type], valueInput.value);
+    }
   });
 
   const pagerRenders = new WeakMap();
