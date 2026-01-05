@@ -260,7 +260,7 @@ $taskDefinitions = [
     'name' => 'NPC Structures Cache',
     'interval' => $npcStructuresInterval,
     'scope' => 'global',
-    'description' => 'Prefills NPC structure data from the SDE for location search.',
+    'description' => 'Prefills NPC structure data via ESI station resolution for location search.',
     'runner' => 'task',
   ],
   JobQueueService::CONTRACT_MATCH_JOB => [
