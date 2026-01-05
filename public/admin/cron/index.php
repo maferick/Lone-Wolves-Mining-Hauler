@@ -57,6 +57,17 @@ if ($intervalSettingRow && !empty($intervalSettingRow['setting_json'])) {
   }
 }
 
+$intervalSettingsGlobal = [];
+$intervalSettingGlobalRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id IS NULL AND setting_key = 'cron.intervals' LIMIT 1"
+);
+if ($intervalSettingGlobalRow && !empty($intervalSettingGlobalRow['setting_json'])) {
+  $intervalSettingsGlobal = Db::jsonDecode((string)$intervalSettingGlobalRow['setting_json'], []);
+  if (!is_array($intervalSettingsGlobal)) {
+    $intervalSettingsGlobal = [];
+  }
+}
+
 $formatInterval = static function (int $seconds): string {
   if ($seconds % 60 === 0) {
     $minutes = (int)($seconds / 60);
@@ -250,7 +261,7 @@ $taskDefinitions = [
   JobQueueService::CRON_ALLIANCES_JOB => [
     'key' => JobQueueService::CRON_ALLIANCES_JOB,
     'name' => 'Alliance Cache',
-    'interval' => $alliancesInterval,
+    'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::CRON_ALLIANCES_JOB] ?? 0), $alliancesInterval),
     'scope' => 'global',
     'description' => 'Prefills alliance name cache for the allowlist search.',
     'runner' => 'task',
@@ -258,7 +269,7 @@ $taskDefinitions = [
   JobQueueService::CRON_NPC_STRUCTURES_JOB => [
     'key' => JobQueueService::CRON_NPC_STRUCTURES_JOB,
     'name' => 'NPC Structures Cache',
-    'interval' => $npcStructuresInterval,
+    'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::CRON_NPC_STRUCTURES_JOB] ?? 0), $npcStructuresInterval),
     'scope' => 'global',
     'description' => 'Prefills NPC structure data via ESI station resolution for location search.',
     'runner' => 'task',
@@ -274,7 +285,7 @@ $taskDefinitions = [
   JobQueueService::WEBHOOK_DELIVERY_JOB => [
     'key' => JobQueueService::WEBHOOK_DELIVERY_JOB,
     'name' => 'Webhook Delivery',
-    'interval' => $webhookInterval,
+    'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::WEBHOOK_DELIVERY_JOB] ?? 0), $webhookInterval),
     'scope' => 'global',
     'description' => 'Flushes queued Discord webhook deliveries.',
     'runner' => 'task',
@@ -282,7 +293,7 @@ $taskDefinitions = [
   JobQueueService::WEBHOOK_REQUEUE_JOB => [
     'key' => JobQueueService::WEBHOOK_REQUEUE_JOB,
     'name' => 'Webhook Requeue',
-    'interval' => $webhookRequeueInterval,
+    'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::WEBHOOK_REQUEUE_JOB] ?? 0), $webhookRequeueInterval),
     'scope' => 'global',
     'description' => 'Requeues failed Discord webhooks that are still enabled.',
     'runner' => 'task',
@@ -335,20 +346,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } elseif ($action === 'update_interval') {
     $taskKey = (string)($_POST['task_key'] ?? '');
-    if (isset($taskDefinitions[$taskKey]) && $taskDefinitions[$taskKey]['scope'] === 'corp') {
+    if (isset($taskDefinitions[$taskKey])) {
+      $task = $taskDefinitions[$taskKey];
       $interval = (int)($_POST['interval_seconds'] ?? 0);
       $interval = max(60, $interval);
-      $intervalSettings[$taskKey] = $interval;
-      $db->execute(
-        "INSERT INTO app_setting (corp_id, setting_key, setting_json)
-         VALUES (:cid, 'cron.intervals', :json)
-         ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_at = UTC_TIMESTAMP()",
-        [
-          'cid' => $corpId,
-          'json' => Db::jsonEncode($intervalSettings),
-        ]
-      );
-      $notice = "Updated {$taskDefinitions[$taskKey]['name']} interval to {$interval}s.";
+      if ($task['scope'] === 'global') {
+        $intervalSettingsGlobal[$taskKey] = $interval;
+        $db->execute(
+          "INSERT INTO app_setting (corp_id, setting_key, setting_json)
+           VALUES (NULL, 'cron.intervals', :json)
+           ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_at = UTC_TIMESTAMP()",
+          [
+            'json' => Db::jsonEncode($intervalSettingsGlobal),
+          ]
+        );
+      } else {
+        $intervalSettings[$taskKey] = $interval;
+        $db->execute(
+          "INSERT INTO app_setting (corp_id, setting_key, setting_json)
+           VALUES (:cid, 'cron.intervals', :json)
+           ON DUPLICATE KEY UPDATE setting_json = VALUES(setting_json), updated_at = UTC_TIMESTAMP()",
+          [
+            'cid' => $corpId,
+            'json' => Db::jsonEncode($intervalSettings),
+          ]
+        );
+      }
+      $notice = "Updated {$task['name']} interval to {$interval}s.";
       $taskDefinitions[$taskKey]['interval'] = $interval;
     }
   } else {
@@ -559,26 +583,26 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 <div class="cron-note"><?= htmlspecialchars($task['description'], ENT_QUOTES, 'UTF-8') ?></div>
               </td>
               <td>
-                <?php if ($task['scope'] === 'global'): ?>
-                  <?= htmlspecialchars($formatInterval($interval), ENT_QUOTES, 'UTF-8') ?>
-                  <div class="cron-note">Global interval set in environment.</div>
-                <?php else: ?>
-                  <form method="post" class="cron-interval-form">
-                    <input type="hidden" name="action" value="update_interval" />
-                    <input type="hidden" name="task_key" value="<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>" />
-                    <label class="visually-hidden" for="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>">Interval seconds</label>
-                    <input
-                      id="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>"
-                      type="number"
-                      name="interval_seconds"
-                      min="60"
-                      step="60"
-                      value="<?= (int)$interval ?>"
-                    />
-                    <button class="btn ghost" type="submit">Update</button>
-                  </form>
-                  <div class="cron-note">Minimum 60s.</div>
-                <?php endif; ?>
+                <form method="post" class="cron-interval-form">
+                  <input type="hidden" name="action" value="update_interval" />
+                  <input type="hidden" name="task_key" value="<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>" />
+                  <label class="visually-hidden" for="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>">Interval seconds</label>
+                  <input
+                    id="interval-<?= htmlspecialchars($taskKey, ENT_QUOTES, 'UTF-8') ?>"
+                    type="number"
+                    name="interval_seconds"
+                    min="60"
+                    step="60"
+                    value="<?= (int)$interval ?>"
+                  />
+                  <button class="btn ghost" type="submit">Update</button>
+                </form>
+                <div class="cron-note">
+                  Minimum 60s.
+                  <?php if ($task['scope'] === 'global'): ?>
+                    Global override stored in settings (falls back to environment).
+                  <?php endif; ?>
+                </div>
               </td>
               <td><span class="status-pill <?= htmlspecialchars($statusClass, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lastStatus, ENT_QUOTES, 'UTF-8') ?></span></td>
               <td><?= htmlspecialchars($lastRun ? $formatTimestamp((string)$lastRun) : '—', ENT_QUOTES, 'UTF-8') ?></td>
