@@ -77,7 +77,7 @@
   const pollStatus = async () => {
     if (!currentJobId) return;
     try {
-      const resp = await fetch(`${basePath}/api/cron/status?job_id=${currentJobId}`);
+      const resp = await fetch(`${basePath}/api/cron/status/?job_id=${currentJobId}`);
       const data = await resp.json();
       if (!data.ok) {
         if (progressLabel) {
@@ -105,7 +105,7 @@
     renderLog([{ time: new Date().toISOString(), message: 'Queueing cron sync...' }]);
     renderResult(null);
     try {
-      const resp = await fetch(`${basePath}/api/cron/run`, {
+      const resp = await fetch(`${basePath}/api/cron/run/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scope, force: force ? 1 : 0, sde: useSde ? 1 : 0 })
@@ -131,7 +131,7 @@
     if (!taskMessage) return;
     taskMessage.textContent = force ? 'Force queueing task...' : 'Queueing task...';
     try {
-      const resp = await fetch(`${basePath}/api/cron/tasks/run`, {
+      const resp = await fetch(`${basePath}/api/cron/tasks/run/`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
