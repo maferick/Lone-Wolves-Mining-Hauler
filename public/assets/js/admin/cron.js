@@ -127,14 +127,15 @@
     }
   };
 
-  const runTask = async (taskKey) => {
+  const runTask = async (taskKey, force) => {
     if (!taskMessage) return;
-    taskMessage.textContent = 'Queueing task...';
+    taskMessage.textContent = force ? 'Force queueing task...' : 'Queueing task...';
     try {
       const resp = await fetch(`${basePath}/api/cron/tasks/run`, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task_key: taskKey })
+        body: JSON.stringify({ task_key: taskKey, force: force ? 1 : 0 })
       });
       const data = await resp.json();
       if (!data.ok) {
@@ -155,10 +156,11 @@
   });
 
   document.querySelectorAll('[data-run-task]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', (event) => {
       const taskKey = button.getAttribute('data-run-task');
       if (taskKey) {
-        runTask(taskKey);
+        const force = event.shiftKey;
+        runTask(taskKey, force);
       }
     });
   });

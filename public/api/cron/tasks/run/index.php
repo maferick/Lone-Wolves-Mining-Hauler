@@ -17,6 +17,7 @@ $taskKey = trim((string)($data['task_key'] ?? ($data['taskKey'] ?? ($data['task'
 $taskKey = rtrim($taskKey, ';');
 $taskKey = strtolower($taskKey);
 $taskKey = preg_replace('/[^a-z0-9._-]/', '', (string)$taskKey);
+$force = (int)($data['force'] ?? ($_GET['force'] ?? 0)) === 1;
 
 $jobQueue = new JobQueueService($db);
 $corpId = (int)($authCtx['corp_id'] ?? 0);
@@ -46,14 +47,55 @@ $auditContext = [
   'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
 ];
 
+$handlePendingJob = static function (
+  JobQueueService $jobQueue,
+  ?int $corpId,
+  string $jobType,
+  bool $force,
+  string $label
+) use ($db, $auditContext): void {
+  $pendingJob = $jobQueue->getPendingJob($corpId, $jobType);
+  if (!$pendingJob) {
+    return;
+  }
+  $jobId = (int)$pendingJob['job_id'];
+  $status = (string)($pendingJob['status'] ?? '');
+  $updatedAt = $pendingJob['updated_at'] ?? null;
+  $startedAt = $pendingJob['started_at'] ?? null;
+  $lockedAt = $pendingJob['locked_at'] ?? null;
+
+  if (!$force) {
+    api_send_json(['ok' => false, 'error' => "{$label} already queued."], 409);
+  }
+
+  $thresholdSeconds = 1200;
+  if ($status !== 'running') {
+    api_send_json(['ok' => false, 'error' => "{$label} already queued and not running."], 409);
+  }
+  $reference = $updatedAt ?: ($lockedAt ?: $startedAt);
+  $ageSeconds = $reference ? (time() - (int)strtotime((string)$reference)) : $thresholdSeconds + 1;
+  if ($ageSeconds < $thresholdSeconds) {
+    api_send_json(
+      ['ok' => false, 'error' => "{$label} already queued and is still running. Try again later."],
+      409
+    );
+  }
+
+  $jobQueue->markFailed(
+    $jobId,
+    'Force-restarted by admin',
+    [],
+    'cron.force_restart',
+    "{$label} force-restarted by admin."
+  );
+};
+
 switch ($taskKey) {
   case JobQueueService::CONTRACT_MATCH_JOB:
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
     }
-    if ($jobQueue->hasPendingJob($corpId, JobQueueService::CONTRACT_MATCH_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Contract match already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, $corpId, JobQueueService::CONTRACT_MATCH_JOB, $force, 'Contract match');
     $jobId = $jobQueue->enqueueContractMatch($corpId, $auditContext);
     api_send_json([
       'ok' => true,
@@ -66,9 +108,7 @@ switch ($taskKey) {
     if (!isset($services['discord_webhook'])) {
       api_send_json(['ok' => false, 'error' => 'Webhook service not configured.'], 400);
     }
-    if ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_DELIVERY_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Webhook delivery already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, null, JobQueueService::WEBHOOK_DELIVERY_JOB, $force, 'Webhook delivery');
     $limit = (int)($_ENV['CRON_WEBHOOK_LIMIT'] ?? 50);
     if ($limit <= 0) {
       $limit = 50;
@@ -85,9 +125,7 @@ switch ($taskKey) {
     if (!isset($services['discord_webhook'])) {
       api_send_json(['ok' => false, 'error' => 'Webhook service not configured.'], 400);
     }
-    if ($jobQueue->hasPendingJob(null, JobQueueService::WEBHOOK_REQUEUE_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Webhook requeue already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, null, JobQueueService::WEBHOOK_REQUEUE_JOB, $force, 'Webhook requeue');
     $limit = (int)($_ENV['CRON_WEBHOOK_REQUEUE_LIMIT'] ?? 200);
     if ($limit <= 0) {
       $limit = 200;
@@ -101,9 +139,7 @@ switch ($taskKey) {
     ]);
     break;
   case JobQueueService::CRON_ALLIANCES_JOB:
-    if ($jobQueue->hasPendingJob(null, JobQueueService::CRON_ALLIANCES_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Alliance sync already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, null, JobQueueService::CRON_ALLIANCES_JOB, $force, 'Alliance sync');
     $jobId = $jobQueue->enqueueAllianceSync($auditContext);
     api_send_json([
       'ok' => true,
@@ -113,9 +149,7 @@ switch ($taskKey) {
     ]);
     break;
   case JobQueueService::CRON_NPC_STRUCTURES_JOB:
-    if ($jobQueue->hasPendingJob(null, JobQueueService::CRON_NPC_STRUCTURES_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'NPC structures sync already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, null, JobQueueService::CRON_NPC_STRUCTURES_JOB, $force, 'NPC structures sync');
     $jobId = $jobQueue->enqueueNpcStructuresSync($auditContext);
     api_send_json([
       'ok' => true,
@@ -128,9 +162,7 @@ switch ($taskKey) {
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
     }
-    if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_TOKEN_REFRESH_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Token refresh already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, $corpId, JobQueueService::CRON_TOKEN_REFRESH_JOB, $force, 'Token refresh');
     $jobId = $jobQueue->enqueueTokenRefresh($corpId, $cronCharId, $auditContext);
     api_send_json([
       'ok' => true,
@@ -143,9 +175,7 @@ switch ($taskKey) {
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
     }
-    if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_STRUCTURES_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Structures sync already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, $corpId, JobQueueService::CRON_STRUCTURES_JOB, $force, 'Structures sync');
     $jobId = $jobQueue->enqueueStructuresSync($corpId, $cronCharId, $auditContext);
     api_send_json([
       'ok' => true,
@@ -158,9 +188,7 @@ switch ($taskKey) {
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
     }
-    if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Public structures sync already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, $corpId, JobQueueService::CRON_PUBLIC_STRUCTURES_JOB, $force, 'Public structures sync');
     $jobId = $jobQueue->enqueuePublicStructuresSync($corpId, $cronCharId, $auditContext);
     api_send_json([
       'ok' => true,
@@ -173,9 +201,7 @@ switch ($taskKey) {
     if ($corpId <= 0) {
       api_send_json(['ok' => false, 'error' => 'Corp not available.'], 400);
     }
-    if ($jobQueue->hasPendingJob($corpId, JobQueueService::CRON_CONTRACTS_JOB)) {
-      api_send_json(['ok' => false, 'error' => 'Contracts sync already queued.'], 409);
-    }
+    $handlePendingJob($jobQueue, $corpId, JobQueueService::CRON_CONTRACTS_JOB, $force, 'Contracts sync');
     $jobId = $jobQueue->enqueueContractsSync($corpId, $cronCharId, $auditContext);
     api_send_json([
       'ok' => true,

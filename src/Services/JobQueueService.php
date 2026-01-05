@@ -406,6 +406,11 @@ final class JobQueueService
 
   public function hasPendingJob(?int $corpId, string $jobType): bool
   {
+    return $this->getPendingJob($corpId, $jobType) !== null;
+  }
+
+  public function getPendingJob(?int $corpId, string $jobType): ?array
+  {
     $params = ['job_type' => $jobType];
     $corpClause = 'corp_id IS NULL';
     if ($corpId !== null) {
@@ -413,17 +418,16 @@ final class JobQueueService
       $params['corp_id'] = $corpId;
     }
 
-    $row = $this->db->one(
-      "SELECT job_id
+    return $this->db->one(
+      "SELECT job_id, corp_id, status, run_at, started_at, finished_at, locked_at, updated_at
          FROM job_queue
         WHERE job_type = :job_type
           AND {$corpClause}
           AND status IN ('queued','running')
+        ORDER BY COALESCE(started_at, run_at, created_at) DESC, job_id DESC
         LIMIT 1",
       $params
     );
-
-    return !empty($row);
   }
 
   public function getJobForCorp(int $jobId, int $corpId): ?array
