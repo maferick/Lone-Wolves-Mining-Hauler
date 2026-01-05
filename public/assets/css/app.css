@@ -357,6 +357,10 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   background: rgba(0,0,0,.22);
   color: var(--text);
 }
+.input--error{
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255,77,109,.35);
+}
 .label{font-size:12px; color:var(--muted); margin:10px 0 6px}
 .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
 @media(max-width:960px){.row{grid-template-columns:1fr}}
