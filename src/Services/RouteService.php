@@ -243,74 +243,23 @@ final class RouteService
       ]);
     }
 
-    $exactMatches = $this->db->select(
-      "SELECT system_id, system_name
-         FROM map_system
-        WHERE LOWER(system_name) = :name
-        LIMIT 2",
-      ['name' => $normalized]
-    );
-    if (count($exactMatches) > 1) {
-      throw new RouteException('System name is ambiguous.', [
-        'reason' => 'ambiguous_system_name',
-        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
-      ]);
-    }
-    if (count($exactMatches) === 1) {
-      return (int)$exactMatches[0]['system_id'];
+    $candidates = [$normalized];
+    $prefix = $this->extractSystemPrefix($systemName);
+    if ($prefix !== null && $prefix !== $normalized) {
+      $candidates[] = $prefix;
     }
 
-    $matches = $this->db->select(
-      "SELECT system_id, system_name
-         FROM map_system
-        WHERE LOWER(system_name) LIKE :like
-        ORDER BY system_name
-        LIMIT 10",
-      ['like' => '%' . $normalized . '%']
-    );
-    if (count($matches) > 1) {
-      throw new RouteException('System name is ambiguous.', [
-        'reason' => 'ambiguous_system_name',
-        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
-      ]);
-    }
-    if (count($matches) === 1) {
-      return (int)$matches[0]['system_id'];
-    }
-
-    $exactMatches = $this->db->select(
-      "SELECT system_id, system_name
-         FROM eve_system
-        WHERE LOWER(system_name) = :name
-        LIMIT 2",
-      ['name' => $normalized]
-    );
-    if (count($exactMatches) > 1) {
-      throw new RouteException('System name is ambiguous.', [
-        'reason' => 'ambiguous_system_name',
-        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
-      ]);
-    }
-    if (count($exactMatches) === 1) {
-      return (int)$exactMatches[0]['system_id'];
-    }
-
-    $matches = $this->db->select(
-      "SELECT system_id, system_name
-         FROM eve_system
-        WHERE LOWER(system_name) LIKE :like
-        ORDER BY system_name
-        LIMIT 10",
-      ['like' => '%' . $normalized . '%']
-    );
-    if (count($matches) > 1) {
-      throw new RouteException('System name is ambiguous.', [
-        'reason' => 'ambiguous_system_name',
-        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
-      ]);
-    }
-    if (count($matches) === 1) {
-      return (int)$matches[0]['system_id'];
+    foreach ($candidates as $candidate) {
+      $result = $this->resolveSystemIdFromSources($candidate);
+      if ($result['status'] === 'found') {
+        return (int)$result['system_id'];
+      }
+      if ($result['status'] === 'ambiguous') {
+        throw new RouteException('System name is ambiguous.', [
+          'reason' => 'ambiguous_system_name',
+          'candidates' => $result['candidates'],
+        ]);
+      }
     }
 
     throw new RouteException('Unknown system name.', [
@@ -341,6 +290,108 @@ final class RouteService
     }
     $normalized = preg_replace('/\s+/', ' ', $normalized);
     return strtolower((string)$normalized);
+  }
+
+  private function extractSystemPrefix(string $value): ?string
+  {
+    if (str_contains($value, ' — ')) {
+      [$systemPart] = explode(' — ', $value, 2);
+      $normalized = $this->normalizeSystemName($systemPart);
+      return $normalized !== '' ? $normalized : null;
+    }
+    if (str_contains($value, ' - ')) {
+      [$systemPart] = explode(' - ', $value, 2);
+      $normalized = $this->normalizeSystemName($systemPart);
+      return $normalized !== '' ? $normalized : null;
+    }
+    return null;
+  }
+
+  private function resolveSystemIdFromSources(string $normalized): array
+  {
+    $exactMatches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM map_system
+        WHERE LOWER(system_name) = :name
+        LIMIT 2",
+      ['name' => $normalized]
+    );
+    if (count($exactMatches) > 1) {
+      return [
+        'status' => 'ambiguous',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
+      ];
+    }
+    if (count($exactMatches) === 1) {
+      return [
+        'status' => 'found',
+        'system_id' => (int)$exactMatches[0]['system_id'],
+      ];
+    }
+
+    $matches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM map_system
+        WHERE LOWER(system_name) LIKE :like
+        ORDER BY system_name
+        LIMIT 10",
+      ['like' => '%' . $normalized . '%']
+    );
+    if (count($matches) > 1) {
+      return [
+        'status' => 'ambiguous',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
+      ];
+    }
+    if (count($matches) === 1) {
+      return [
+        'status' => 'found',
+        'system_id' => (int)$matches[0]['system_id'],
+      ];
+    }
+
+    $exactMatches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM eve_system
+        WHERE LOWER(system_name) = :name
+        LIMIT 2",
+      ['name' => $normalized]
+    );
+    if (count($exactMatches) > 1) {
+      return [
+        'status' => 'ambiguous',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $exactMatches),
+      ];
+    }
+    if (count($exactMatches) === 1) {
+      return [
+        'status' => 'found',
+        'system_id' => (int)$exactMatches[0]['system_id'],
+      ];
+    }
+
+    $matches = $this->db->select(
+      "SELECT system_id, system_name
+         FROM eve_system
+        WHERE LOWER(system_name) LIKE :like
+        ORDER BY system_name
+        LIMIT 10",
+      ['like' => '%' . $normalized . '%']
+    );
+    if (count($matches) > 1) {
+      return [
+        'status' => 'ambiguous',
+        'candidates' => array_map(fn($row) => (string)$row['system_name'], $matches),
+      ];
+    }
+    if (count($matches) === 1) {
+      return [
+        'status' => 'found',
+        'system_id' => (int)$matches[0]['system_id'],
+      ];
+    }
+
+    return ['status' => 'none'];
   }
 
   private function normalizeProfile(string $profile): string
