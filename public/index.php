@@ -12,6 +12,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+use App\Services\BuybackHaulageService;
+
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
 // Normalize when hosted under a subdirectory, e.g. /hauling/health
@@ -229,7 +231,8 @@ switch ($path) {
     }
     $defaultPriority = strtolower(trim($defaultPriority)) === 'high' ? 'high' : 'normal';
 
-    $buybackHaulagePrice = 0.0;
+    $buybackHaulageTiers = BuybackHaulageService::defaultTiers();
+    $buybackHaulageEnabled = false;
     $corpIdForBuyback = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
     if ($dbOk && $db !== null && $corpIdForBuyback > 0) {
       $settingRow = $db->one(
@@ -239,7 +242,8 @@ switch ($path) {
       if ($settingRow && !empty($settingRow['setting_json'])) {
         $decoded = json_decode((string)$settingRow['setting_json'], true);
         if (is_array($decoded)) {
-          $buybackHaulagePrice = max(0.0, (float)($decoded['price_isk'] ?? 0.0));
+          $buybackHaulageTiers = BuybackHaulageService::normalizeSetting($decoded);
+          $buybackHaulageEnabled = BuybackHaulageService::hasEnabledTier($buybackHaulageTiers);
         }
       }
     }

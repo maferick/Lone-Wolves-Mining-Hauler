@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../../../src/bootstrap.php';
 
 use App\Auth\Auth;
 use App\Db\Db;
+use App\Services\BuybackHaulageService;
 
 api_require_key();
 
@@ -35,13 +36,15 @@ $settingRow = $db->one(
   ['cid' => $corpId]
 );
 $buybackPrice = 0.0;
+$tiers = [];
 if ($settingRow && !empty($settingRow['setting_json'])) {
   $decoded = Db::jsonDecode((string)$settingRow['setting_json'], []);
   if (is_array($decoded)) {
-    $buybackPrice = max(0.0, (float)($decoded['price_isk'] ?? 0.0));
+    $tiers = BuybackHaulageService::normalizeSetting($decoded);
   }
 }
-if ($buybackPrice <= 0) {
+$tiers = $tiers ?: BuybackHaulageService::defaultTiers();
+if (!BuybackHaulageService::hasEnabledTier($tiers)) {
   api_send_json(['ok' => false, 'error' => 'Buyback haulage price not configured'], 400);
 }
 
@@ -75,6 +78,17 @@ if (empty($payload['priority']) && empty($payload['profile'])) {
 }
 
 try {
+  $volume = isset($payload['volume_m3']) ? (float)$payload['volume_m3'] : (float)($payload['volume'] ?? 0);
+  if ($volume <= 0) {
+    api_send_json(['ok' => false, 'error' => 'Volume must be greater than zero'], 400);
+  }
+  if ($volume > BuybackHaulageService::MAX_VOLUME_M3) {
+    api_send_json(['ok' => false, 'error' => 'Buyback haulage volume exceeds 950,000 m³'], 400);
+  }
+  $buybackPrice = BuybackHaulageService::priceForVolume($tiers, $volume);
+  if ($buybackPrice <= 0) {
+    api_send_json(['ok' => false, 'error' => 'Buyback haulage price not configured'], 400);
+  }
   /** @var \App\Services\PricingService $pricingService */
   $pricingService = $services['pricing'];
   $quote = $pricingService->quote([
