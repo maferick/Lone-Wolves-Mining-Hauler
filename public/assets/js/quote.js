@@ -108,6 +108,12 @@
     resultEl.textContent = '';
   };
 
+  const hasValidSelection = (idInput, typeInput) => {
+    const idValue = parseInt(idInput?.value || '0', 10);
+    const typeValue = typeInput?.value || '';
+    return idValue > 0 && typeValue !== '';
+  };
+
   const parseIsk = (value) => {
     if (!value) return null;
     const clean = value.toString().trim().toLowerCase().replace(/[, ]+/g, '');
@@ -308,6 +314,14 @@
       showError('Pickup, delivery, and volume are required.');
       return;
     }
+    if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      showError('Please pick a pickup location from the list.');
+      return;
+    }
+    if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      showError('Please pick a delivery location from the list.');
+      return;
+    }
     if (payload.collateral_isk <= 0) {
       showError('Collateral must be a valid ISK amount.');
       return;
@@ -401,6 +415,16 @@
     hideResult();
     if (breakdownCard) breakdownCard.style.display = 'none';
     if (submitBtn) submitBtn.textContent = 'Calculating…';
+    if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      showError('Please pick a pickup location from the list.');
+      if (submitBtn) submitBtn.textContent = 'Get Quote';
+      return;
+    }
+    if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      showError('Please pick a delivery location from the list.');
+      if (submitBtn) submitBtn.textContent = 'Get Quote';
+      return;
+    }
     const payload = buildBuybackPayload();
     try {
       const resp = await fetch(`${basePath}/api/quote/buyback/`, {

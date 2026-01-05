@@ -269,6 +269,12 @@
     breakdownCard.style.display = 'none';
   };
 
+  const hasValidSelection = (idInput, typeInput) => {
+    const idValue = parseInt(idInput?.value || '0', 10);
+    const typeValue = typeInput?.value || '';
+    return idValue > 0 && typeValue !== '';
+  };
+
   submitBtn?.addEventListener('click', async () => {
     errorEl.style.display = 'none';
     resultEl.style.display = 'none';
@@ -287,6 +293,14 @@
 
     if (!pickup || !destination) {
       showError('Pickup and delivery locations are required.');
+      return;
+    }
+    if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      showError('Please pick a pickup location from the list.');
+      return;
+    }
+    if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      showError('Please pick a delivery location from the list.');
       return;
     }
     if (!volume || volume <= 0) {
@@ -401,6 +415,14 @@
 
     if (!pickup || !destination) {
       showError('Pickup and delivery locations are required.');
+      return;
+    }
+    if (!hasValidSelection(pickupLocationIdInput, pickupLocationTypeInput)) {
+      showError('Please pick a pickup location from the list.');
+      return;
+    }
+    if (!hasValidSelection(deliveryLocationIdInput, deliveryLocationTypeInput)) {
+      showError('Please pick a delivery location from the list.');
       return;
     }
     if (!volume || volume <= 0) {
