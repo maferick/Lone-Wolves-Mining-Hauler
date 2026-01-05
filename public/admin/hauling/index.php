@@ -107,9 +107,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <div style="margin-top:20px;">
       <h3>Buyback Haulage</h3>
-      <div class="muted">Set the fixed price for the buyback haulage button on the quote page.</div>
+      <div class="muted">Set volume-based tiers for the buyback haulage button (4 steps, up to 950,000 m³).</div>
+      <table class="table" id="buyback-tier-table" style="margin-top:10px;">
+        <thead>
+          <tr>
+            <th>Max Volume (m³)</th>
+            <th>Price (ISK)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
       <div class="row" style="margin-top:10px; align-items:center;">
-        <input class="input" id="buyback-price" type="number" step="0.01" min="0" placeholder="Fixed price (ISK)" />
         <button class="btn" type="button" id="save-buyback">Save</button>
       </div>
       <div class="muted" id="buyback-note" style="margin-top:6px;"></div>
@@ -320,14 +328,26 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   const loadBuyback = async () => {
     const data = await fetchJson(`${basePath}/api/admin/buyback-haulage/?corp_id=${corpId}`);
     if (!data.ok) return;
-    const priceInput = document.getElementById('buyback-price');
+    const tableBody = document.querySelector('#buyback-tier-table tbody');
     const note = document.getElementById('buyback-note');
-    if (priceInput) priceInput.value = data.price_isk ?? 0;
+    const tiers = Array.isArray(data.tiers) ? data.tiers : [];
+    if (tableBody) {
+      tableBody.innerHTML = '';
+      tiers.forEach((tier, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><input class="input" data-field="max_m3" type="number" min="1" step="0.01" value="${tier.max_m3 ?? ''}" /></td>
+          <td><input class="input" data-field="price_isk" type="number" min="0" step="0.01" value="${tier.price_isk ?? 0}" /></td>
+        `;
+        row.dataset.index = index;
+        tableBody.appendChild(row);
+      });
+    }
     if (note) {
-      const price = Number(data.price_isk ?? 0);
-      note.textContent = price > 0
-        ? `Buyback haulage button shows ${price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ISK.`
-        : 'Set a fixed price to enable the buyback haulage button.';
+      const enabled = tiers.some((tier) => Number(tier.price_isk ?? 0) > 0);
+      note.textContent = enabled
+        ? 'Buyback haulage price is set by volume tier.'
+        : 'Set at least one tier price to enable buyback haulage.';
     }
   };
 
@@ -448,12 +468,23 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   });
 
   document.getElementById('save-buyback')?.addEventListener('click', async () => {
-    const price = parseFloat(document.getElementById('buyback-price')?.value || '0');
+    const tiers = [];
+    const rows = document.querySelectorAll('#buyback-tier-table tbody tr');
+    rows.forEach((row) => {
+      const maxInput = row.querySelector('input[data-field="max_m3"]');
+      const priceInput = row.querySelector('input[data-field="price_isk"]');
+      const max = parseFloat(maxInput?.value || '0');
+      const price = parseFloat(priceInput?.value || '0');
+      tiers.push({
+        max_m3: Number.isFinite(max) ? max : 0,
+        price_isk: Number.isFinite(price) ? price : 0,
+      });
+    });
     await fetchJson(`${basePath}/api/admin/buyback-haulage/`, {
       method: 'POST',
       body: JSON.stringify({
         corp_id: corpId,
-        price_isk: Number.isFinite(price) ? price : 0,
+        tiers,
       }),
     });
     loadBuyback();

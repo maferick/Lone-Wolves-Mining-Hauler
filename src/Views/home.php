@@ -22,7 +22,8 @@ $quoteInput = $quoteInput ?? ['pickup_system' => '', 'destination_system' => '']
 $defaultPriority = $defaultPriority ?? 'normal';
 $canCreateRequest = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.create');
 $canBuybackHaulage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.buyback');
-$buybackHaulagePrice = max(0.0, (float)($buybackHaulagePrice ?? 0.0));
+$buybackHaulageTiers = $buybackHaulageTiers ?? [];
+$buybackHaulageEnabled = $buybackHaulageEnabled ?? false;
 $pickupLocationOptions = $pickupLocationOptions ?? [];
 $destinationLocationOptions = $destinationLocationOptions ?? [];
 $bodyClass = 'home';
@@ -159,11 +160,11 @@ ob_start();
             <span class="muted" style="margin-left:12px;">Sign in with requester access to create a haul request.</span>
           <?php endif; ?>
           <?php if ($canBuybackHaulage): ?>
-            <button class="btn ghost" type="button" id="buyback-haulage-btn" <?= $buybackHaulagePrice > 0 ? '' : 'disabled' ?>>
-              Buyback haulage — <?= htmlspecialchars(number_format($buybackHaulagePrice, 2), ENT_QUOTES, 'UTF-8') ?> ISK
+            <button class="btn ghost" type="button" id="buyback-haulage-btn" <?= $buybackHaulageEnabled ? '' : 'disabled' ?>>
+              Buyback haulage — volume based
             </button>
-            <?php if ($buybackHaulagePrice <= 0): ?>
-              <span class="muted" style="margin-left:12px;">Set a buyback haulage price in Admin → Hauling to enable.</span>
+            <?php if (!$buybackHaulageEnabled): ?>
+              <span class="muted" style="margin-left:12px;">Set buyback haulage tiers in Admin → Hauling to enable.</span>
             <?php endif; ?>
           <?php endif; ?>
         </div>
@@ -206,6 +207,8 @@ ob_start();
   (() => {
     const basePath = <?= json_encode($basePath ?: '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
     const minChars = 3;
+    const buybackTiers = <?= json_encode($buybackHaulageTiers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const buybackEnabled = <?= $buybackHaulageEnabled ? 'true' : 'false' ?>;
 
     const buildOptions = (listEl, items, value) => {
       listEl.innerHTML = '';
@@ -293,6 +296,34 @@ ob_start();
       if (!Number.isFinite(num)) return '0.0';
       return num.toFixed(1);
     };
+
+    const findBuybackPrice = (volume) => {
+      if (!Array.isArray(buybackTiers)) return 0;
+      const sorted = [...buybackTiers].sort((a, b) => (a.max_m3 ?? 0) - (b.max_m3 ?? 0));
+      for (const tier of sorted) {
+        const max = Number(tier.max_m3 ?? 0);
+        if (volume <= max) {
+          return Number(tier.price_isk ?? 0);
+        }
+      }
+      return 0;
+    };
+
+    const updateBuybackLabel = () => {
+      if (!buybackBtn || !buybackEnabled) return;
+      const volume = parseFloat(volumeInput?.value || '0');
+      if (!volume || volume <= 0) {
+        buybackBtn.textContent = 'Buyback haulage — volume based';
+        return;
+      }
+      const price = findBuybackPrice(volume);
+      buybackBtn.textContent = price > 0
+        ? `Buyback haulage — ${fmtIsk(price)} ISK`
+        : 'Buyback haulage — volume based';
+    };
+
+    volumeInput?.addEventListener('input', updateBuybackLabel);
+    updateBuybackLabel();
 
     const renderBreakdown = (data) => {
       const breakdown = data.breakdown || {};
@@ -545,6 +576,7 @@ ob_start();
       } finally {
         buybackBtn.disabled = false;
         buybackBtn.textContent = originalText;
+        updateBuybackLabel();
       }
     });
   })();
