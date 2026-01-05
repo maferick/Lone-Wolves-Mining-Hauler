@@ -295,9 +295,15 @@ final class Db {
     return hash('sha256', $payload, true);
   }
 
-  public static function jsonEncode($value): string
+  public static function jsonEncode(
+    $value,
+    int $options = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+  ): string
   {
-    return json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    if (($options & JSON_THROW_ON_ERROR) === 0) {
+      $options |= JSON_THROW_ON_ERROR;
+    }
+    return json_encode($value, $options);
   }
 
   public static function jsonDecode(string $json, $default = null)
