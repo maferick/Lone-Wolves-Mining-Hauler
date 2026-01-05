@@ -21,12 +21,20 @@ if ($db === null || !isset($services['esi_client'], $services['eve_public'])) {
 }
 
 $query = trim((string)($_GET['q'] ?? ''));
+$debug = ($_GET['debug'] ?? '') === '1';
 if ($query === '' || mb_strlen($query) < 2) {
   api_send_json(['ok' => true, 'alliances' => []]);
 }
 
 $alliances = [];
 $seenIds = [];
+$warning = null;
+$debugInfo = [
+  'query' => $query,
+  'local_count' => 0,
+  'esi_count' => 0,
+  'final_count' => 0,
+];
 
 $localRows = $db->select(
   "SELECT entity_id, name
@@ -43,31 +51,58 @@ foreach ($localRows as $row) {
   if ($allianceId <= 0 || $name === '') {
     continue;
   }
-  $alliances[] = ['id' => $allianceId, 'name' => $name];
+  $alliances[] = ['id' => $allianceId, 'name' => $name, 'source' => 'cache'];
   $seenIds[$allianceId] = true;
 }
+$debugInfo['local_count'] = count($alliances);
 
 if (count($alliances) >= 10 || mb_strlen($query) < 3) {
-  api_send_json(['ok' => true, 'alliances' => $alliances]);
+  $debugInfo['final_count'] = count($alliances);
+  if ($debug) {
+    error_log('Alliance search debug: ' . json_encode($debugInfo, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  }
+  $payload = ['ok' => true, 'alliances' => $alliances];
+  if ($debug) {
+    $payload['debug'] = $debugInfo;
+  }
+  api_send_json($payload);
 }
 
-$resp = $services['esi_client']->get('/v2/search/', [
+$resp = $services['esi_client']->get('/latest/search/', [
   'categories' => 'alliance',
   'search' => $query,
   'strict' => 'false',
 ], null, 300);
 
 if (!$resp['ok'] || !is_array($resp['json'])) {
-  api_send_json([
+  $warning = 'ESI search failed; showing cached results.';
+  $debugInfo['final_count'] = count($alliances);
+  if ($debug) {
+    $debugInfo['esi_error'] = $resp['error'] ?? null;
+    error_log('Alliance search debug: ' . json_encode($debugInfo, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  }
+  $payload = [
     'ok' => true,
     'alliances' => $alliances,
-    'warning' => 'ESI search failed',
-  ]);
+    'warning' => $warning,
+  ];
+  if ($debug) {
+    $payload['debug'] = $debugInfo;
+  }
+  api_send_json($payload);
 }
 
 $ids = $resp['json']['alliance'] ?? [];
 if (!is_array($ids) || $ids === []) {
-  api_send_json(['ok' => true, 'alliances' => $alliances]);
+  $debugInfo['final_count'] = count($alliances);
+  if ($debug) {
+    error_log('Alliance search debug: ' . json_encode($debugInfo, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+  }
+  $payload = ['ok' => true, 'alliances' => $alliances];
+  if ($debug) {
+    $payload['debug'] = $debugInfo;
+  }
+  api_send_json($payload);
 }
 
 $limit = max(0, 10 - count($alliances));
@@ -80,13 +115,41 @@ foreach (array_slice($ids, 0, $limit) as $allianceId) {
     $data = $services['eve_public']->alliance($allianceId);
     $name = trim((string)($data['name'] ?? ''));
     if ($name !== '') {
-      $alliances[] = ['id' => $allianceId, 'name' => $name];
+      $alliances[] = ['id' => $allianceId, 'name' => $name, 'source' => 'esi'];
     }
   } catch (Throwable $e) {
     continue;
   }
 }
 
-usort($alliances, static fn($a, $b) => strcmp($a['name'], $b['name']));
+$debugInfo['esi_count'] = max(0, count($alliances) - $debugInfo['local_count']);
+$indexed = [];
+foreach ($alliances as $idx => $row) {
+  $row['_idx'] = $idx;
+  $indexed[] = $row;
+}
+usort($indexed, static function(array $a, array $b): int {
+  $nameCmp = strcasecmp($a['name'], $b['name']);
+  if ($nameCmp !== 0) {
+    return $nameCmp;
+  }
+  return $a['_idx'] <=> $b['_idx'];
+});
+$alliances = array_slice(array_map(static function(array $row): array {
+  unset($row['_idx']);
+  return $row;
+}, $indexed), 0, 10);
+$debugInfo['final_count'] = count($alliances);
 
-api_send_json(['ok' => true, 'alliances' => $alliances]);
+if ($debug) {
+  error_log('Alliance search debug: ' . json_encode($debugInfo, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
+$payload = ['ok' => true, 'alliances' => $alliances];
+if ($warning !== null) {
+  $payload['warning'] = $warning;
+}
+if ($debug) {
+  $payload['debug'] = $debugInfo;
+}
+api_send_json($payload);
