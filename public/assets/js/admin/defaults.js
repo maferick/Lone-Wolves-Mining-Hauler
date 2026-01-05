@@ -51,17 +51,38 @@
     if (!listEl) return;
     listEl.innerHTML = '';
     if (!Array.isArray(items)) return;
+    const hasResolved = items.some((item) => !item.is_placeholder);
     let count = 0;
     for (const item of items) {
-      const label = item.label || item.name || '';
+      let label = item.label || item.station_name || item.name || '';
       const id = item.value ?? item.station_id ?? item.id;
       if (!label || !id) continue;
+      if (item.is_placeholder && !hasResolved) {
+        label += ' (resolving…)';
+      }
       const option = document.createElement('option');
       option.value = `${label} [${id}]`;
       listEl.appendChild(option);
       count += 1;
       if (count >= 10) break;
     }
+  };
+
+  const buildStructureFallback = (listEl, items, value) => {
+    if (!listEl) return;
+    const query = value.toLowerCase().trim();
+    const filtered = (items || []).filter((item) => {
+      const name = item.name?.toLowerCase() ?? '';
+      const systemName = item.system_name?.toLowerCase() ?? '';
+      return name.includes(query) || systemName.includes(query);
+    });
+    const mapped = filtered.map((item) => ({
+      label: item.system_name ? `${item.system_name} - ${item.name}` : item.name,
+      value: item.id,
+      station_id: item.id,
+      is_placeholder: /^station\\s+\\d+$/i.test(item.name ?? ''),
+    }));
+    buildStructureOptions(listEl, mapped);
   };
 
   let structureSearchTimer = null;
@@ -80,11 +101,7 @@
       return;
     }
     if (!structureSearchUrl) {
-      const fallbackItems = (accessData.structure || []).filter((item) => {
-        const name = item.name?.trim() ?? '';
-        return !/^station\s+\d+$/i.test(name);
-      });
-      buildOptions(listEl, fallbackItems, value);
+      buildStructureFallback(listEl, accessData.structure || [], value);
       return;
     }
     if (structureSearchTimer) {
@@ -95,18 +112,18 @@
       try {
         const resp = await fetch(`${structureSearchUrl}?q=${encodeURIComponent(query)}`, {
           headers: { Accept: 'application/json' },
+          credentials: 'same-origin',
         });
         if (!resp.ok) return;
         const payload = await resp.json();
         if (requestId !== structureSearchSeq) return;
         const items = Array.isArray(payload.items) ? payload.items : [];
+        if (payload.warning) {
+          console.warn(payload.warning);
+        }
         buildStructureOptions(listEl, items);
       } catch (err) {
-        const fallbackItems = (accessData.structure || []).filter((item) => {
-          const name = item.name?.trim() ?? '';
-          return !/^station\s+\d+$/i.test(name);
-        });
-        buildOptions(listEl, fallbackItems, value);
+        buildStructureFallback(listEl, accessData.structure || [], value);
       }
     }, 200);
   };
