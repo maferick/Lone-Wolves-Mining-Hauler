@@ -10,6 +10,7 @@
   const allianceSelected = document.getElementById('alliance-selected');
   const alliancesJsonInput = document.getElementById('alliances-json');
   const statusNote = document.getElementById('alliance-search-status');
+  const debugEnabled = new URLSearchParams(window.location.search).get('debug') === '1';
 
   let selected = [];
   try {
@@ -108,21 +109,26 @@
 
   const searchAlliances = async (query) => {
     if (!statusNote || !allianceResults) return;
-    if (query.length < 2) {
+    if (query.length < 3) {
       allianceResults.innerHTML = '';
-      statusNote.textContent = '';
+      statusNote.textContent = 'Type at least 3 characters to search.';
       return;
     }
 
     statusNote.textContent = 'Searching...';
     try {
-      const resp = await fetch(`${basePath}/api/admin/alliances/search/?q=${encodeURIComponent(query)}`);
+      const params = new URLSearchParams({ q: query });
+      if (debugEnabled) params.set('debug', '1');
+      const resp = await fetch(`${basePath}/api/admin/alliances/search/?${params.toString()}`);
       const data = await resp.json();
+      if (debugEnabled) {
+        console.debug('Alliance search response', data);
+      }
       if (!data.ok) {
         statusNote.textContent = data.error || 'Search failed.';
         return;
       }
-      statusNote.textContent = '';
+      statusNote.textContent = data.warning || '';
       renderResults(data.alliances || []);
     } catch (err) {
       statusNote.textContent = 'Search failed.';
