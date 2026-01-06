@@ -106,7 +106,7 @@ php createdb.php --import=./db
 
 ## Subdirectory hosting (/hauling)
 Because this site is hosted under a subdirectory, set:
-- `APP_BASE_URL="http://killsineve.online/hauling"`
+- `APP_BASE_URL="https://example.com/hauling"`
 - `APP_BASE_PATH="/hauling"`
 
 This ensures all links and assets resolve to `/hauling/*` (e.g., `/hauling/health`, `/hauling/docs`).
@@ -149,6 +149,17 @@ DISCORD_GUILD_ID=...   # optional for guild-scoped command registration
    - Embed Links
    - Read Message History
 5) In **Admin → Discord**, click **Register/Refresh Slash Commands**.
+6) In the Discord Developer Portal, set the **Interactions Endpoint URL** to:
+```
+https://example.com/api/discord/interactions/
+```
+
+Expected responses:
+- `GET /api/discord/interactions/health` returns `200 {"ok":true}`.
+- `POST /api/discord/interactions/` without a signature returns `401 signature_missing`.
+
+A `500` response indicates a server error that must be fixed.
+Double-check the URL is exact (including the trailing slash) and then review server logs for the error.
 
 ### Slash Commands
 Available commands:
