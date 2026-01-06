@@ -93,6 +93,7 @@ if ($basePath === '') {
       '/auth/callback/index.php',
       '/logout/index.php',
       '/rights/index.php',
+      '/terms/index.php',
       '/health/index.php',
     ];
     $normalizedScript = str_replace('\\', '/', $script);
