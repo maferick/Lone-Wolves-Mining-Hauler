@@ -9,9 +9,23 @@ CREATE TABLE IF NOT EXISTS discord_user_link_new (
   CONSTRAINT fk_discord_link_user FOREIGN KEY (user_id) REFERENCES app_user(user_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO discord_user_link_new (user_id, discord_user_id, discord_username, linked_at, last_seen_at)
-SELECT user_id, discord_user_id, NULL, created_at, updated_at
-  FROM discord_user_link;
+SET @has_created_at = (
+  SELECT COUNT(*)
+    FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'discord_user_link'
+     AND column_name = 'created_at'
+);
+
+SET @insert_sql = IF(
+  @has_created_at > 0,
+  'INSERT INTO discord_user_link_new (user_id, discord_user_id, discord_username, linked_at, last_seen_at) SELECT user_id, discord_user_id, NULL, created_at, updated_at FROM discord_user_link',
+  'INSERT INTO discord_user_link_new (user_id, discord_user_id, discord_username, linked_at, last_seen_at) SELECT user_id, discord_user_id, discord_username, linked_at, last_seen_at FROM discord_user_link'
+);
+
+PREPARE discord_user_link_stmt FROM @insert_sql;
+EXECUTE discord_user_link_stmt;
+DEALLOCATE PREPARE discord_user_link_stmt;
 
 DROP TABLE discord_user_link;
 RENAME TABLE discord_user_link_new TO discord_user_link;
