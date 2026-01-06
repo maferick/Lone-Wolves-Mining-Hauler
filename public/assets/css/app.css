@@ -342,18 +342,6 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   color: rgba(255,255,255,.86);
 }
 
-/* Admin bar */
-.adminbar{
-  margin-bottom:14px;
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  padding:12px 14px;
-  border:1px solid var(--border);
-  border-radius: var(--radius);
-  background: rgba(0,0,0,.18);
-}
-.adminbar .nav-link{padding:8px 10px}
-.adminbar-left{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-.adminbar-right{display:flex; align-items:center; gap:10px}
 .admin-subnav{
   display:flex;
   flex-wrap:wrap;
