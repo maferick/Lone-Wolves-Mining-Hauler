@@ -201,21 +201,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       );
       $msg = 'Templates saved.';
     }
+  } elseif ($action === 'reset_templates') {
+    if (!empty($services['discord_renderer'])) {
+      $renderer = $services['discord_renderer'];
+      $defaults = $renderer->defaultTemplates(array_keys($eventOptions));
+      foreach ($defaults as $eventKey => $template) {
+        $db->execute(
+          "INSERT INTO discord_template
+            (corp_id, event_key, title_template, body_template, footer_template)
+           VALUES
+            (:cid, :event_key, :title_template, :body_template, :footer_template)
+           ON DUPLICATE KEY UPDATE
+            title_template = VALUES(title_template),
+            body_template = VALUES(body_template),
+            footer_template = VALUES(footer_template),
+            updated_at = UTC_TIMESTAMP()",
+          [
+            'cid' => $corpId,
+            'event_key' => $eventKey,
+            'title_template' => (string)($template['title'] ?? ''),
+            'body_template' => (string)($template['body'] ?? ''),
+            'footer_template' => (string)($template['footer'] ?? ''),
+          ]
+        );
+      }
+      $msg = 'Templates reset to defaults.';
+    }
   } elseif ($action === 'preview_template') {
     $eventKey = (string)($_POST['event_key'] ?? '');
     if ($eventKey !== '' && !empty($services['discord_renderer'])) {
       $mockPayload = [
         'event_key' => $eventKey,
         'request_id' => 1234,
+        'request_code' => 'abc123',
         'pickup' => 'Jita IV - Moon 4',
         'delivery' => 'K-6K16',
-        'volume' => '12,300 m³',
-        'collateral' => '456,000,000.00 ISK',
-        'reward' => '32,640,000.00 ISK',
+        'volume' => '12,300',
+        'collateral' => '456,000,000.00',
+        'reward' => '32,640,000.00',
         'priority' => 'normal',
         'status' => 'requested',
         'user' => 'Pilot Name',
+        'requester' => 'Pilot Name',
+        'requester_character_id' => 123456789,
+        'hauler' => 'Ace Hauler',
+        'hauler_character_id' => 987654321,
+        'ship_type_id' => 28844,
+        'ship_name' => 'Jump Freighter',
         'link_request' => 'https://example.com/request?request_key=abc123',
+        'link_contract_instructions' => 'https://example.com/request?request_key=abc123',
       ];
       $renderer = $services['discord_renderer'];
       $preview = $renderer->renderPreview($corpId, $eventKey, $mockPayload);
@@ -233,6 +267,23 @@ $templates = $db->select(
   "SELECT * FROM discord_template WHERE corp_id = :cid",
   ['cid' => $corpId]
 );
+if ($templates === [] && !empty($services['discord_renderer'])) {
+  $renderer = $services['discord_renderer'];
+  $defaults = $renderer->defaultTemplates(array_keys($eventOptions));
+  foreach ($defaults as $eventKey => $template) {
+    $db->insert('discord_template', [
+      'corp_id' => $corpId,
+      'event_key' => $eventKey,
+      'title_template' => (string)($template['title'] ?? ''),
+      'body_template' => (string)($template['body'] ?? ''),
+      'footer_template' => (string)($template['footer'] ?? ''),
+    ]);
+  }
+  $templates = $db->select(
+    "SELECT * FROM discord_template WHERE corp_id = :cid",
+    ['cid' => $corpId]
+  );
+}
 $templateIndex = [];
 foreach ($templates as $template) {
   $templateIndex[(string)$template['event_key']] = $template;
@@ -458,7 +509,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <div class="card" style="padding:12px;">
       <div class="label">Message Templates</div>
-      <div class="muted" style="margin-bottom:10px;">Supported tokens: {request_id}, {request_code}, {pickup}, {delivery}, {volume}, {collateral}, {reward}, {status}, {priority}, {user}, {link_request}, {link_contract_instructions}</div>
+      <div class="muted" style="margin-bottom:10px;">Supported tokens: {request_id}, {request_code}, {pickup}, {delivery}, {volume}, {collateral}, {reward}, {status}, {priority}, {user}, {requester}, {hauler}, {ship_name}, {requester_portrait}, {hauler_portrait}, {ship_render}, {link_request}, {link_contract_instructions}</div>
+      <form method="post" style="margin-bottom:14px;">
+        <input type="hidden" name="action" value="reset_templates" />
+        <button class="btn ghost" type="submit">Reset templates to defaults</button>
+      </form>
       <?php foreach ($eventOptions as $eventKey => $label): ?>
         <?php $template = $templateIndex[$eventKey] ?? []; ?>
         <form method="post" style="margin-bottom:14px;">

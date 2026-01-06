@@ -106,6 +106,7 @@ final class DiscordWebhookService
       $attemptNext = $attempt + 1;
       $payload = Db::jsonDecode((string)$row['payload_json'], []);
       $payload = $this->ensurePayload((string)($row['event_key'] ?? ''), $payload);
+      $payload = $this->ensureAllowedMentions($payload);
 
       try {
         $resp = $this->postWebhook((string)$row['webhook_url'], $payload);
@@ -951,6 +952,7 @@ final class DiscordWebhookService
 
     return [
       'username' => $appName,
+      'allowed_mentions' => ['parse' => []],
       'embeds' => [
         [
           'title' => $title,
@@ -1012,8 +1014,23 @@ final class DiscordWebhookService
 
     return [
       'username' => $appName,
-      'content' => $content,
+      'allowed_mentions' => ['parse' => []],
+      'embeds' => [
+        [
+          'title' => 'Webhook test',
+          'description' => $content,
+          'timestamp' => gmdate('c'),
+        ],
+      ],
     ];
+  }
+
+  private function ensureAllowedMentions(array $payload): array
+  {
+    if (!isset($payload['allowed_mentions'])) {
+      $payload['allowed_mentions'] = ['parse' => []];
+    }
+    return $payload;
   }
 
   private function buildHaulRequestTestPayload(?array $request, string $fallbackTitle): array

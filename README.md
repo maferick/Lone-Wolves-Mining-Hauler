@@ -154,6 +154,15 @@ DISCORD_GUILD_ID=...   # optional for guild-scoped command registration
 https://example.com/api/discord/interactions/
 ```
 
+### Message templates and embeds
+Discord notifications are delivered as rich embeds. In **Admin → Discord → Message Templates**, you can edit the Title/Body/Footer templates using tokens such as:
+- `{request_id}`, `{request_code}`, `{pickup}`, `{delivery}`, `{volume}`, `{collateral}`, `{reward}`, `{status}`, `{priority}`
+- `{user}`, `{requester}`, `{hauler}`, `{ship_name}`
+- `{requester_portrait}`, `{hauler_portrait}`, `{ship_render}`
+- `{link_request}`, `{link_contract_instructions}`
+
+Embeds include the requester portrait (author icon), the hauler portrait (footer icon when available), and the ship render thumbnail when a ship type is known.
+
 Expected responses:
 - `GET /api/discord/interactions/health` returns `200 {"ok":true}`.
 - `POST /api/discord/interactions/` without a signature returns `401 signature_missing`.
