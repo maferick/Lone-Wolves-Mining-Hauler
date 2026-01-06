@@ -623,6 +623,7 @@ CREATE TABLE IF NOT EXISTS discord_webhook (
   webhook_id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   corp_id            BIGINT UNSIGNED NOT NULL,
   webhook_name       VARCHAR(128) NOT NULL,
+  provider           VARCHAR(16) NOT NULL DEFAULT 'discord',
   webhook_url        VARCHAR(1024) NOT NULL,
   channel_hint       VARCHAR(255) NULL,
   is_enabled         TINYINT(1) NOT NULL DEFAULT 1,

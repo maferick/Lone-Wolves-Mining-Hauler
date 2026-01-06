@@ -280,8 +280,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
 
       <div style="margin-top:24px;">
-        <h3>Discord Webhooks</h3>
-        <div class="muted">Manage Discord webhook endpoints for queue postings.</div>
+        <h3>Webhooks</h3>
+        <div class="muted">Manage Discord and Slack webhook endpoints for queue postings.</div>
         <div style="margin-top:10px;">
           <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Open Webhooks</a>
         </div>

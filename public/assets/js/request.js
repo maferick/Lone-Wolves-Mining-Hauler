@@ -34,7 +34,7 @@
         statusEl.textContent = data.error || 'Contract attach failed.';
         return;
       }
-      statusEl.textContent = 'Contract validated and queued. Discord webhook queued.';
+      statusEl.textContent = 'Contract validated and queued. Webhook queued.';
     } catch (err) {
       statusEl.textContent = 'Contract attach failed.';
     } finally {

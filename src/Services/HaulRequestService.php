@@ -111,19 +111,21 @@ final class HaulRequestService
 
     if ($this->webhooks) {
       try {
-        $payload = $this->webhooks->buildHaulRequestEmbed([
+        $details = [
           'title' => 'Haul Request #' . (string)$requestId,
           'request_id' => $requestId,
           'request_key' => $requestKey,
           'route' => $route,
           'volume_m3' => (float)$quote['volume_m3'],
           'collateral_isk' => (float)$quote['collateral_isk'],
-        'price_isk' => $reward,
+          'price_isk' => $reward,
           'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
           'requester_character_id' => (int)($authCtx['character_id'] ?? 0),
           'ship_class' => $shipClass,
-        ]);
-        $this->webhooks->enqueue($corpId, 'haul.request.created', $payload);
+          'priority' => $routeProfile,
+          'status' => 'created',
+        ];
+        $this->webhooks->enqueue($corpId, 'haul.request.created', $details);
       } catch (\Throwable $e) {
         // Swallow webhook enqueue failures to avoid blocking the request flow.
       }

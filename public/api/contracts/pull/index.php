@@ -30,14 +30,14 @@ try {
     try {
       /** @var \App\Services\DiscordWebhookService $webhooks */
       $webhooks = $services['discord_webhook'];
-      $discordPayload = $webhooks->buildContractsPulledPayload($result);
-      $webhooks->enqueue($corpId, 'esi.contracts.pulled', $discordPayload);
+      $result['status'] = 'completed';
+      $webhooks->enqueue($corpId, 'esi.contracts.pulled', $result);
     } catch (\Throwable $e) {
       // Ignore webhook enqueue failures.
     }
     try {
-      $discordPayload = $webhooks->buildContractsReconciledPayload($reconcile);
-      $webhooks->enqueue($corpId, 'esi.contracts.reconciled', $discordPayload);
+      $reconcile['status'] = 'completed';
+      $webhooks->enqueue($corpId, 'esi.contracts.reconciled', $reconcile);
     } catch (\Throwable $e) {
       // Ignore webhook enqueue failures.
     }

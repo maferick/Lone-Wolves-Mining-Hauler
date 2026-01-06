@@ -50,6 +50,8 @@ $request = $db->one(
           r.volume_m3,
           r.reward_isk,
           r.title,
+          r.route_policy,
+          r.route_profile,
           u.display_name AS requester_name,
           a.hauler_user_id,
           h.display_name AS hauler_name,
@@ -142,7 +144,7 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
   $webhooks = $services['discord_webhook'];
   try {
     $actorName = (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown');
-    $payload = $webhooks->buildHaulAssignmentPayload([
+    $details = [
       'title' => 'Haul Picked Up #' . (string)$requestId,
       'request_id' => $requestId,
       'request_key' => (string)($request['request_key'] ?? ''),
@@ -156,8 +158,9 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
       'actor' => $actorName,
       'actor_label' => 'Picked Up By',
       'status' => 'in_progress',
-    ]);
-    $webhooks->enqueue($corpId, 'haul.assignment.picked_up', $payload);
+      'priority' => (string)($request['route_profile'] ?? $request['route_policy'] ?? ''),
+    ];
+    $webhooks->enqueue($corpId, 'haul.assignment.picked_up', $details);
   } catch (\Throwable $e) {
     // Ignore webhook enqueue failures to avoid blocking the status flow.
   }

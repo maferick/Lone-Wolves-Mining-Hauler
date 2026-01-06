@@ -81,7 +81,7 @@ The script will:
 
 ## Cron scheduler
 Run the unified scheduler every minute. It triggers:
-- Discord webhook delivery
+- Webhook delivery
 - Discord outbox delivery
 - ESI cron sync (tokens, structures, contracts, universe)
 - Contract matching
@@ -119,20 +119,29 @@ API endpoints require an `API_KEY` (sent as `X-Api-Key` header or `?api_key=`).
 Example endpoints:
 - `/hauling/api/health`
 - `/hauling/api/contracts/sync?corp_id=XXX&character_id=YYY`
-- `/hauling/api/webhooks/discord/test?webhook_id=123`
 - `/hauling/api/jobs/webhooks?limit=25`
 
-All future automation (Discord webhooks, cron jobs, ESI pulls) should be added here.
+All future automation (webhooks, cron jobs, ESI pulls) should be added here.
 
-## Discord Integration
-The hauling app supports Discord webhooks for ops notifications and a Discord bot for slash commands.
+## Webhooks
+The hauling app supports Discord and Slack webhooks for ops notifications.
 
-### Setup (Webhooks)
+### Setup (Discord Incoming Webhooks)
 1) Create a webhook in your Discord channel:
    - Channel → Edit Channel → Integrations → Webhooks → New Webhook
 2) Copy the webhook URL.
-3) In **Admin → Discord → Channel Routing**, add a mapping for the event and paste the webhook URL.
-4) Click **Send Test Message** to queue a test notification.
+3) In **Admin → Webhooks**, add a new endpoint (Provider: Discord) and paste the webhook URL.
+4) In **Admin → Webhooks → Event Routing**, select which events should deliver to the endpoint.
+
+### Setup (Slack Incoming Webhooks)
+1) In Slack, create an Incoming Webhook:
+   - Workspace settings → Manage apps → Search for **Incoming Webhooks** → Add to Slack.
+2) Choose a channel and copy the webhook URL.
+3) In **Admin → Webhooks**, add a new endpoint (Provider: Slack) and paste the webhook URL.
+4) In **Admin → Webhooks → Event Routing**, select which events should deliver to the endpoint.
+
+## Discord Integration
+The hauling app supports a Discord bot for slash commands.
 
 ### Setup (Bot)
 1) Create a Discord application and bot at https://discord.com/developers/applications

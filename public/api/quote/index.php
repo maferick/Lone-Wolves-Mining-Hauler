@@ -78,7 +78,7 @@ try {
     try {
       /** @var \App\Services\DiscordWebhookService $webhooks */
       $webhooks = $services['discord_webhook'];
-      $webhookPayload = $webhooks->buildHaulRequestEmbed([
+      $details = [
         'title' => 'Haul Quote #' . (string)$quote['quote_id'],
         'route' => $quote['route'] ?? [],
         'volume_m3' => (float)($payload['volume_m3'] ?? $payload['volume'] ?? 0),
@@ -87,8 +87,12 @@ try {
         'requester' => (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown'),
         'requester_character_id' => (int)($authCtx['character_id'] ?? 0),
         'ship_class' => (string)($quote['breakdown']['ship_class']['service_class'] ?? ''),
-      ]);
-      $webhooks->enqueue($corpId, 'haul.quote.created', $webhookPayload);
+        'pickup' => (string)($payload['pickup'] ?? $payload['pickup_system'] ?? ''),
+        'dropoff' => (string)($payload['destination'] ?? $payload['destination_system'] ?? ''),
+        'priority' => (string)($payload['priority'] ?? $payload['profile'] ?? $defaultPriority),
+        'status' => 'quoted',
+      ];
+      $webhooks->enqueue($corpId, 'haul.quote.created', $details);
     } catch (\Throwable $e) {
       // Ignore webhook enqueue failures to avoid breaking the quote flow.
     }

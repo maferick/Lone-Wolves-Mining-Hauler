@@ -16,6 +16,10 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Webhooks';
 
 $msg = null;
+$providerOptions = [
+  'discord' => 'Discord',
+  'slack' => 'Slack',
+];
 $eventOptions = [
   'haul.request.created' => 'Haul request created',
   'haul.quote.created' => 'Quote created',
@@ -29,20 +33,30 @@ $eventOptions = [
   'haul.assignment.picked_up' => 'Haul picked up',
   'esi.contracts.pulled' => 'Contracts pulled (ESI)',
   'esi.contracts.reconciled' => 'Contracts reconciled (ESI)',
-  'webhook.test' => 'Manual test',
 ];
+
+$normalizeProvider = static function (string $provider) use ($providerOptions): string {
+  $provider = strtolower(trim($provider));
+  return array_key_exists($provider, $providerOptions) ? $provider : 'discord';
+};
+
+$isValidSlackWebhook = static function (string $url): bool {
+  return preg_match('#^https://hooks\.slack\.com/services/\S+$#', $url) === 1;
+};
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
   if ($action === 'create') {
-    $name = trim((string)($_POST['name'] ?? 'Discord Webhook'));
+    $name = trim((string)($_POST['name'] ?? 'Webhook Endpoint'));
+    $provider = $normalizeProvider((string)($_POST['provider'] ?? 'discord'));
     $url = trim((string)($_POST['url'] ?? ''));
     if ($url === '') $msg = "Webhook URL required.";
+    elseif ($provider === 'slack' && !$isValidSlackWebhook($url)) $msg = "Slack webhook URL must match https://hooks.slack.com/services/...";
     else {
       $webhookId = $db->insert(
-        "INSERT INTO discord_webhook (corp_id, webhook_name, webhook_url, is_enabled)
-         VALUES (:cid, :n, :u, 1)",
-        ['cid'=>$corpId,'n'=>$name,'u'=>$url]
+        "INSERT INTO discord_webhook (corp_id, webhook_name, provider, webhook_url, is_enabled)
+         VALUES (:cid, :n, :p, :u, 1)",
+        ['cid'=>$corpId,'n'=>$name,'p'=>$provider,'u'=>$url]
       );
       foreach ($eventOptions as $eventKey => $label) {
         $db->insert('discord_webhook_event', [
@@ -54,8 +68,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.create', 'discord_webhook', null, null, [
         'webhook_name' => $name,
         'webhook_url' => $url,
+        'provider' => $provider,
       ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
       $msg = "Created.";
+    }
+  } elseif ($action === 'update') {
+    $id = (int)($_POST['webhook_id'] ?? 0);
+    $name = trim((string)($_POST['name'] ?? 'Webhook Endpoint'));
+    $provider = $normalizeProvider((string)($_POST['provider'] ?? 'discord'));
+    $url = trim((string)($_POST['url'] ?? ''));
+    $isEnabled = !empty($_POST['is_enabled']) ? 1 : 0;
+    if ($id <= 0) {
+      $msg = "Webhook not found.";
+    } elseif ($url === '') {
+      $msg = "Webhook URL required.";
+    } elseif ($provider === 'slack' && !$isValidSlackWebhook($url)) {
+      $msg = "Slack webhook URL must match https://hooks.slack.com/services/...";
+    } else {
+      $db->execute(
+        "UPDATE discord_webhook
+            SET webhook_name = :name,
+                provider = :provider,
+                webhook_url = :url,
+                is_enabled = :enabled
+          WHERE webhook_id = :id AND corp_id = :cid",
+        [
+          'name' => $name,
+          'provider' => $provider,
+          'url' => $url,
+          'enabled' => $isEnabled,
+          'id' => $id,
+          'cid' => $corpId,
+        ]
+      );
+      $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'webhook.update', 'discord_webhook', (string)$id, null, [
+        'webhook_name' => $name,
+        'webhook_url' => $url,
+        'provider' => $provider,
+        'is_enabled' => $isEnabled,
+      ], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
+      $msg = "Updated.";
     }
   } elseif ($action === 'toggle') {
     $id = (int)($_POST['webhook_id'] ?? 0);
@@ -115,6 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $hooks = $db->select(
   "SELECT w.webhook_id,
           w.webhook_name,
+          w.provider,
           w.webhook_url,
           w.is_enabled,
           w.notify_on_contract_link,
@@ -158,8 +211,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
 <section class="card">
   <div class="card-header">
-    <h2>Discord Webhooks</h2>
-    <p class="muted">These are used for automated contract postings and operational notifications.</p>
+    <h2>Webhook Endpoints</h2>
+    <p class="muted">Create Discord and Slack webhook endpoints used for automated contract postings and operational notifications.</p>
   </div>
 
   <div class="content">
@@ -173,8 +226,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <input class="input" name="name" placeholder="Hauling Board" />
         </div>
         <div>
+          <div class="label">Provider</div>
+          <select class="input" name="provider">
+            <?php foreach ($providerOptions as $value => $label): ?>
+              <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div>
           <div class="label">Webhook URL</div>
-          <input class="input" name="url" placeholder="https://discord.com/api/webhooks/..." />
+          <input class="input" name="url" placeholder="https://discord.com/api/webhooks/... or https://hooks.slack.com/services/..." />
         </div>
       </div>
       <div style="margin-top:12px;">
@@ -182,52 +243,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </form>
 
-    <form method="post" style="margin-bottom:18px;">
-      <input type="hidden" name="action" value="events" />
-      <div class="label">Event Subscriptions</div>
-      <div class="muted" style="margin-bottom:10px;">Choose which webhooks receive each event.</div>
-      <?php if ($hooks === []): ?>
-        <div class="muted">Create a webhook to enable event subscriptions.</div>
-      <?php else: ?>
-        <table class="table" style="margin-bottom:12px;">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <?php foreach ($hooks as $h): ?>
-                <th><?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?></th>
-              <?php endforeach; ?>
-            </tr>
-          </thead>
-          <tbody>
-          <?php foreach ($eventOptions as $eventKey => $label): ?>
-            <tr>
-              <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
-              <?php foreach ($hooks as $h): ?>
-                <?php
-                  $hookId = (int)$h['webhook_id'];
-                  $checked = !isset($subscriptions[$hookId][$eventKey]) || (int)$subscriptions[$hookId][$eventKey] === 1;
-                ?>
-                <td>
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" name="subscriptions[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>][<?= $hookId ?>]" <?= $checked ? 'checked' : '' ?> />
-                    <span class="muted" style="font-size:12px;">Enable</span>
-                  </label>
-                </td>
-              <?php endforeach; ?>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-        <div style="margin-top:12px;">
-          <button class="btn" type="submit">Save Event Subscriptions</button>
-        </div>
-      <?php endif; ?>
-    </form>
-
     <table class="table">
       <thead>
         <tr>
           <th>Name</th>
+          <th>Provider</th>
           <th>URL</th>
           <th>Enabled</th>
           <th>Contract Linked</th>
@@ -237,12 +257,29 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </thead>
       <tbody>
       <?php foreach ($hooks as $h): ?>
+        <?php $provider = $normalizeProvider((string)($h['provider'] ?? 'discord')); ?>
         <tr>
-          <td><?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?></td>
-          <td style="max-width:520px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            <?= htmlspecialchars((string)$h['webhook_url'], ENT_QUOTES, 'UTF-8') ?>
+          <td>
+            <input class="input" name="name" form="update-<?= (int)$h['webhook_id'] ?>" value="<?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>" />
           </td>
-          <td><?= ((int)$h['is_enabled'] === 1) ? 'Yes' : 'No' ?></td>
+          <td>
+            <select class="input" name="provider" form="update-<?= (int)$h['webhook_id'] ?>">
+              <?php foreach ($providerOptions as $value => $label): ?>
+                <option value="<?= htmlspecialchars($value, ENT_QUOTES, 'UTF-8') ?>" <?= $provider === $value ? 'selected' : '' ?>>
+                  <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </td>
+          <td style="max-width:420px;">
+            <input class="input" name="url" form="update-<?= (int)$h['webhook_id'] ?>" value="<?= htmlspecialchars((string)$h['webhook_url'], ENT_QUOTES, 'UTF-8') ?>" />
+          </td>
+          <td>
+            <label style="display:flex; align-items:center; gap:6px;">
+              <input type="checkbox" name="is_enabled" form="update-<?= (int)$h['webhook_id'] ?>" <?= ((int)$h['is_enabled'] === 1) ? 'checked' : '' ?> />
+              <span class="muted" style="font-size:12px;">Enabled</span>
+            </label>
+          </td>
           <td><?= ((int)($h['notify_on_contract_link'] ?? 0) === 1) ? 'Yes' : 'No' ?></td>
           <td>
             <?php
@@ -270,14 +307,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <?php endif; ?>
           </td>
           <td>
-            <form method="post" style="display:flex; gap:8px;">
+            <form id="update-<?= (int)$h['webhook_id'] ?>" method="post" style="display:inline;">
+              <input type="hidden" name="action" value="update" />
               <input type="hidden" name="webhook_id" value="<?= (int)$h['webhook_id'] ?>" />
-              <button class="btn ghost" name="action" value="toggle" type="submit">Toggle</button>
+              <button class="btn ghost" type="submit">Save</button>
+            </form>
+            <form method="post" style="display:flex; gap:8px; margin-top:6px;">
+              <input type="hidden" name="webhook_id" value="<?= (int)$h['webhook_id'] ?>" />
               <button class="btn ghost" name="action" value="toggle_contract_link" type="submit">Toggle Contract Link</button>
               <button class="btn" name="action" value="delete" type="submit" onclick="return confirm('Delete webhook?')">Delete</button>
-            </form>
-            <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test?webhook_id=<?= (int)$h['webhook_id'] ?>" style="margin-top:6px;">
-              <button class="btn ghost" type="submit">Send Test</button>
             </form>
           </td>
         </tr>
@@ -285,45 +323,50 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </tbody>
     </table>
 
-    <form method="post" action="<?= ($basePath ?: '') ?>/api/webhooks/discord/test-events" style="margin-top:18px;">
-      <input type="hidden" name="corp_id" value="<?= (int)$corpId ?>" />
-      <div class="label">Send Test Events</div>
-      <div class="muted" style="margin-bottom:10px;">Choose which webhooks should receive each event.</div>
-      <table class="table" style="margin-bottom:12px;">
-        <thead>
-          <tr>
-            <th>Event</th>
-            <th>Webhook Targets</th>
-          </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($eventOptions as $eventKey => $label): ?>
-          <tr>
-            <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
-            <td>
-              <?php if ($hooks === []): ?>
-                <span class="muted">No webhooks available.</span>
-              <?php else: ?>
-                <div style="display:flex; flex-wrap:wrap; gap:12px;">
-                  <?php foreach ($hooks as $h): ?>
-                    <label style="display:flex; align-items:center; gap:6px;">
-                      <input type="checkbox" name="event_targets[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>][]" value="<?= (int)$h['webhook_id'] ?>" />
-                      <?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>
-                    </label>
-                  <?php endforeach; ?>
-                </div>
-              <?php endif; ?>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-        </tbody>
-      </table>
-      <div style="margin-bottom:12px;">
-        <div class="label">Manual test message</div>
-        <input class="input" name="webhook_test_message" value="Test notification from hauling." />
-        <div class="muted" style="margin-top:6px;">Used for the “Manual test” event.</div>
-      </div>
-      <button class="btn" type="submit">Queue Test Events</button>
+    <form method="post" style="margin-top:18px;">
+      <input type="hidden" name="action" value="events" />
+      <div class="label">Event Routing</div>
+      <div class="muted" style="margin-bottom:10px;">Choose which webhook endpoints receive each event.</div>
+      <?php if ($hooks === []): ?>
+        <div class="muted">Create a webhook endpoint to enable event subscriptions.</div>
+      <?php else: ?>
+        <table class="table" style="margin-bottom:12px;">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <?php foreach ($hooks as $h): ?>
+                <?php $provider = $normalizeProvider((string)($h['provider'] ?? 'discord')); ?>
+                <th>
+                  <?= htmlspecialchars((string)$h['webhook_name'], ENT_QUOTES, 'UTF-8') ?>
+                  <span class="pill" style="margin-left:6px; font-size:11px;"><?= htmlspecialchars($providerOptions[$provider] ?? ucfirst($provider), ENT_QUOTES, 'UTF-8') ?></span>
+                </th>
+              <?php endforeach; ?>
+            </tr>
+          </thead>
+          <tbody>
+          <?php foreach ($eventOptions as $eventKey => $label): ?>
+            <tr>
+              <td><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></td>
+              <?php foreach ($hooks as $h): ?>
+                <?php
+                  $hookId = (int)$h['webhook_id'];
+                  $checked = !isset($subscriptions[$hookId][$eventKey]) || (int)$subscriptions[$hookId][$eventKey] === 1;
+                ?>
+                <td>
+                  <label style="display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" name="subscriptions[<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>][<?= $hookId ?>]" <?= $checked ? 'checked' : '' ?> />
+                    <span class="muted" style="font-size:12px;">Enable</span>
+                  </label>
+                </td>
+              <?php endforeach; ?>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+        <div style="margin-top:12px;">
+          <button class="btn" type="submit">Save Event Subscriptions</button>
+        </div>
+      <?php endif; ?>
     </form>
 
     <div style="margin-top:14px;">
