@@ -679,10 +679,22 @@ CREATE TABLE IF NOT EXISTS discord_config (
   enabled_webhooks      TINYINT(1) NOT NULL DEFAULT 1,
   enabled_bot           TINYINT(1) NOT NULL DEFAULT 0,
   application_id        VARCHAR(64) NULL,
+  public_key            VARCHAR(128) NULL,
+  bot_token_configured  TINYINT(1) NOT NULL DEFAULT 0,
   guild_id              VARCHAR(64) NULL,
   rate_limit_per_minute INT NOT NULL DEFAULT 20,
   dedupe_window_seconds INT NOT NULL DEFAULT 60,
   commands_ephemeral_default TINYINT(1) NOT NULL DEFAULT 1,
+  channel_mode          ENUM('threads','channels') NOT NULL DEFAULT 'threads',
+  hauling_channel_id    VARCHAR(64) NULL,
+  requester_thread_access ENUM('none','read_only','full') NOT NULL DEFAULT 'read_only',
+  auto_thread_create_on_request TINYINT(1) NOT NULL DEFAULT 1,
+  auto_archive_on_complete TINYINT(1) NOT NULL DEFAULT 1,
+  auto_lock_on_complete TINYINT(1) NOT NULL DEFAULT 1,
+  role_map_json         JSON NULL,
+  last_bot_action_at    DATETIME NULL,
+  bot_permissions_test_json JSON NULL,
+  bot_permissions_test_at DATETIME NULL,
   created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (config_id),
@@ -717,6 +729,20 @@ CREATE TABLE IF NOT EXISTS discord_template (
   PRIMARY KEY (template_id),
   UNIQUE KEY uq_discord_template (corp_id, event_key),
   CONSTRAINT fk_discord_template_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS discord_thread (
+  thread_id   VARCHAR(64) NOT NULL,
+  corp_id     BIGINT UNSIGNED NOT NULL,
+  request_id  BIGINT UNSIGNED NOT NULL,
+  channel_id  VARCHAR(64) NOT NULL,
+  created_at  DATETIME NOT NULL DEFAULT UTC_TIMESTAMP(),
+  updated_at  DATETIME NOT NULL DEFAULT UTC_TIMESTAMP() ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (thread_id),
+  UNIQUE KEY uq_discord_thread_request (request_id),
+  KEY idx_discord_thread_corp (corp_id),
+  CONSTRAINT fk_discord_thread_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id),
+  CONSTRAINT fk_discord_thread_request FOREIGN KEY (request_id) REFERENCES haul_request(request_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS discord_outbox (
