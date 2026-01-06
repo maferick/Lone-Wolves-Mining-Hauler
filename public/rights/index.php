@@ -166,6 +166,7 @@ foreach ($rolePermRows as $row) {
 }
 
 ob_start();
+require __DIR__ . '/../../src/Views/partials/admin_nav.php';
 ?>
 <section class="card">
   <div class="card-header">
