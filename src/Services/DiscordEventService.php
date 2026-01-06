@@ -14,7 +14,12 @@ final class DiscordEventService
   public function enqueueRequestCreated(int $corpId, int $requestId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
-    return $this->enqueueEvent($corpId, 'request.created', $payload);
+    $queued = $this->enqueueEvent($corpId, 'request.created', $payload);
+    $config = $this->loadConfig($corpId);
+    if (($config['channel_mode'] ?? 'threads') === 'threads' && !empty($config['auto_thread_create_on_request'])) {
+      $queued += $this->enqueueThreadCreate($corpId, $requestId, $context);
+    }
+    return $queued;
   }
 
   public function enqueueRequestStatusChanged(int $corpId, int $requestId, string $status, ?string $previousStatus = null, array $context = []): int
@@ -22,7 +27,11 @@ final class DiscordEventService
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['status'] = $status;
     $payload['previous_status'] = $previousStatus ?? '';
-    return $this->enqueueEvent($corpId, 'request.status_changed', $payload);
+    $queued = $this->enqueueEvent($corpId, 'request.status_changed', $payload);
+    if ($status === 'completed') {
+      $queued += $this->enqueueThreadComplete($corpId, $requestId);
+    }
+    return $queued;
   }
 
   public function enqueueContractMatched(int $corpId, int $requestId, int $contractId, array $context = []): int
@@ -43,7 +52,9 @@ final class DiscordEventService
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    return $this->enqueueEvent($corpId, 'contract.completed', $payload);
+    $queued = $this->enqueueEvent($corpId, 'contract.completed', $payload);
+    $queued += $this->enqueueThreadComplete($corpId, $requestId);
+    return $queued;
   }
 
   public function enqueueContractFailed(int $corpId, int $requestId, int $contractId, array $context = []): int
@@ -101,6 +112,112 @@ final class DiscordEventService
     ]);
   }
 
+  public function enqueueRoleSyncUser(int $corpId, int $userId, string $discordUserId, string $action = 'sync'): int
+  {
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.roles.sync_user',
+      'payload_json' => Db::jsonEncode([
+        'user_id' => $userId,
+        'discord_user_id' => $discordUserId,
+        'action' => $action,
+      ]),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
+  public function enqueueRoleSyncAll(int $corpId): int
+  {
+    $rows = $this->db->select(
+      "SELECT l.user_id, l.discord_user_id
+         FROM discord_user_link l
+         JOIN app_user u ON u.user_id = l.user_id
+        WHERE u.corp_id = :cid",
+      ['cid' => $corpId]
+    );
+    $queued = 0;
+    foreach ($rows as $row) {
+      $queued += $this->enqueueRoleSyncUser($corpId, (int)$row['user_id'], (string)$row['discord_user_id']);
+    }
+    return $queued;
+  }
+
+  public function enqueueThreadCreate(int $corpId, int $requestId, array $context = []): int
+  {
+    $payload = $this->buildRequestPayload($corpId, $requestId, $context);
+    $requesterRow = $this->db->one(
+      "SELECT requester_user_id FROM haul_request WHERE request_id = :rid LIMIT 1",
+      ['rid' => $requestId]
+    );
+    if ($requesterRow) {
+      $payload['requester_user_id'] = (int)$requesterRow['requester_user_id'];
+    }
+    $payload['event_key'] = 'discord.thread.create';
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.thread.create',
+      'payload_json' => Db::jsonEncode($payload),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
+  public function enqueueThreadComplete(int $corpId, int $requestId): int
+  {
+    $config = $this->loadConfig($corpId);
+    if (($config['channel_mode'] ?? 'threads') !== 'threads') {
+      return 0;
+    }
+    if (empty($config['auto_archive_on_complete']) && empty($config['auto_lock_on_complete'])) {
+      return 0;
+    }
+
+    $thread = $this->db->one(
+      "SELECT thread_id FROM discord_thread WHERE request_id = :rid AND corp_id = :cid LIMIT 1",
+      ['rid' => $requestId, 'cid' => $corpId]
+    );
+    if (!$thread) {
+      return 0;
+    }
+
+    $payload = [
+      'request_id' => $requestId,
+      'thread_id' => (string)$thread['thread_id'],
+      'event_key' => 'discord.thread.complete',
+    ];
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.thread.complete',
+      'payload_json' => Db::jsonEncode($payload),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
+  public function enqueueBotTestMessage(int $corpId): int
+  {
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.bot.test_message',
+      'payload_json' => Db::jsonEncode(['event_key' => 'discord.bot.test_message']),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
   public function loadConfig(int $corpId): array
   {
     $row = $this->db->one(
@@ -112,9 +229,20 @@ final class DiscordEventService
       'corp_id' => $corpId,
       'enabled_webhooks' => 1,
       'enabled_bot' => 0,
+      'application_id' => (string)($this->config['discord']['application_id'] ?? ''),
+      'public_key' => (string)($this->config['discord']['public_key'] ?? ''),
+      'guild_id' => (string)($this->config['discord']['guild_id'] ?? ''),
       'rate_limit_per_minute' => 20,
       'dedupe_window_seconds' => 60,
       'commands_ephemeral_default' => 1,
+      'channel_mode' => 'threads',
+      'hauling_channel_id' => '',
+      'requester_thread_access' => 'read_only',
+      'auto_thread_create_on_request' => 1,
+      'auto_archive_on_complete' => 1,
+      'auto_lock_on_complete' => 1,
+      'role_map_json' => null,
+      'last_bot_action_at' => null,
     ];
   }
 

@@ -37,6 +37,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $db->audit($corpId, $authCtx['user_id'], $authCtx['character_id'], 'user.role.' . $action, 'user_role', "{$userId}:{$roleId}", null, ['role_key'=>$roleKey], $_SERVER['REMOTE_ADDR'] ?? null, $_SERVER['HTTP_USER_AGENT'] ?? null);
       });
+      if (!empty($services['discord_events'])) {
+        $link = $db->one(
+          "SELECT discord_user_id FROM discord_user_link WHERE user_id = :uid LIMIT 1",
+          ['uid' => $userId]
+        );
+        if ($link) {
+          $services['discord_events']->enqueueRoleSyncUser($corpId, $userId, (string)$link['discord_user_id']);
+        }
+      }
       $msg = "Updated role assignments.";
     } elseif ($userId > 0 && $action === 'delete') {
       $db->tx(function(Db $db) use ($corpId, $userId, $authCtx) {

@@ -60,7 +60,13 @@ final class DiscordDeliveryService
       $eventKey = (string)($row['event_key'] ?? '');
       if ($this->isAdminTask($eventKey)) {
         $resp = $this->handleAdminTask($corpId, $eventKey, $payload);
-        $this->applyResult($outboxId, $attempt, $resp, $results);
+        $this->applyResult($outboxId, $attempt, $resp, $results, $corpId, true);
+        continue;
+      }
+
+      if ($this->isBotTask($eventKey)) {
+        $resp = $this->handleBotTask($corpId, $eventKey, $payload);
+        $this->applyResult($outboxId, $attempt, $resp, $results, $corpId, true);
         continue;
       }
 
@@ -85,7 +91,7 @@ final class DiscordDeliveryService
         ];
       }
 
-      $this->applyResult($outboxId, $attempt, $resp, $results);
+      $this->applyResult($outboxId, $attempt, $resp, $results, $corpId, $mode === 'bot');
     }
 
     return $results;
@@ -161,6 +167,35 @@ final class DiscordDeliveryService
     ]);
   }
 
+  private function handleBotTask(int $corpId, string $eventKey, array $payload): array
+  {
+    $configRow = $this->loadConfigRow($corpId);
+    $token = (string)($this->config['discord']['bot_token'] ?? '');
+    if ($token === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'bot_token_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    return match ($eventKey) {
+      'discord.bot.test_message' => $this->sendBotTestMessage($configRow, $token),
+      'discord.roles.sync_user' => $this->syncUserRoles($corpId, $configRow, $payload, $token),
+      'discord.thread.create' => $this->createThreadForRequest($corpId, $configRow, $payload, $token),
+      'discord.thread.complete' => $this->completeThreadForRequest($corpId, $configRow, $payload, $token),
+      default => [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'unknown_bot_task',
+        'retry_after' => null,
+        'body' => '',
+      ],
+    };
+  }
+
   private function handleAdminTask(int $corpId, string $eventKey, array $payload): array
   {
     $token = (string)($this->config['discord']['bot_token'] ?? '');
@@ -206,7 +241,316 @@ final class DiscordDeliveryService
     ];
   }
 
-  private function applyResult(int $outboxId, int $attempt, array $resp, array &$results): void
+  private function sendBotTestMessage(array $configRow, string $token): array
+  {
+    $channelId = trim((string)($configRow['hauling_channel_id'] ?? ''));
+    if ($channelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'hauling_channel_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $endpoint = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/')
+      . '/channels/' . $channelId . '/messages';
+    $payload = [
+      'content' => '✅ Discord bot test message from the hauling portal.',
+    ];
+
+    return $this->postJson($endpoint, $payload, [
+      'Authorization: Bot ' . $token,
+    ]);
+  }
+
+  private function syncUserRoles(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    $guildId = trim((string)($configRow['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
+    if ($guildId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'guild_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    $discordUserId = trim((string)($payload['discord_user_id'] ?? ''));
+    $userId = (int)($payload['user_id'] ?? 0);
+    if ($discordUserId === '' || $userId <= 0) {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'user_reference_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    if ($roleMap === []) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $managedRoles = array_values($roleMap);
+    $action = (string)($payload['action'] ?? 'sync');
+    $desiredRoles = [];
+    if ($action !== 'unlink') {
+      $permRows = $this->db->select(
+        "SELECT DISTINCT p.perm_key
+           FROM user_role ur
+           JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
+           JOIN permission p ON p.perm_id = rp.perm_id
+          WHERE ur.user_id = :uid",
+        ['uid' => $userId]
+      );
+      $permKeys = array_map(static fn($row) => (string)($row['perm_key'] ?? ''), $permRows);
+      foreach ($roleMap as $permKey => $roleId) {
+        if (in_array($permKey, $permKeys, true)) {
+          $desiredRoles[] = $roleId;
+        }
+      }
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($memberResp['ok'])) {
+      return $memberResp;
+    }
+
+    $member = json_decode((string)($memberResp['body'] ?? ''), true);
+    $currentRoles = is_array($member) ? ($member['roles'] ?? []) : [];
+    if (!is_array($currentRoles)) {
+      $currentRoles = [];
+    }
+
+    $toAdd = array_values(array_diff($desiredRoles, $currentRoles));
+    $managedCurrent = array_values(array_intersect($currentRoles, $managedRoles));
+    $toRemove = array_values(array_diff($managedCurrent, $desiredRoles));
+
+    foreach ($toAdd as $roleId) {
+      $resp = $this->putJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId . '/roles/' . $roleId, [], [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (empty($resp['ok'])) {
+        return $resp;
+      }
+    }
+
+    foreach ($toRemove as $roleId) {
+      $resp = $this->deleteJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId . '/roles/' . $roleId, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (empty($resp['ok'])) {
+        return $resp;
+      }
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
+  private function createThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    if (($configRow['channel_mode'] ?? 'threads') !== 'threads') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'channel_mode_not_threads',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $channelId = trim((string)($configRow['hauling_channel_id'] ?? ''));
+    if ($channelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'hauling_channel_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $requestCode = trim((string)($payload['request_code'] ?? ''));
+    $requestId = (int)($payload['request_id'] ?? 0);
+    $threadLabel = $requestCode !== '' ? strtoupper($requestCode) : (string)$requestId;
+    $threadName = 'HAUL #' . $threadLabel;
+    if ($requestId > 0) {
+      $existing = $this->db->one(
+        "SELECT thread_id FROM discord_thread WHERE request_id = :rid AND corp_id = :cid LIMIT 1",
+        ['rid' => $requestId, 'cid' => $corpId]
+      );
+      if ($existing) {
+        return [
+          'ok' => true,
+          'status' => 200,
+          'error' => null,
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $mentionParts = [];
+    if (!empty($roleMap['hauling.hauler'])) {
+      $mentionParts[] = '<@&' . $roleMap['hauling.hauler'] . '>';
+    }
+
+    $requesterDiscordId = '';
+    if (!empty($payload['requester_user_id']) && ($configRow['requester_thread_access'] ?? 'read_only') !== 'none') {
+      $link = $this->db->one(
+        "SELECT discord_user_id FROM discord_user_link WHERE user_id = :uid LIMIT 1",
+        ['uid' => (int)$payload['requester_user_id']]
+      );
+      if ($link) {
+        $requesterDiscordId = (string)($link['discord_user_id'] ?? '');
+        if ($requesterDiscordId !== '') {
+          $mentionParts[] = '<@' . $requesterDiscordId . '>';
+        }
+      }
+    }
+
+    $message = $this->renderer->render($corpId, 'request.created', $payload);
+    $message['content'] = trim(implode(' ', $mentionParts) . ' New haul request thread.');
+    $message['allowed_mentions'] = [
+      'parse' => [],
+      'roles' => !empty($roleMap['hauling.hauler']) ? [$roleMap['hauling.hauler']] : [],
+      'users' => $requesterDiscordId !== '' ? [$requesterDiscordId] : [],
+    ];
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $messageResp = $this->postJson($base . '/channels/' . $channelId . '/messages', $message, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($messageResp['ok'])) {
+      return $messageResp;
+    }
+
+    $messageData = json_decode((string)($messageResp['body'] ?? ''), true);
+    $messageId = is_array($messageData) ? (string)($messageData['id'] ?? '') : '';
+    if ($messageId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'message_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $threadResp = $this->postJson($base . '/channels/' . $channelId . '/messages/' . $messageId . '/threads', [
+      'name' => $threadName,
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($threadResp['ok'])) {
+      return $threadResp;
+    }
+
+    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
+    $threadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    if ($threadId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $this->db->execute(
+      "INSERT INTO discord_thread (thread_id, corp_id, request_id, channel_id)
+       VALUES (:thread_id, :cid, :rid, :channel_id)
+       ON DUPLICATE KEY UPDATE thread_id = VALUES(thread_id), channel_id = VALUES(channel_id), updated_at = UTC_TIMESTAMP()",
+      [
+        'thread_id' => $threadId,
+        'cid' => $corpId,
+        'rid' => $requestId,
+        'channel_id' => $channelId,
+      ]
+    );
+
+    if ($requesterDiscordId !== '') {
+      $this->putJson($base . '/channels/' . $threadId . '/thread-members/' . $requesterDiscordId, [], [
+        'Authorization: Bot ' . $token,
+      ]);
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
+  private function completeThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    $threadId = trim((string)($payload['thread_id'] ?? ''));
+    if ($threadId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $patch = [];
+    if (!empty($configRow['auto_archive_on_complete'])) {
+      $patch['archived'] = true;
+    }
+    if (!empty($configRow['auto_lock_on_complete'])) {
+      $patch['locked'] = true;
+    }
+    if ($patch === []) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $resp = $this->patchJson($base . '/channels/' . $threadId, $patch, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (!empty($resp['ok'])) {
+      $this->db->execute(
+        "UPDATE discord_thread SET updated_at = UTC_TIMESTAMP() WHERE thread_id = :thread_id AND corp_id = :cid",
+        [
+          'thread_id' => $threadId,
+          'cid' => $corpId,
+        ]
+      );
+    }
+    return $resp;
+  }
+
+  private function applyResult(int $outboxId, int $attempt, array $resp, array &$results, int $corpId, bool $isBotAction): void
   {
     if (!empty($resp['ok'])) {
       $this->db->execute(
@@ -222,6 +566,9 @@ final class DiscordDeliveryService
           'id' => $outboxId,
         ]
       );
+      if ($isBotAction) {
+        $this->touchBotAction($corpId);
+      }
       $results['sent']++;
       return;
     }
@@ -316,9 +663,19 @@ final class DiscordDeliveryService
     return $this->sendJson('PUT', $url, $payload, $headers);
   }
 
+  private function patchJson(string $url, array $payload, array $headers = []): array
+  {
+    return $this->sendJson('PATCH', $url, $payload, $headers);
+  }
+
   private function getJson(string $url, array $headers = []): array
   {
     return $this->sendJson('GET', $url, null, $headers);
+  }
+
+  private function deleteJson(string $url, array $headers = []): array
+  {
+    return $this->sendJson('DELETE', $url, null, $headers);
   }
 
   private function sendJson(string $method, string $url, ?array $payload, array $headers = []): array
@@ -393,6 +750,58 @@ final class DiscordDeliveryService
   private function isAdminTask(string $eventKey): bool
   {
     return in_array($eventKey, ['discord.commands.register', 'discord.bot.permissions_test'], true);
+  }
+
+  private function isBotTask(string $eventKey): bool
+  {
+    return in_array($eventKey, [
+      'discord.bot.test_message',
+      'discord.roles.sync_user',
+      'discord.thread.create',
+      'discord.thread.complete',
+    ], true);
+  }
+
+  private function loadConfigRow(int $corpId): array
+  {
+    $row = $this->db->one(
+      "SELECT * FROM discord_config WHERE corp_id = :cid LIMIT 1",
+      ['cid' => $corpId]
+    );
+    return $row ? $row : [];
+  }
+
+  private function touchBotAction(int $corpId): void
+  {
+    $this->db->execute(
+      "UPDATE discord_config SET last_bot_action_at = UTC_TIMESTAMP() WHERE corp_id = :cid",
+      ['cid' => $corpId]
+    );
+  }
+
+  private function normalizeRoleMap($roleMapJson): array
+  {
+    if (is_string($roleMapJson)) {
+      $decoded = json_decode($roleMapJson, true);
+      $roleMapJson = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($roleMapJson)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach ($roleMapJson as $key => $value) {
+      $roleId = trim((string)$value);
+      if ($this->isValidSnowflake($roleId)) {
+        $normalized[(string)$key] = $roleId;
+      }
+    }
+    return $normalized;
+  }
+
+  private function isValidSnowflake(string $value): bool
+  {
+    return $value !== '' && ctype_digit($value) && strlen($value) >= 17;
   }
 
   private function buildCommandDefinitions(): array

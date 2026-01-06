@@ -19,6 +19,8 @@ $msg = null;
 $msgTone = 'info';
 
 $permList = [
+  ['hauling.member','Hauling member','Access hauling portal features and status updates.'],
+  ['hauling.hauler','Hauling hauler','Access hauling operations visibility and execution tools.'],
   ['haul.request.create','Create haul request','Create new haul requests and submit for posting.'],
   ['haul.request.read','View haul requests','View haul requests for the corporation.'],
   ['haul.request.manage','Manage haul requests','Edit/quote/cancel/post requests.'],
@@ -65,6 +67,8 @@ foreach ($roles as $role) {
 }
 
 $orderedPerms = [
+  'hauling.member',
+  'hauling.hauler',
   'haul.request.create',
   'haul.request.read',
   'haul.request.manage',
@@ -84,6 +88,8 @@ $permParams = array_merge($orderedPerms, $orderedPerms);
 $perms = $db->select($permSql, $permParams);
 
 $haulPermKeys = [
+  'hauling.member',
+  'hauling.hauler',
   'haul.request.create',
   'haul.request.read',
   'haul.request.manage',
@@ -146,6 +152,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     });
 
     $msg = 'Updated rights assignments.';
+    if (!empty($services['discord_events'])) {
+      $services['discord_events']->enqueueRoleSyncAll((int)($authCtx['corp_id'] ?? 0));
+    }
   } catch (Throwable $e) {
     $msg = $e->getMessage();
     $msgTone = 'error';

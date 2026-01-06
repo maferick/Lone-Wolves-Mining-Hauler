@@ -18,6 +18,14 @@ if ($userId <= 0 || $db === null) {
   api_send_json(['ok' => false, 'error' => 'unauthorized'], 401);
 }
 
+$link = $db->one(
+  "SELECT discord_user_id FROM discord_user_link WHERE user_id = :uid LIMIT 1",
+  ['uid' => $userId]
+);
+if ($link && !empty($services['discord_events'])) {
+  $services['discord_events']->enqueueRoleSyncUser((int)($authCtx['corp_id'] ?? 0), $userId, (string)$link['discord_user_id'], 'unlink');
+}
+
 $db->execute(
   "DELETE FROM discord_user_link WHERE user_id = :uid",
   ['uid' => $userId]
