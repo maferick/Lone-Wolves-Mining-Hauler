@@ -43,9 +43,40 @@ if ($type === 1) {
   api_send_json(['type' => 1]);
 }
 
-$respond = static function (array $data): void {
-  api_send_json($data);
+if ($type !== 2) {
+  api_send_json([
+    'type' => 4,
+    'data' => [
+      'content' => 'Unsupported interaction.',
+      'flags' => 64,
+    ],
+  ]);
+}
+
+$commandName = (string)($payload['data']['name'] ?? '');
+$options = $payload['data']['options'] ?? [];
+
+$deferResponse = static function (bool $ephemeral): void {
+  http_response_code(200);
+  header('Content-Type: application/json; charset=utf-8');
+  echo json_encode([
+    'type' => 5,
+    'data' => [
+      'flags' => $ephemeral ? 64 : 0,
+    ],
+  ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+  if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+  } else {
+    @ob_flush();
+    @flush();
+  }
 };
+
+$deferResponse(true);
+ignore_user_abort(true);
+set_time_limit(0);
 
 $discordEvents = $services['discord_events'] ?? null;
 $corpId = null;
@@ -54,20 +85,38 @@ if ($discordEvents instanceof \App\Services\DiscordEventService) {
   $corpId = $discordEvents->resolveCorpId($guildId);
 }
 
-if ($corpId === null || $corpId <= 0) {
-  $respond([
-    'type' => 4,
-    'data' => [
-      'content' => 'Discord configuration missing. Please contact an admin.',
-      'flags' => 64,
-    ],
-  ]);
-}
-
-$configRow = $discordEvents ? $discordEvents->loadConfig($corpId) : [];
+$configRow = $discordEvents && $corpId ? $discordEvents->loadConfig($corpId) : [];
 $ephemeral = !empty($configRow['commands_ephemeral_default']);
 
-$respondWithMessage = static function (string $content, bool $ephemeral, array $embeds = []): void {
+$apiBase = rtrim((string)($config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+$interactionToken = trim((string)($payload['token'] ?? ''));
+$applicationId = trim((string)($payload['application_id'] ?? $config['discord']['application_id'] ?? ''));
+$followupUrl = ($applicationId !== '' && $interactionToken !== '')
+  ? $apiBase . '/webhooks/' . $applicationId . '/' . $interactionToken
+  : '';
+
+$sendFollowup = static function (array $message) use ($followupUrl): void {
+  if ($followupUrl === '') {
+    return;
+  }
+
+  $payload = json_encode($message, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+  if ($payload === false) {
+    return;
+  }
+
+  $ch = curl_init($followupUrl);
+  curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+  curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+  curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Content-Type: application/json',
+  ]);
+  curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+  curl_exec($ch);
+  curl_close($ch);
+};
+
+$sendFollowupMessage = static function (string $content, bool $ephemeral, array $embeds = []) use ($sendFollowup): void {
   $data = [
     'content' => $content,
     'flags' => $ephemeral ? 64 : 0,
@@ -75,18 +124,13 @@ $respondWithMessage = static function (string $content, bool $ephemeral, array $
   if ($embeds !== []) {
     $data['embeds'] = $embeds;
   }
-  api_send_json([
-    'type' => 4,
-    'data' => $data,
-  ]);
+  $sendFollowup($data);
 };
 
-if ($type !== 2) {
-  $respondWithMessage('Unsupported interaction.', $ephemeral);
+if ($corpId === null || $corpId <= 0) {
+  $sendFollowupMessage('Discord configuration missing. Please contact an admin.', true);
+  exit;
 }
-
-$commandName = (string)($payload['data']['name'] ?? '');
-$options = $payload['data']['options'] ?? [];
 
 $optionMap = [];
 if (is_array($options)) {
@@ -116,7 +160,8 @@ $createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($p
 switch ($commandName) {
   case 'quote':
     if (empty($services['pricing'])) {
-      $respondWithMessage('Quote service unavailable.', $ephemeral);
+      $sendFollowupMessage('Quote service unavailable.', $ephemeral);
+      exit;
     }
     $pickup = trim((string)($optionMap['pickup'] ?? ''));
     $delivery = trim((string)($optionMap['delivery'] ?? ''));
@@ -181,18 +226,19 @@ switch ($commandName) {
         ],
       ];
 
-      $respondWithMessage('Quote ready.', $ephemeral, [$embed]);
+      $sendFollowupMessage('Quote ready.', $ephemeral, [$embed]);
     } catch (\App\Services\RouteException $e) {
-      $respondWithMessage('No viable route found with the current routing graph.', $ephemeral);
+      $sendFollowupMessage('No viable route found with the current routing graph.', $ephemeral);
     } catch (Throwable $e) {
-      $respondWithMessage('Unable to generate quote: ' . $e->getMessage(), $ephemeral);
+      $sendFollowupMessage('Unable to generate quote: ' . $e->getMessage(), $ephemeral);
     }
     break;
 
   case 'request':
     $requestKey = trim((string)($optionMap['id'] ?? ''));
     if ($requestKey === '') {
-      $respondWithMessage('Request id or code required.', $ephemeral);
+      $sendFollowupMessage('Request id or code required.', $ephemeral);
+      exit;
     }
 
     $requestRow = null;
@@ -210,7 +256,8 @@ switch ($commandName) {
     }
 
     if (!$requestRow) {
-      $respondWithMessage('Request not found.', $ephemeral);
+      $sendFollowupMessage('Request not found.', $ephemeral);
+      exit;
     }
 
     $from = (string)($requestRow['from_name'] ?? '');
@@ -265,13 +312,14 @@ switch ($commandName) {
       ];
     }
 
-    $respondWithMessage('Request details:', $ephemeral, [$embed]);
+    $sendFollowupMessage('Request details:', $ephemeral, [$embed]);
     break;
 
   case 'myrequests':
     $discordUserId = (string)($payload['member']['user']['id'] ?? $payload['user']['id'] ?? '');
     if ($discordUserId === '') {
-      $respondWithMessage('Unable to resolve Discord user.', $ephemeral);
+      $sendFollowupMessage('Unable to resolve Discord user.', $ephemeral);
+      exit;
     }
 
     $link = $db->one(
@@ -280,7 +328,8 @@ switch ($commandName) {
     );
     if (!$link) {
       $linkHint = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-      $respondWithMessage('No linked account found. Please link your Discord user in the hauling portal.' . $linkHint, $ephemeral);
+      $sendFollowupMessage('No linked account found. Please link your Discord user in the hauling portal.' . $linkHint, $ephemeral);
+      exit;
     }
 
     $rows = $db->select(
@@ -297,7 +346,8 @@ switch ($commandName) {
     );
 
     if ($rows === []) {
-      $respondWithMessage('No recent requests found.', $ephemeral);
+      $sendFollowupMessage('No recent requests found.', $ephemeral);
+      exit;
     }
 
     $lines = [];
@@ -311,7 +361,7 @@ switch ($commandName) {
       );
     }
 
-    $respondWithMessage("Recent requests:\n" . implode("\n", $lines), $ephemeral);
+    $sendFollowupMessage("Recent requests:\n" . implode("\n", $lines), $ephemeral);
     break;
 
   case 'rates':
@@ -323,7 +373,8 @@ switch ($commandName) {
       ['cid' => $corpId]
     );
     if ($rates === []) {
-      $respondWithMessage('No rate plans configured.', $ephemeral);
+      $sendFollowupMessage('No rate plans configured.', $ephemeral);
+      exit;
     }
     $lines = [];
     foreach ($rates as $rate) {
@@ -335,7 +386,7 @@ switch ($commandName) {
         number_format((float)($rate['min_price'] ?? 0), 2)
       );
     }
-    $respondWithMessage("Rate plan snapshot:\n" . implode("\n", $lines), $ephemeral);
+    $sendFollowupMessage("Rate plan snapshot:\n" . implode("\n", $lines), $ephemeral);
     break;
 
   case 'help':
@@ -347,13 +398,13 @@ switch ($commandName) {
       '/ping',
     ];
     $linkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-    $respondWithMessage("Commands:\n" . implode("\n", $help) . $linkLine, $ephemeral);
+    $sendFollowupMessage("Commands:\n" . implode("\n", $help) . $linkLine, true);
     break;
 
   case 'ping':
-    $respondWithMessage('Pong! Discord bot is online.', $ephemeral);
+    $sendFollowupMessage('Pong! Discord bot is online.', $ephemeral);
     break;
 
   default:
-    $respondWithMessage('Unknown command.', $ephemeral);
+    $sendFollowupMessage('Unknown command.', $ephemeral);
 }
