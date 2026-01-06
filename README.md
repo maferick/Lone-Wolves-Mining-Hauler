@@ -141,7 +141,7 @@ The hauling app supports Discord and Slack webhooks for ops notifications.
 4) In **Admin → Webhooks → Event Routing**, select which events should deliver to the endpoint.
 
 ## Discord Integration
-The hauling app supports a Discord bot for slash commands.
+The hauling app supports a Discord bot for slash commands, role sync, and hauling ops threads.
 
 ### Setup (Bot)
 1) Create a Discord application and bot at https://discord.com/developers/applications
@@ -157,7 +157,7 @@ DISCORD_GUILD_ID=...   # optional for guild-scoped command registration
    - Send Messages
    - Embed Links
    - Read Message History
-5) In **Admin → Discord**, click **Register/Refresh Slash Commands**.
+5) In **Admin → Discord**, configure Bot/OAuth settings, then click **Register/Refresh Slash Commands**.
 6) In the Discord Developer Portal, set the **Interactions Endpoint URL** to:
 ```
 https://example.com/api/discord/interactions/
@@ -173,14 +173,15 @@ If hosting under a subdirectory, use `https://example.com/hauling/privacy`.
 https://example.com/terms
 ```
 
-### Message templates and embeds
-Discord notifications are delivered as rich embeds. In **Admin → Discord → Message Templates**, you can edit the Title/Body/Footer templates using tokens such as:
-- `{request_id}`, `{request_code}`, `{pickup}`, `{delivery}`, `{volume}`, `{collateral}`, `{reward}`, `{status}`, `{priority}`
-- `{user}`, `{requester}`, `{hauler}`, `{ship_name}`
-- `{requester_portrait}`, `{hauler_portrait}`, `{ship_render}`
-- `{link_request}`, `{link_contract_instructions}`
+### Admin configuration overview
+Admin → Discord focuses on:
+- Bot/OAuth settings (application ID, public key, optional guild ID).
+- Rights → Discord role mapping (portal rights are authoritative).
+- Channel topology (recommended: a single restricted hauling channel with threads per request).
 
-Embeds include the requester portrait (author icon), the hauler portrait (footer icon when available), and the ship render thumbnail when a ship type is known.
+Recommended configuration: create a private hauling channel accessible to haulers only, and let the bot create threads per request inside it.
+
+Admin → Webhooks is the dedicated home for webhook routing and delivery settings.
 
 Expected responses:
 - `GET /api/discord/interactions/health` returns `200 {"ok":true}`.

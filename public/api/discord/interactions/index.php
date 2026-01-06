@@ -11,17 +11,31 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 use App\Db\Db;
 
-$publicKey = (string)($config['discord']['public_key'] ?? '');
-if ($publicKey === '') {
-  api_send_json(['ok' => false, 'error' => 'discord_public_key_missing'], 500);
-}
-
 $signature = $_SERVER['HTTP_X_SIGNATURE_ED25519'] ?? '';
 $timestamp = $_SERVER['HTTP_X_SIGNATURE_TIMESTAMP'] ?? '';
 $body = file_get_contents('php://input') ?: '';
 
 if ($signature === '' || $timestamp === '') {
   api_send_json(['ok' => false, 'error' => 'signature_missing'], 401);
+}
+
+$publicKey = (string)($config['discord']['public_key'] ?? '');
+$payloadGuess = json_decode($body, true);
+if (is_array($payloadGuess)) {
+  $guildIdGuess = (string)($payloadGuess['guild_id'] ?? '');
+  $discordEventsGuess = $services['discord_events'] ?? null;
+  if ($discordEventsGuess instanceof \App\Services\DiscordEventService) {
+    $corpIdGuess = $discordEventsGuess->resolveCorpId($guildIdGuess);
+    if ($corpIdGuess) {
+      $configGuess = $discordEventsGuess->loadConfig($corpIdGuess);
+      if (!empty($configGuess['public_key'])) {
+        $publicKey = (string)$configGuess['public_key'];
+      }
+    }
+  }
+}
+if ($publicKey === '') {
+  api_send_json(['ok' => false, 'error' => 'discord_public_key_missing'], 500);
 }
 
 $signatureBin = @hex2bin($signature);
@@ -95,7 +109,7 @@ $ephemeral = !empty($configRow['commands_ephemeral_default']);
 
 $apiBase = rtrim((string)($config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
 $interactionToken = trim((string)($payload['token'] ?? ''));
-$applicationId = trim((string)($payload['application_id'] ?? $config['discord']['application_id'] ?? ''));
+$applicationId = trim((string)($payload['application_id'] ?? $configRow['application_id'] ?? $config['discord']['application_id'] ?? ''));
 $followupUrl = ($applicationId !== '' && $interactionToken !== '')
   ? $apiBase . '/webhooks/' . $applicationId . '/' . $interactionToken
   : '';
@@ -163,6 +177,41 @@ $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
 $createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($pathPrefix ?: '/');
 $portalLinkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
 $onboardingMessage = 'No linked account found. Generate a link code in the hauling portal, then run /link <code> here.' . $portalLinkLine;
+$deniedMessage = 'Your linked account does not have the required portal rights.' . $portalLinkLine;
+
+$requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, $sendFollowupMessage, $onboardingMessage, $ephemeral): ?int {
+  $link = $db->one(
+    "SELECT l.user_id
+       FROM discord_user_link l
+       JOIN app_user u ON u.user_id = l.user_id
+      WHERE l.discord_user_id = :did
+        AND u.corp_id = :cid
+      LIMIT 1",
+    ['cid' => $corpId, 'did' => $discordUserId]
+  );
+  if (!$link) {
+    $sendFollowupMessage($onboardingMessage, $ephemeral);
+    return null;
+  }
+  $db->execute(
+    "UPDATE discord_user_link SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = :uid",
+    ['uid' => (int)$link['user_id']]
+  );
+  return (int)$link['user_id'];
+};
+
+$userHasRight = static function (int $userId, string $permKey) use ($db): bool {
+  $row = $db->one(
+    "SELECT 1
+       FROM user_role ur
+       JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
+       JOIN permission p ON p.perm_id = rp.perm_id
+      WHERE ur.user_id = :uid AND p.perm_key = :perm
+      LIMIT 1",
+    ['uid' => $userId, 'perm' => $permKey]
+  );
+  return (bool)$row;
+};
 
 switch ($commandName) {
   case 'quote':
@@ -242,6 +291,20 @@ switch ($commandName) {
     break;
 
   case 'request':
+    $discordUserId = (string)($payload['member']['user']['id'] ?? $payload['user']['id'] ?? '');
+    if ($discordUserId === '') {
+      $sendFollowupMessage('Unable to resolve Discord user.', $ephemeral);
+      exit;
+    }
+    $linkedUserId = $requireLinkedUser($discordUserId);
+    if ($linkedUserId === null) {
+      exit;
+    }
+    if (!$userHasRight($linkedUserId, 'hauling.member')) {
+      $sendFollowupMessage($deniedMessage, $ephemeral);
+      exit;
+    }
+
     $requestKey = trim((string)($optionMap['id'] ?? ''));
     if ($requestKey === '') {
       $sendFollowupMessage('Request id or code required.', $ephemeral);
@@ -329,24 +392,14 @@ switch ($commandName) {
       exit;
     }
 
-    $link = $db->one(
-      "SELECT l.user_id
-         FROM discord_user_link l
-         JOIN app_user u ON u.user_id = l.user_id
-        WHERE l.discord_user_id = :did
-          AND u.corp_id = :cid
-        LIMIT 1",
-      ['cid' => $corpId, 'did' => $discordUserId]
-    );
-    if (!$link) {
-      $sendFollowupMessage($onboardingMessage, $ephemeral);
+    $linkedUserId = $requireLinkedUser($discordUserId);
+    if ($linkedUserId === null) {
       exit;
     }
-
-    $db->execute(
-      "UPDATE discord_user_link SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = :uid",
-      ['uid' => (int)$link['user_id']]
-    );
+    if (!$userHasRight($linkedUserId, 'hauling.member')) {
+      $sendFollowupMessage($deniedMessage, $ephemeral);
+      exit;
+    }
 
     $rows = $db->select(
       "SELECT v.request_id, v.status, v.from_name, v.to_name, v.reward_isk, v.request_key, r.created_at
@@ -357,7 +410,7 @@ switch ($commandName) {
         LIMIT 5",
       [
         'cid' => $corpId,
-        'uid' => (int)$link['user_id'],
+        'uid' => $linkedUserId,
       ]
     );
 
@@ -545,6 +598,7 @@ switch ($commandName) {
 
         return [
           'ok' => true,
+          'user_id' => (int)$codeRow['user_id'],
           'log' => [
             'code_id' => (string)$codeRow['code'],
             'created_at' => $codeRow['created_at'],
@@ -566,6 +620,9 @@ switch ($commandName) {
     }
 
     if (!empty($result['ok'])) {
+      if (!empty($services['discord_events']) && !empty($result['user_id'])) {
+        $services['discord_events']->enqueueRoleSyncUser($corpId, (int)$result['user_id'], $discordUserId);
+      }
       $sendFollowupMessage('Your Discord account is now linked.' . $portalLinkLine, $linkEphemeral);
       break;
     }

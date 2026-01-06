@@ -229,6 +229,8 @@ try {
 
     // Ensure baseline permissions exist (idempotent)
     $permList = [
+      ['hauling.member','Hauling member','Access hauling portal features and status updates.'],
+      ['hauling.hauler','Hauling hauler','Access hauling operations visibility and execution tools.'],
       ['haul.request.create','Create haul request','Create new haul requests and submit for posting.'],
       ['haul.request.read','View haul requests','View haul requests for the corporation.'],
       ['haul.request.manage','Manage haul requests','Edit/quote/cancel/post requests.'],
