@@ -21,7 +21,12 @@ final class DiscordDeliveryService
          LEFT JOIN discord_channel_map m ON m.channel_map_id = o.channel_map_id
         WHERE o.status IN ('queued','failed')
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= UTC_TIMESTAMP())
-        ORDER BY o.created_at ASC
+        ORDER BY
+          CASE
+            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user') THEN 0
+            ELSE 1
+          END,
+          o.created_at ASC
         LIMIT {$limit}"
     );
 

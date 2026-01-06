@@ -127,6 +127,16 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   color: #FFD1DA;
   background: rgba(255,77,109,.18);
 }
+.pill-success{
+  border-color: rgba(63,213,119,.5);
+  color: #D1FFEA;
+  background: rgba(63,213,119,.2);
+}
+.pill-warning{
+  border-color: rgba(255,200,92,.5);
+  color: #FFE7B8;
+  background: rgba(255,200,92,.2);
+}
 
 .main{flex:1; padding:22px; max-width:1200px; width:100%; margin:0 auto}
 
