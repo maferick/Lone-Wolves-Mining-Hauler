@@ -1,4 +1,3 @@
-<div class="live-section__status" data-live-status aria-live="polite">Live</div>
 <div class="admin-section__title">Tests &amp; Status</div>
 <div class="card" style="padding:12px;">
   <div class="label">Status</div>

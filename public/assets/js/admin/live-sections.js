@@ -63,13 +63,6 @@
     }
   };
 
-  const updateStatus = (section, message) => {
-    const statusEl = section.querySelector('[data-live-status]');
-    if (statusEl) {
-      statusEl.textContent = message;
-    }
-  };
-
   sections.forEach((section) => {
     const url = section.getAttribute('data-live-url');
     if (!url) return;
@@ -82,14 +75,11 @@
       if (isRefreshing) return;
       isRefreshing = true;
       section.setAttribute('aria-busy', 'true');
-      section.classList.add('is-refreshing');
-      updateStatus(section, 'Refreshing…');
       const fieldState = captureFieldState(section);
 
       try {
         const resp = await fetch(url, { cache: 'no-store', credentials: 'same-origin' });
         if (!resp.ok) {
-          updateStatus(section, 'Refresh failed');
           return;
         }
         const html = await resp.text();
@@ -100,18 +90,10 @@
           section.innerHTML = html;
           restoreFieldState(section, fieldState);
           lastSnapshot = section.innerHTML;
-          section.classList.add('is-updated');
-          window.setTimeout(() => {
-            section.classList.remove('is-updated');
-          }, 1200);
         }
-        const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        updateStatus(section, `Updated ${timeLabel}`);
       } catch (err) {
-        updateStatus(section, 'Refresh failed');
       } finally {
         section.removeAttribute('aria-busy');
-        section.classList.remove('is-refreshing');
         isRefreshing = false;
       }
     };

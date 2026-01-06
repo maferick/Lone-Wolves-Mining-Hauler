@@ -1,4 +1,3 @@
-<div class="live-section__status" data-live-status aria-live="polite">Live</div>
 <div class="admin-section__title">Outbox</div>
 <div class="muted">Review queued Discord deliveries and the most recent results.</div>
 <div class="card" style="padding:12px; margin-top:12px;">
