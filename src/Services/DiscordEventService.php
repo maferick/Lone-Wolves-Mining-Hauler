@@ -279,7 +279,11 @@ final class DiscordEventService
       'priority' => (string)($row['route_profile'] ?? $row['route_policy'] ?? 'normal'),
       'ship_class' => (string)($row['ship_class'] ?? ''),
       'user' => (string)($row['requester_character_name'] ?? $row['requester_display_name'] ?? ''),
+      'requester' => (string)($row['requester_character_name'] ?? $row['requester_display_name'] ?? ''),
+      'requester_character_id' => (int)($row['requester_character_id'] ?? 0),
       'hauler' => (string)($row['esi_acceptor_display_name'] ?? $row['acceptor_name'] ?? ''),
+      'hauler_character_id' => (int)($row['esi_acceptor_id'] ?? $row['contract_acceptor_id'] ?? $row['acceptor_id'] ?? 0),
+      'ship_type_id' => 0,
       'link_request' => $requestUrl,
       'link_contract_instructions' => $requestUrl,
     ];
@@ -303,11 +307,11 @@ final class DiscordEventService
 
   private function formatIsk(float $amount): string
   {
-    return number_format($amount, 2) . ' ISK';
+    return number_format($amount, 2);
   }
 
   private function formatVolume(float $volume): string
   {
-    return number_format($volume, 0) . ' m³';
+    return number_format($volume, 0);
   }
 }
