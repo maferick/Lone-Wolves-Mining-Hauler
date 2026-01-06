@@ -882,180 +882,35 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section class="admin-section" id="outbox" data-section="outbox">
-      <div class="admin-section__title">Outbox</div>
-      <div class="muted">Review queued Discord deliveries and the most recent results.</div>
-      <div class="card" style="padding:12px; margin-top:12px;">
-        <div class="row" style="align-items:center; gap:12px;">
-          <div class="muted">Pending outbox: <?= $pendingCount ?></div>
-          <form method="post" style="margin-left:auto;">
-            <input type="hidden" name="action" value="clear_outbox" />
-            <button class="btn ghost" type="submit" onclick="return confirm('Clear queued, sending, and failed outbox entries?');" <?= $pendingCount > 0 ? '' : 'disabled' ?>>Clear Pending Outbox</button>
-          </form>
-        </div>
-        <?php if ($outboxRows !== []): ?>
-          <table class="table" style="margin-top:12px;">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Event</th>
-                <th>Status</th>
-                <th>Attempts</th>
-                <th>Created</th>
-                <th>Next Attempt</th>
-                <th>Sent</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($outboxRows as $row): ?>
-                <?php
-                  $status = (string)($row['status'] ?? '');
-                  $payloadText = (string)($row['payload_json'] ?? '');
-                  $payloadPreview = $payloadText;
-                  if (strlen($payloadPreview) > 300) {
-                    $payloadPreview = substr($payloadPreview, 0, 300) . '…';
-                  }
-                  $statusClass = 'pill-warning';
-                  if ($status === 'sent') {
-                    $statusClass = 'pill-success';
-                  } elseif ($status === 'failed') {
-                    $statusClass = 'pill-danger';
-                  }
-                  $helpPanelId = 'outbox-help-' . (int)$row['outbox_id'];
-                  $normalizedError = null;
-                  if ($status === 'failed' && !empty($row['last_error'])) {
-                    $normalizedError = DiscordOutboxErrorHelp::normalize((string)$row['last_error']);
-                  }
-                ?>
-                <tr>
-                  <td><?= (int)$row['outbox_id'] ?></td>
-                  <td>
-                    <div><strong><?= htmlspecialchars($outboxEventLabels[(string)($row['event_key'] ?? '')] ?? (string)($row['event_key'] ?? ''), ENT_QUOTES, 'UTF-8') ?></strong></div>
-                    <div class="muted" style="font-size:12px;"><?= htmlspecialchars((string)($row['event_key'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
-                  </td>
-                  <td><span class="pill <?= $statusClass ?>"><?= htmlspecialchars($status !== '' ? $status : 'unknown', ENT_QUOTES, 'UTF-8') ?></span></td>
-                  <td><?= (int)($row['attempts'] ?? 0) ?></td>
-                  <td><?= htmlspecialchars((string)($row['created_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                  <td><?= htmlspecialchars((string)($row['next_attempt_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                  <td><?= htmlspecialchars((string)($row['sent_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                  <td>
-                    <?php if (!empty($row['last_error'])): ?>
-                      <div class="pill pill-danger" style="margin-bottom:6px;">
-                        <?= htmlspecialchars((string)$row['last_error'], ENT_QUOTES, 'UTF-8') ?>
-                        <?php if ($status === 'failed'): ?>
-                          <button type="button" class="btn ghost" data-outbox-help-toggle data-target="<?= htmlspecialchars($helpPanelId, ENT_QUOTES, 'UTF-8') ?>" aria-expanded="false" style="margin-left:8px; padding:2px 6px; font-size:12px;">
-                            Help ▸
-                          </button>
-                        <?php endif; ?>
-                      </div>
-                    <?php endif; ?>
-                    <details>
-                      <summary class="muted" style="cursor:pointer;">Payload</summary>
-                      <pre style="white-space:pre-wrap; margin-top:6px;"><?= htmlspecialchars($payloadPreview, ENT_QUOTES, 'UTF-8') ?></pre>
-                    </details>
-                  </td>
-                </tr>
-                <?php if ($status === 'failed'): ?>
-                  <tr id="<?= htmlspecialchars($helpPanelId, ENT_QUOTES, 'UTF-8') ?>" class="outbox-help-row" style="display:none;">
-                    <td colspan="8">
-                      <?= $renderOutboxErrorHelp((string)($normalizedError['error_key'] ?? 'discord.unknown_error'), $normalizedError ?? []) ?>
-                    </td>
-                  </tr>
-                <?php endif; ?>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
-        <?php else: ?>
-          <div class="muted" style="margin-top:12px;">No outbox messages yet.</div>
-        <?php endif; ?>
-      </div>
+    <section class="admin-section" id="outbox" data-section="outbox" data-live-section data-live-interval="15" data-live-url="<?= ($basePath ?: '') ?>/admin/discord/partials/outbox.php">
+      <?php require __DIR__ . '/../../../src/Views/partials/admin/discord_outbox.php'; ?>
     </section>
 
-    <section class="admin-section" id="tests-status" data-section="tests-status">
-      <div class="admin-section__title">Tests & Status</div>
-      <div class="card" style="padding:12px;">
-        <div class="label">Status</div>
-        <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
-        <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
-        <div class="muted">Guild ID set: <?= !empty($configRow['guild_id']) ? 'yes' : 'no' ?></div>
-        <div class="muted">Channel mode: <?= htmlspecialchars((string)($configRow['channel_mode'] ?? 'threads'), ENT_QUOTES, 'UTF-8') ?></div>
-        <div class="muted">Hauling channel ID: <?= !empty($configRow['hauling_channel_id']) ? htmlspecialchars((string)$configRow['hauling_channel_id'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
-        <div class="muted">Role mappings: <?= $roleMappingCount ?></div>
-        <div class="muted">Last successful bot action: <?= !empty($configRow['last_bot_action_at']) ? htmlspecialchars((string)$configRow['last_bot_action_at'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
-        <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-        <div class="muted">Pending outbox: <?= $pendingCount ?></div>
-        <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-
-        <div style="margin-top:12px;">
-          <div class="label">Permission test result</div>
-          <?php if ($permissionTest): ?>
-            <div class="pill <?= $permissionTestTone === 'success' ? 'pill-success' : ($permissionTestTone === 'danger' ? 'pill-danger' : 'pill-warning') ?>">
-              <?= htmlspecialchars($permissionTest, ENT_QUOTES, 'UTF-8') ?>
-            </div>
-          <?php else: ?>
-            <div class="pill subtle">No permission test result yet.</div>
-          <?php endif; ?>
-          <?php if (!empty($permissionResults['checks']) && is_array($permissionResults['checks'])): ?>
-            <div style="margin-top:8px;">
-              <?php foreach ($permissionResults['checks'] as $check): ?>
-                <?php
-                  $checkOk = !empty($check['ok']);
-                  $checkRequired = isset($check['required']) ? (bool)$check['required'] : true;
-                  $checkTone = $checkOk ? 'pill-success' : ($checkRequired ? 'pill-danger' : 'pill-warning');
-                  $checkLabel = (string)($check['label'] ?? 'Check');
-                  $checkMessage = trim((string)($check['message'] ?? ''));
-                  $checkStatus = (int)($check['status'] ?? 0);
-                ?>
-                <div class="row" style="align-items:center; gap:8px; margin-top:6px;">
-                  <span class="pill <?= $checkTone ?>"><?= $checkOk ? 'pass' : ($checkRequired ? 'fail' : 'warn') ?></span>
-                  <div>
-                    <div><?= htmlspecialchars($checkLabel, ENT_QUOTES, 'UTF-8') ?></div>
-                    <?php if ($checkMessage !== '' || $checkStatus > 0): ?>
-                      <div class="muted" style="font-size:12px;">
-                        <?= htmlspecialchars($checkMessage !== '' ? $checkMessage : 'HTTP ' . $checkStatus, ENT_QUOTES, 'UTF-8') ?>
-                      </div>
-                    <?php endif; ?>
-                  </div>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          <?php endif; ?>
-        </div>
-
-        <div class="row" style="margin-top:12px; gap:10px;">
-          <form method="post">
-            <input type="hidden" name="action" value="send_test_message" />
-            <button class="btn" type="submit">Send Test Bot Message</button>
-          </form>
-          <form method="post">
-            <input type="hidden" name="action" value="test_interaction" />
-            <button class="btn ghost" type="submit">Test Interaction Endpoint</button>
-          </form>
-        </div>
-      </div>
+    <section class="admin-section" id="tests-status" data-section="tests-status" data-live-section data-live-interval="20" data-live-url="<?= ($basePath ?: '') ?>/admin/discord/partials/status.php">
+      <?php require __DIR__ . '/../../../src/Views/partials/admin/discord_status.php'; ?>
     </section>
   </div>
 </section>
 <script src="<?= ($basePath ?: '') ?>/assets/js/admin/admin-tabs.js" defer></script>
+<script src="<?= ($basePath ?: '') ?>/assets/js/admin/live-sections.js" defer></script>
 <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('[data-outbox-help-toggle]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const targetId = button.getAttribute('data-target');
-        if (!targetId) {
-          return;
-        }
-        const panel = document.getElementById(targetId);
-        if (!panel) {
-          return;
-        }
-        const isHidden = panel.style.display === 'none' || panel.style.display === '';
-        panel.style.display = isHidden ? 'table-row' : 'none';
-        button.textContent = isHidden ? 'Help ▾' : 'Help ▸';
-        button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
-      });
-    });
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-outbox-help-toggle]');
+    if (!button) {
+      return;
+    }
+    const targetId = button.getAttribute('data-target');
+    if (!targetId) {
+      return;
+    }
+    const panel = document.getElementById(targetId);
+    if (!panel) {
+      return;
+    }
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    panel.style.display = isHidden ? 'table-row' : 'none';
+    button.textContent = isHidden ? 'Help ▾' : 'Help ▸';
+    button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
   });
 </script>
 <?php

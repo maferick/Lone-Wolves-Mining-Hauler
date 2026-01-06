@@ -148,21 +148,22 @@
     }
   };
 
-  document.querySelectorAll('[data-run-sync]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const scope = button.getAttribute('data-run-sync') || 'all';
+  document.addEventListener('click', (event) => {
+    const syncButton = event.target.closest('[data-run-sync]');
+    if (syncButton) {
+      const scope = syncButton.getAttribute('data-run-sync') || 'all';
       startJob(scope, false, false);
-    });
-  });
+      return;
+    }
 
-  document.querySelectorAll('[data-run-task]').forEach((button) => {
-    button.addEventListener('click', (event) => {
-      const taskKey = button.getAttribute('data-run-task');
+    const taskButton = event.target.closest('[data-run-task]');
+    if (taskButton) {
+      const taskKey = taskButton.getAttribute('data-run-task');
       if (taskKey) {
         const force = event.shiftKey;
         runTask(taskKey, force);
       }
-    });
+    }
   });
 
   if (logPrev) {
