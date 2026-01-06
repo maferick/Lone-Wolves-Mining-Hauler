@@ -343,10 +343,12 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <form method="post">
           <input type="hidden" name="action" value="save_config" />
           <label style="display:flex; gap:8px; align-items:center;">
+            <input type="hidden" name="enabled_webhooks" value="0" />
             <input type="checkbox" name="enabled_webhooks" <?= !empty($configRow['enabled_webhooks']) ? 'checked' : '' ?> />
             <span>Enable Discord Webhooks</span>
           </label>
           <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+            <input type="hidden" name="enabled_bot" value="0" />
             <input type="checkbox" name="enabled_bot" <?= !empty($configRow['enabled_bot']) ? 'checked' : '' ?> />
             <span>Enable Discord Bot</span>
           </label>
@@ -363,6 +365,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </div>
 
           <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+            <input type="hidden" name="commands_ephemeral_default" value="0" />
             <input type="checkbox" name="commands_ephemeral_default" <?= !empty($configRow['commands_ephemeral_default']) ? 'checked' : '' ?> />
             <span>Default ephemeral responses for slash commands</span>
           </label>
