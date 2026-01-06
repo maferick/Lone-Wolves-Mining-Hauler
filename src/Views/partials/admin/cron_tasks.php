@@ -1,4 +1,3 @@
-<div class="live-section__status" data-live-status aria-live="polite">Live</div>
 <h3>Scheduled tasks</h3>
 <table class="table cron-table">
   <thead>

@@ -1,4 +1,3 @@
-<div class="live-section__status" data-live-status aria-live="polite">Live</div>
 <h3 style="margin-top:18px;">Last sync timestamps</h3>
 <ul class="muted" style="margin-top:8px;">
   <?php if ($cronStats === []): ?>
