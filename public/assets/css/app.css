@@ -393,6 +393,22 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .admin-subnav--secondary{
   margin-top:-6px;
 }
+.admin-subnav--tabs{
+  position: static;
+  margin:12px 0 0;
+  padding:6px 8px;
+  background: rgba(0,0,0,.12);
+}
+.admin-subnav--tabs .nav-link{
+  font-size:12px;
+  padding:6px 10px;
+}
+.admin-tabs .admin-section{
+  display:none;
+}
+.admin-tabs .admin-section.is-active{
+  display:block;
+}
 .admin-section{
   scroll-margin-top: 140px;
 }

@@ -320,75 +320,73 @@ $discordTabs = [
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
-<nav class="admin-subnav admin-subnav--secondary discord-subnav" data-discord-tabs aria-label="Discord sections">
-  <?php foreach ($discordTabs as $tab): ?>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/discord/#<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>" data-section="<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>">
-      <?= htmlspecialchars($tab['label'], ENT_QUOTES, 'UTF-8') ?>
-    </a>
-  <?php endforeach; ?>
-</nav>
-<section class="card">
+<section class="card admin-tabs" data-admin-tabs="discord">
   <div class="card-header">
     <h2>Discord Integration</h2>
     <p class="muted">Configure webhooks, bot commands, and notification templates for ops messaging.</p>
+    <nav class="admin-subnav admin-subnav--tabs" data-admin-tabs-nav aria-label="Discord sections">
+      <?php foreach ($discordTabs as $tab): ?>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/discord/#<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>" data-section="<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>">
+          <?= htmlspecialchars($tab['label'], ENT_QUOTES, 'UTF-8') ?>
+        </a>
+      <?php endforeach; ?>
+    </nav>
   </div>
 
   <div class="content">
     <?php if ($msg): ?><div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
-    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:20px;">
-      <section class="admin-section" id="settings">
-        <div class="admin-section__title">Settings</div>
-        <div class="card" style="padding:12px;">
-          <div class="label">Connection Mode</div>
-          <form method="post">
-            <input type="hidden" name="action" value="save_config" />
-            <label style="display:flex; gap:8px; align-items:center;">
-              <input type="checkbox" name="enabled_webhooks" <?= !empty($configRow['enabled_webhooks']) ? 'checked' : '' ?> />
-              <span>Enable Discord Webhooks</span>
-            </label>
-            <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-              <input type="checkbox" name="enabled_bot" <?= !empty($configRow['enabled_bot']) ? 'checked' : '' ?> />
-              <span>Enable Discord Bot</span>
-            </label>
+    <section class="admin-section is-active" id="settings" data-section="settings">
+      <div class="admin-section__title">Settings</div>
+      <div class="card" style="padding:12px;">
+        <div class="label">Connection Mode</div>
+        <form method="post">
+          <input type="hidden" name="action" value="save_config" />
+          <label style="display:flex; gap:8px; align-items:center;">
+            <input type="checkbox" name="enabled_webhooks" <?= !empty($configRow['enabled_webhooks']) ? 'checked' : '' ?> />
+            <span>Enable Discord Webhooks</span>
+          </label>
+          <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+            <input type="checkbox" name="enabled_bot" <?= !empty($configRow['enabled_bot']) ? 'checked' : '' ?> />
+            <span>Enable Discord Bot</span>
+          </label>
 
-            <div class="row" style="margin-top:12px;">
-              <div>
-                <div class="label">Rate limit (msgs/min/channel)</div>
-                <input class="input" type="number" min="1" name="rate_limit_per_minute" value="<?= (int)($configRow['rate_limit_per_minute'] ?? 20) ?>" />
-              </div>
-              <div>
-                <div class="label">Dedupe window (seconds)</div>
-                <input class="input" type="number" min="0" name="dedupe_window_seconds" value="<?= (int)($configRow['dedupe_window_seconds'] ?? 60) ?>" />
-              </div>
+          <div class="row" style="margin-top:12px;">
+            <div>
+              <div class="label">Rate limit (msgs/min/channel)</div>
+              <input class="input" type="number" min="1" name="rate_limit_per_minute" value="<?= (int)($configRow['rate_limit_per_minute'] ?? 20) ?>" />
             </div>
-
-            <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
-              <input type="checkbox" name="commands_ephemeral_default" <?= !empty($configRow['commands_ephemeral_default']) ? 'checked' : '' ?> />
-              <span>Default ephemeral responses for slash commands</span>
-            </label>
-
-            <div style="margin-top:12px;">
-              <button class="btn" type="submit">Save Settings</button>
+            <div>
+              <div class="label">Dedupe window (seconds)</div>
+              <input class="input" type="number" min="0" name="dedupe_window_seconds" value="<?= (int)($configRow['dedupe_window_seconds'] ?? 60) ?>" />
             </div>
-          </form>
-        </div>
-      </section>
-      <section class="admin-section" id="status">
-        <div class="admin-section__title">Status</div>
-        <div class="card" style="padding:12px;">
-          <div class="label">Status</div>
-          <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
-          <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
-          <div class="muted">Webhook URLs configured: <?= $webhookCount ?></div>
-          <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-          <div class="muted">Pending outbox: <?= $pendingCount ?></div>
-          <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-        </div>
-      </section>
-    </div>
+          </div>
 
-    <section class="admin-section" id="bot">
+          <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+            <input type="checkbox" name="commands_ephemeral_default" <?= !empty($configRow['commands_ephemeral_default']) ? 'checked' : '' ?> />
+            <span>Default ephemeral responses for slash commands</span>
+          </label>
+
+          <div style="margin-top:12px;">
+            <button class="btn" type="submit">Save Settings</button>
+          </div>
+        </form>
+      </div>
+    </section>
+    <section class="admin-section" id="status" data-section="status">
+      <div class="admin-section__title">Status</div>
+      <div class="card" style="padding:12px;">
+        <div class="label">Status</div>
+        <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
+        <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
+        <div class="muted">Webhook URLs configured: <?= $webhookCount ?></div>
+        <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        <div class="muted">Pending outbox: <?= $pendingCount ?></div>
+        <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+      </div>
+    </section>
+
+    <section class="admin-section" id="bot" data-section="bot">
       <div class="admin-section__title">Bot</div>
       <div class="card" style="padding:12px; margin-bottom:18px;">
         <div class="label">Bot Configuration</div>
@@ -421,7 +419,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section class="admin-section" id="routing">
+    <section class="admin-section" id="routing" data-section="routing">
       <div class="admin-section__title">Routing</div>
       <div class="card" style="padding:12px; margin-bottom:18px;">
         <div class="label">Channel Routing</div>
@@ -533,7 +531,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section class="admin-section" id="templates">
+    <section class="admin-section" id="templates" data-section="templates">
       <div class="admin-section__title">Templates</div>
       <div class="card" style="padding:12px;">
         <div class="label">Message Templates</div>
@@ -578,7 +576,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </section>
   </div>
 </section>
-<script src="<?= ($basePath ?: '') ?>/assets/js/admin/discord.js?v=2026"></script>
+<script src="<?= ($basePath ?: '') ?>/assets/js/admin/admin-tabs.js" defer></script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
