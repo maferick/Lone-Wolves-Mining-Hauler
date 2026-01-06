@@ -1076,7 +1076,17 @@ final class DiscordDeliveryService
       $firstFailure = $firstFailure ?? $rolesCheck;
     }
 
-    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/@me', $headers);
+    $botId = '';
+    if (!empty($tokenResp['ok'])) {
+      $tokenBody = json_decode((string)($tokenResp['body'] ?? ''), true);
+      if (is_array($tokenBody)) {
+        $botId = (string)($tokenBody['id'] ?? '');
+      }
+    }
+    $memberEndpoint = $botId !== ''
+      ? $base . '/guilds/' . $guildId . '/members/' . $botId
+      : $base . '/guilds/' . $guildId . '/members/@me';
+    $memberResp = $this->getJson($memberEndpoint, $headers);
     $memberCheck = $this->buildPermissionCheck(
       'bot_member',
       'Bot membership (GET /guilds/{guild_id}/members/@me)',
