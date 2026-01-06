@@ -159,6 +159,10 @@ https://example.com/privacy
 ```
 
 If hosting under a subdirectory, use `https://example.com/hauling/privacy`.
+8) In the Discord Developer Portal, set the **Terms of Service URL** to:
+```
+https://example.com/terms
+```
 
 ### Message templates and embeds
 Discord notifications are delivered as rich embeds. In **Admin → Discord → Message Templates**, you can edit the Title/Body/Footer templates using tokens such as:

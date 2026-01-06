@@ -38,6 +38,8 @@ if ($basePath === '') {
     '/request',
     '/docs',
     '/privacy',
+    '/docs/terms',
+    '/terms',
     '/rates',
     '/faq',
     '/quote',
@@ -322,6 +324,15 @@ switch ($path) {
     $title = $appName . ' • Privacy';
     $basePathForViews = $basePath;
     require __DIR__ . '/../src/Views/privacy.php';
+  case '/docs/terms':
+  case '/terms':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Terms of Service';
+    $basePathForViews = $basePath;
+    $docTitle = 'Terms of Service';
+    $docDescription = 'Discord integration terms for internal corp use.';
+    $docPath = __DIR__ . '/../docs/TERMS.md';
+    require __DIR__ . '/../src/Views/markdown-doc.php';
     break;
 
   case '/operations':
