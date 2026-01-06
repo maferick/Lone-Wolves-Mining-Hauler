@@ -12,7 +12,7 @@ declare(strict_types=1);
  *   /hauling/api/contracts/sync
  */
 
-require_once __DIR__ . '/../../src/bootstrap.php';
+require_once __DIR__ . '/bootstrap.php';
 
 $path = $_SERVER['PATH_INFO'] ?? '/';
 $path = '/' . trim($path, '/');

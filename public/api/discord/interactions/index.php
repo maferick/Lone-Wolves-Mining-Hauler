@@ -7,33 +7,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
   api_send_json(['ok' => true]);
 }
 
-$bootstrapPath = null;
-$bootstrapCandidates = [];
-$root = dirname(__DIR__, 4);
-
-for ($depth = 0; $depth <= 2; $depth++) {
-  $candidateRoot = $depth === 0 ? $root : dirname($root, $depth);
-  $candidate = $candidateRoot . '/src/bootstrap.php';
-  $bootstrapCandidates[] = $candidate;
-
-  if (is_file($candidate)) {
-    $bootstrapPath = $candidate;
-    break;
-  }
-}
-
-if ($bootstrapPath === null || !is_file($bootstrapPath)) {
-  error_log(sprintf(
-    'Discord interactions bootstrap missing. Tried bootstrap paths: %s',
-    implode(', ', $bootstrapCandidates)
-  ));
-  http_response_code(500);
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode(['ok' => false, 'error' => 'bootstrap_missing'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-  exit;
-}
-
-require_once $bootstrapPath;
+require_once __DIR__ . '/../../bootstrap.php';
 
 use App\Db\Db;
 
