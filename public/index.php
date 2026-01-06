@@ -324,6 +324,7 @@ switch ($path) {
     $title = $appName . ' • Privacy';
     $basePathForViews = $basePath;
     require __DIR__ . '/../src/Views/privacy.php';
+    break;
   case '/docs/terms':
   case '/terms':
     $appName = $config['app']['name'];
