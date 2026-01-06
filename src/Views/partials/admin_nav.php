@@ -24,6 +24,27 @@ if (!empty($authCtx['user_id'])) {
     }
   }
 }
+$requestUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+$requestPath = (string)(parse_url($requestUri, PHP_URL_PATH) ?? '/');
+if ($basePath !== '' && strpos($requestPath, $basePath) === 0) {
+  $requestPath = substr($requestPath, strlen($basePath));
+  if ($requestPath === '') {
+    $requestPath = '/';
+  }
+}
+$isActivePath = static function (string $currentPath, string $targetPath): bool {
+  $baseTarget = rtrim($targetPath, '/');
+  if ($baseTarget === '') {
+    $baseTarget = '/';
+  }
+
+  return $currentPath === $targetPath
+    || $currentPath === $baseTarget
+    || $currentPath === $baseTarget . '/'
+    || $currentPath === $baseTarget . '.php'
+    || strpos($currentPath, $baseTarget . '/') === 0;
+};
+$isAdminArea = strpos($requestPath, '/admin') === 0;
 $navItems = [
   ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
   ['label' => 'Corp', 'path' => '/admin/settings/', 'perm' => 'corp.manage'],
@@ -39,18 +60,54 @@ $navItems = [
   ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
   ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
 ];
+$subNavGroups = [
+  [
+    'label' => 'Platform',
+    'items' => [
+      ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
+      ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
+      ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true],
+    ],
+  ],
+  [
+    'label' => 'Operations',
+    'items' => [
+      ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
+      ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
+      ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
+      ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
+    ],
+  ],
+  [
+    'label' => 'Integrations',
+    'items' => [
+      ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
+      ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
+      ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
+      ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+    ],
+  ],
+  [
+    'label' => 'Maintenance',
+    'items' => [
+      ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
+      ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
+    ],
+  ],
+];
 ?>
 <div class="adminbar">
   <div class="adminbar-left">
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
+    <a class="nav-link<?= $isActivePath($requestPath, '/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
     <?php foreach ($navItems as $item): ?>
       <?php if (($item['perm'] === null && $hasAnyAdmin) || ($item['perm'] !== null && Auth::can($authCtx, $item['perm']))): ?>
-        <a class="nav-link" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
+        <?php $isActive = $isActivePath($requestPath, $item['path']); ?>
+        <a class="nav-link<?= $isActive ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
       <?php endif; ?>
     <?php endforeach; ?>
-    <a class="nav-link" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
+    <a class="nav-link<?= $isActivePath($requestPath, '/api/ping') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
     <?php if ($canRights): ?>
-      <a class="nav-link" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
+      <a class="nav-link<?= $isActivePath($requestPath, '/rights/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
     <?php endif; ?>
   </div>
   <div class="adminbar-right">
@@ -58,3 +115,48 @@ $navItems = [
     <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
   </div>
 </div>
+<?php if ($isAdminArea): ?>
+  <nav class="admin-subnav" aria-label="Admin sections">
+    <?php foreach ($subNavGroups as $group): ?>
+      <?php
+        $groupItems = [];
+        foreach ($group['items'] as $item) {
+          $requiresRights = !empty($item['requires_rights']);
+          $isAllowed = false;
+          if ($item['perm'] === null) {
+            $isAllowed = $hasAnyAdmin;
+          } elseif ($requiresRights) {
+            $isAllowed = $canRights && Auth::can($authCtx, $item['perm']);
+          } else {
+            $isAllowed = Auth::can($authCtx, $item['perm']);
+          }
+
+          if ($isAllowed) {
+            $groupItems[] = $item;
+          }
+        }
+        if ($groupItems === []) {
+          continue;
+        }
+        $groupActive = false;
+        foreach ($groupItems as $item) {
+          if ($isActivePath($requestPath, $item['path'])) {
+            $groupActive = true;
+            break;
+          }
+        }
+      ?>
+      <div class="admin-subnav-group<?= $groupActive ? ' is-active' : '' ?>">
+        <div class="admin-subnav-label"><?= htmlspecialchars($group['label'], ENT_QUOTES, 'UTF-8') ?></div>
+        <div class="admin-subnav-links">
+          <?php foreach ($groupItems as $item): ?>
+            <?php $isActive = $isActivePath($requestPath, $item['path']); ?>
+            <a class="nav-link<?= $isActive ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') . $item['path'] ?>">
+              <?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?>
+            </a>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  </nav>
+<?php endif; ?>
