@@ -24,6 +24,7 @@ $pricingTabs = [
 ];
 
 ob_start();
+require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
 <section
   class="card admin-tabs"
@@ -164,5 +165,5 @@ ob_start();
 <script src="<?= ($basePath ?: '') ?>/assets/js/admin/pricing.js" defer></script>
 <?php
 $body = ob_get_clean();
-require __DIR__ . '/../../../src/Views/admin_layout.php';
+require __DIR__ . '/../../../src/Views/layout.php';
 ?>

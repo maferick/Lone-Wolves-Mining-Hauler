@@ -105,6 +105,7 @@ foreach ($roles as $role) {
 }
 
 ob_start();
+require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
 <section class="card">
   <div class="card-header">
@@ -176,4 +177,4 @@ ob_start();
 <script src="<?= ($basePath ?: '') ?>/assets/js/admin/users.js" defer></script>
 <?php
 $body = ob_get_clean();
-require __DIR__ . '/../../../src/Views/admin_layout.php';
+require __DIR__ . '/../../../src/Views/layout.php';
