@@ -424,6 +424,33 @@ $lastErrorRow = $db->one(
   ['cid' => $corpId]
 );
 $lastError = $lastErrorRow ? (string)($lastErrorRow['last_error'] ?? '') : '';
+$permissionTestRow = $db->one(
+  "SELECT status, last_error, created_at, sent_at
+     FROM discord_outbox
+    WHERE corp_id = :cid
+      AND event_key = 'discord.bot.permissions_test'
+    ORDER BY outbox_id DESC
+    LIMIT 1",
+  ['cid' => $corpId]
+);
+$permissionTest = null;
+$permissionTestTone = 'warning';
+if ($permissionTestRow) {
+  $permissionStatus = (string)($permissionTestRow['status'] ?? '');
+  $permissionAt = (string)($permissionTestRow['sent_at'] ?? $permissionTestRow['created_at'] ?? '');
+  if ($permissionStatus === 'sent') {
+    $permissionTestTone = 'success';
+    $permissionTest = 'Permission test passed' . ($permissionAt !== '' ? ' at ' . $permissionAt : '') . '.';
+  } elseif ($permissionStatus === 'failed') {
+    $permissionTestTone = 'danger';
+    $permissionError = (string)($permissionTestRow['last_error'] ?? 'Permission test failed.');
+    $permissionTest = 'Permission test failed: ' . $permissionError;
+  } elseif ($permissionStatus === 'sending') {
+    $permissionTest = 'Permission test in progress' . ($permissionAt !== '' ? ' since ' . $permissionAt : '') . '.';
+  } else {
+    $permissionTest = 'Permission test queued' . ($permissionAt !== '' ? ' at ' . $permissionAt : '') . '.';
+  }
+}
 $templateRows = $db->select(
   "SELECT event_key, title_template, body_template, footer_template
      FROM discord_template
@@ -764,6 +791,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
         <div class="muted">Pending outbox: <?= $pendingCount ?></div>
         <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+
+        <div style="margin-top:12px;">
+          <div class="label">Permission test result</div>
+          <?php if ($permissionTest): ?>
+            <div class="pill <?= $permissionTestTone === 'success' ? 'pill-success' : ($permissionTestTone === 'danger' ? 'pill-danger' : 'pill-warning') ?>">
+              <?= htmlspecialchars($permissionTest, ENT_QUOTES, 'UTF-8') ?>
+            </div>
+          <?php else: ?>
+            <div class="pill subtle">No permission test result yet.</div>
+          <?php endif; ?>
+        </div>
 
         <div class="row" style="margin-top:12px; gap:10px;">
           <form method="post">
