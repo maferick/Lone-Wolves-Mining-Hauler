@@ -39,39 +39,49 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
 
   $workerId = gethostname() . ':' . getmypid();
   $jobQueue = new JobQueueService($db);
-  $job = $jobQueue->claimNextJob([
-    JobQueueService::WEBHOOK_DELIVERY_JOB,
-    JobQueueService::WEBHOOK_REQUEUE_JOB,
-    JobQueueService::DISCORD_DELIVERY_JOB,
-    JobQueueService::CRON_ALLIANCES_JOB,
-    JobQueueService::CRON_NPC_STRUCTURES_JOB,
-    JobQueueService::CRON_SYNC_JOB,
-    JobQueueService::CRON_TOKEN_REFRESH_JOB,
-    JobQueueService::CRON_STRUCTURES_JOB,
-    JobQueueService::CRON_PUBLIC_STRUCTURES_JOB,
-    JobQueueService::CRON_CONTRACTS_JOB,
-    JobQueueService::CONTRACT_MATCH_JOB,
-  ], $workerId);
-
-  if (!$job) {
-    $log('No queued cron jobs.');
-    return 0;
+  $maxJobs = (int)($_ENV['CRON_JOB_WORKER_LIMIT'] ?? 5);
+  if ($maxJobs <= 0) {
+    $maxJobs = 5;
   }
+  $processed = 0;
 
-  $jobId = (int)$job['job_id'];
-  $payload = [];
-  if (!empty($job['payload_json'])) {
-    $decoded = Db::jsonDecode((string)$job['payload_json'], []);
-    if (is_array($decoded)) {
-      $payload = $decoded;
+  while ($processed < $maxJobs) {
+    $job = $jobQueue->claimNextJob([
+      JobQueueService::WEBHOOK_DELIVERY_JOB,
+      JobQueueService::WEBHOOK_REQUEUE_JOB,
+      JobQueueService::DISCORD_DELIVERY_JOB,
+      JobQueueService::CRON_ALLIANCES_JOB,
+      JobQueueService::CRON_NPC_STRUCTURES_JOB,
+      JobQueueService::CRON_SYNC_JOB,
+      JobQueueService::CRON_TOKEN_REFRESH_JOB,
+      JobQueueService::CRON_STRUCTURES_JOB,
+      JobQueueService::CRON_PUBLIC_STRUCTURES_JOB,
+      JobQueueService::CRON_CONTRACTS_JOB,
+      JobQueueService::CONTRACT_MATCH_JOB,
+    ], $workerId);
+
+    if (!$job) {
+      if ($processed === 0) {
+        $log('No queued cron jobs.');
+      }
+      break;
     }
-  }
 
-  $corpId = (int)($job['corp_id'] ?? 0);
-  $jobType = (string)($job['job_type'] ?? '');
-  $log("Processing cron job {$jobId} ({$jobType}).");
+    $processed++;
+    $jobId = (int)$job['job_id'];
+    $payload = [];
+    if (!empty($job['payload_json'])) {
+      $decoded = Db::jsonDecode((string)$job['payload_json'], []);
+      if (is_array($decoded)) {
+        $payload = $decoded;
+      }
+    }
 
-  try {
+    $corpId = (int)($job['corp_id'] ?? 0);
+    $jobType = (string)($job['job_type'] ?? '');
+    $log("Processing cron job {$jobId} ({$jobType}).");
+
+    try {
     $cronJobMeta = [
       JobQueueService::CRON_SYNC_JOB => [
         'label' => 'Starting ESI sync',
@@ -154,7 +164,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $result = $services['discord_webhook']->sendPending($limit);
         $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_delivery.completed', 'Webhook delivery completed.');
         $log("Webhook delivery job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::WEBHOOK_REQUEUE_JOB:
         if (!isset($services['discord_webhook'])) {
           throw new RuntimeException('Discord webhook service not configured.');
@@ -171,7 +181,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $result = $services['discord_webhook']->requeueFailedDeliveries($limit, $minutes);
         $jobQueue->markSucceeded($jobId, $result, 'cron.webhook_requeue.completed', 'Webhook requeue completed.');
         $log("Webhook requeue job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::DISCORD_DELIVERY_JOB:
         if (!isset($services['discord_delivery'])) {
           throw new RuntimeException('Discord delivery service not configured.');
@@ -187,7 +197,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $result = $services['discord_delivery']->sendPending($limit);
         $jobQueue->markSucceeded($jobId, $result, 'cron.discord_delivery.completed', 'Discord delivery completed.');
         $log("Discord delivery job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::CRON_ALLIANCES_JOB:
         $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_ALLIANCES_JOB];
         $jobQueue->updateProgress($jobId, [
@@ -207,7 +217,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         });
         $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
         $log("Alliance sync job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::CRON_NPC_STRUCTURES_JOB:
         $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_NPC_STRUCTURES_JOB];
         $jobQueue->updateProgress($jobId, [
@@ -227,7 +237,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         });
         $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
         $log("NPC structures sync job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::CONTRACT_MATCH_JOB:
         if ($corpId <= 0) {
           throw new RuntimeException('Contract match job missing corp id.');
@@ -248,7 +258,7 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
         $result = $matcher->matchOpenRequests($corpId);
         $jobQueue->markSucceeded($jobId, $result, 'cron.contract_match.completed', 'Contract match completed.');
         $log("Contract match job {$jobId} completed.");
-        return 1;
+        continue 2;
       case JobQueueService::CRON_SYNC_JOB:
       case JobQueueService::CRON_TOKEN_REFRESH_JOB:
       case JobQueueService::CRON_STRUCTURES_JOB:
@@ -303,69 +313,72 @@ function runCronJobWorker(Db $db, array $config, array $services, ?callable $log
 
         $jobQueue->markSucceeded($jobId, $result, $meta['completed'], $meta['log_complete']);
         $log("Cron sync job {$jobId} completed.");
-        return 1;
+        continue 2;
       default:
         throw new RuntimeException("Unhandled job type: {$jobType}");
     }
-  } catch (Throwable $e) {
-    $errorDetail = $formatException($e);
-    switch ($jobType) {
-      case JobQueueService::WEBHOOK_DELIVERY_JOB:
-        $jobQueue->markFailed(
-          $jobId,
-          $e->getMessage(),
-          ['error_detail' => $errorDetail],
-          'cron.webhook_delivery.failed',
-          "Webhook delivery failed: {$e->getMessage()}"
-        );
-        break;
-      case JobQueueService::WEBHOOK_REQUEUE_JOB:
-        $jobQueue->markFailed(
-          $jobId,
-          $e->getMessage(),
-          ['error_detail' => $errorDetail],
-          'cron.webhook_requeue.failed',
-          "Webhook requeue failed: {$e->getMessage()}"
-        );
-        break;
-      case JobQueueService::CONTRACT_MATCH_JOB:
-        $jobQueue->markFailed(
-          $jobId,
-          $e->getMessage(),
-          ['error_detail' => $errorDetail],
-          'cron.contract_match.failed',
-          "Contract match failed: {$e->getMessage()}"
-        );
-        break;
-      case JobQueueService::CRON_SYNC_JOB:
-      case JobQueueService::CRON_TOKEN_REFRESH_JOB:
-      case JobQueueService::CRON_STRUCTURES_JOB:
-      case JobQueueService::CRON_PUBLIC_STRUCTURES_JOB:
-      case JobQueueService::CRON_CONTRACTS_JOB:
-      case JobQueueService::CRON_ALLIANCES_JOB:
-      case JobQueueService::CRON_NPC_STRUCTURES_JOB:
-        $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_SYNC_JOB];
-        $jobQueue->markFailed(
-          $jobId,
-          $e->getMessage(),
-          ['error_detail' => $errorDetail],
-          $meta['failed'],
-          "{$meta['log_failed_prefix']}: {$e->getMessage()}"
-        );
-        break;
-      default:
-        $jobQueue->markFailed(
-          $jobId,
-          $e->getMessage(),
-          ['error_detail' => $errorDetail],
-          'cron.job.failed',
-          "Job failed: {$e->getMessage()}"
-        );
-        break;
+    } catch (Throwable $e) {
+      $errorDetail = $formatException($e);
+      switch ($jobType) {
+        case JobQueueService::WEBHOOK_DELIVERY_JOB:
+          $jobQueue->markFailed(
+            $jobId,
+            $e->getMessage(),
+            ['error_detail' => $errorDetail],
+            'cron.webhook_delivery.failed',
+            "Webhook delivery failed: {$e->getMessage()}"
+          );
+          break;
+        case JobQueueService::WEBHOOK_REQUEUE_JOB:
+          $jobQueue->markFailed(
+            $jobId,
+            $e->getMessage(),
+            ['error_detail' => $errorDetail],
+            'cron.webhook_requeue.failed',
+            "Webhook requeue failed: {$e->getMessage()}"
+          );
+          break;
+        case JobQueueService::CONTRACT_MATCH_JOB:
+          $jobQueue->markFailed(
+            $jobId,
+            $e->getMessage(),
+            ['error_detail' => $errorDetail],
+            'cron.contract_match.failed',
+            "Contract match failed: {$e->getMessage()}"
+          );
+          break;
+        case JobQueueService::CRON_SYNC_JOB:
+        case JobQueueService::CRON_TOKEN_REFRESH_JOB:
+        case JobQueueService::CRON_STRUCTURES_JOB:
+        case JobQueueService::CRON_PUBLIC_STRUCTURES_JOB:
+        case JobQueueService::CRON_CONTRACTS_JOB:
+        case JobQueueService::CRON_ALLIANCES_JOB:
+        case JobQueueService::CRON_NPC_STRUCTURES_JOB:
+          $meta = $cronJobMeta[$jobType] ?? $cronJobMeta[JobQueueService::CRON_SYNC_JOB];
+          $jobQueue->markFailed(
+            $jobId,
+            $e->getMessage(),
+            ['error_detail' => $errorDetail],
+            $meta['failed'],
+            "{$meta['log_failed_prefix']}: {$e->getMessage()}"
+          );
+          break;
+        default:
+          $jobQueue->markFailed(
+            $jobId,
+            $e->getMessage(),
+            ['error_detail' => $errorDetail],
+            'cron.job.failed',
+            "Job failed: {$e->getMessage()}"
+          );
+          break;
+      }
+      $log("Cron job {$jobId} failed: {$errorDetail}");
+      return 2;
     }
-    $log("Cron job {$jobId} failed: {$errorDetail}");
-    return 2;
   }
+
+  return $processed;
 }
 
 if (PHP_SAPI === 'cli' && realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__) {
