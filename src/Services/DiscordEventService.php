@@ -92,14 +92,21 @@ final class DiscordEventService
 
   public function enqueueTemplateTest(int $corpId, string $eventKey, array $options = []): int
   {
+    $delivery = strtolower(trim((string)($options['delivery'] ?? 'bot')));
+    $channelId = (string)($options['channel_id'] ?? '');
+    if ($delivery === 'bot' && $channelId === '') {
+      $config = $this->loadConfig($corpId);
+      $channelId = (string)($config['hauling_channel_id'] ?? '');
+    }
+
     $payload = [
       'event_key' => 'discord.template.test',
       'template_event_key' => $eventKey,
       'template_payload' => $this->buildSamplePayload($corpId, $eventKey),
-      'delivery' => (string)($options['delivery'] ?? 'bot'),
+      'delivery' => $delivery,
       'webhook_provider' => (string)($options['webhook_provider'] ?? ''),
       'webhook_url' => (string)($options['webhook_url'] ?? ''),
-      'channel_id' => (string)($options['channel_id'] ?? ''),
+      'channel_id' => $channelId,
     ];
 
     return $this->db->insert('discord_outbox', [
