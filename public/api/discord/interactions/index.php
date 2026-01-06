@@ -161,6 +161,8 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
 $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
 $createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($pathPrefix ?: '/');
+$portalLinkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
+$onboardingMessage = 'No linked account found. Generate a link code in the hauling portal, then run /link <code> here.' . $portalLinkLine;
 
 switch ($commandName) {
   case 'quote':
@@ -328,14 +330,23 @@ switch ($commandName) {
     }
 
     $link = $db->one(
-      "SELECT user_id FROM discord_user_link WHERE corp_id = :cid AND discord_user_id = :did LIMIT 1",
+      "SELECT l.user_id
+         FROM discord_user_link l
+         JOIN app_user u ON u.user_id = l.user_id
+        WHERE l.discord_user_id = :did
+          AND u.corp_id = :cid
+        LIMIT 1",
       ['cid' => $corpId, 'did' => $discordUserId]
     );
     if (!$link) {
-      $linkHint = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-      $sendFollowupMessage('No linked account found. Please link your Discord user in the hauling portal.' . $linkHint, $ephemeral);
+      $sendFollowupMessage($onboardingMessage, $ephemeral);
       exit;
     }
+
+    $db->execute(
+      "UPDATE discord_user_link SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = :uid",
+      ['uid' => (int)$link['user_id']]
+    );
 
     $rows = $db->select(
       "SELECT v.request_id, v.status, v.from_name, v.to_name, v.reward_isk, v.request_key, r.created_at
@@ -369,6 +380,124 @@ switch ($commandName) {
     $sendFollowupMessage("Recent requests:\n" . implode("\n", $lines), $ephemeral);
     break;
 
+  case 'link':
+    $linkEphemeral = true;
+    $discordUserId = (string)($payload['member']['user']['id'] ?? $payload['user']['id'] ?? '');
+    if ($discordUserId === '') {
+      $sendFollowupMessage('Unable to resolve Discord user.' . $portalLinkLine, $linkEphemeral);
+      exit;
+    }
+
+    $userPayload = $payload['member']['user'] ?? $payload['user'] ?? [];
+    $discordUsername = '';
+    if (is_array($userPayload)) {
+      $discordUsername = trim((string)($userPayload['global_name'] ?? ''));
+      if ($discordUsername === '') {
+        $discordUsername = trim((string)($userPayload['username'] ?? ''));
+      }
+      $discriminator = trim((string)($userPayload['discriminator'] ?? ''));
+      if ($discordUsername !== '' && $discriminator !== '' && $discriminator !== '0') {
+        $discordUsername .= '#' . $discriminator;
+      }
+    }
+
+    $code = strtoupper(trim((string)($optionMap['code'] ?? '')));
+    if ($code === '') {
+      $sendFollowupMessage('Link code required. Generate one in the portal first.' . $portalLinkLine, $linkEphemeral);
+      exit;
+    }
+
+    try {
+      $result = $db->tx(static function (Db $db) use ($code, $discordUserId, $discordUsername, $corpId): array {
+        $codeRow = $db->one(
+          "SELECT code, user_id, expires_at, used_at
+             FROM discord_link_code
+            WHERE code = :code
+            LIMIT 1
+            FOR UPDATE",
+          ['code' => $code]
+        );
+        if (!$codeRow) {
+          return ['ok' => false, 'error' => 'code_not_found'];
+        }
+
+        if (!empty($codeRow['used_at'])) {
+          return ['ok' => false, 'error' => 'code_used'];
+        }
+
+        $expiresAt = strtotime((string)$codeRow['expires_at']);
+        if ($expiresAt !== false && $expiresAt <= time()) {
+          return ['ok' => false, 'error' => 'code_expired'];
+        }
+
+        $userRow = $db->one(
+          "SELECT user_id, corp_id FROM app_user WHERE user_id = :uid LIMIT 1",
+          ['uid' => (int)$codeRow['user_id']]
+        );
+        if (!$userRow || (int)$userRow['corp_id'] !== $corpId) {
+          return ['ok' => false, 'error' => 'code_not_valid'];
+        }
+
+        $existing = $db->one(
+          "SELECT user_id FROM discord_user_link WHERE discord_user_id = :did LIMIT 1",
+          ['did' => $discordUserId]
+        );
+        if ($existing && (int)$existing['user_id'] !== (int)$codeRow['user_id']) {
+          return ['ok' => false, 'error' => 'discord_already_linked'];
+        }
+
+        $db->execute(
+          "INSERT INTO discord_user_link
+            (user_id, discord_user_id, discord_username, linked_at, last_seen_at)
+           VALUES
+            (:uid, :did, :uname, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+           ON DUPLICATE KEY UPDATE
+            discord_user_id = VALUES(discord_user_id),
+            discord_username = VALUES(discord_username),
+            linked_at = UTC_TIMESTAMP(),
+            last_seen_at = UTC_TIMESTAMP()",
+          [
+            'uid' => (int)$codeRow['user_id'],
+            'did' => $discordUserId,
+            'uname' => $discordUsername !== '' ? $discordUsername : null,
+          ]
+        );
+
+        $db->execute(
+          "UPDATE discord_link_code
+              SET used_at = UTC_TIMESTAMP(),
+                  used_by_discord_user_id = :did
+            WHERE code = :code",
+          [
+            'did' => $discordUserId,
+            'code' => $code,
+          ]
+        );
+
+        return ['ok' => true];
+      });
+    } catch (Throwable $e) {
+      $sendFollowupMessage('Unable to link your account right now.' . $portalLinkLine, $linkEphemeral);
+      exit;
+    }
+
+    if (!empty($result['ok'])) {
+      $sendFollowupMessage('Your Discord account is now linked.' . $portalLinkLine, $linkEphemeral);
+      break;
+    }
+
+    $error = (string)($result['error'] ?? 'unknown');
+    $errorMessage = match ($error) {
+      'code_not_found' => 'Link code not found. Please generate a new code in the portal.',
+      'code_used' => 'That link code has already been used. Generate a new code in the portal.',
+      'code_expired' => 'That link code has expired. Generate a new code in the portal.',
+      'discord_already_linked' => 'This Discord user is already linked to another portal account.',
+      'code_not_valid' => 'That link code is not valid for this server.',
+      default => 'Unable to link your account with that code.',
+    };
+    $sendFollowupMessage($errorMessage . $portalLinkLine, $linkEphemeral);
+    break;
+
   case 'rates':
     $rates = $db->select(
       "SELECT service_class, rate_per_jump, collateral_rate, min_price
@@ -398,12 +527,12 @@ switch ($commandName) {
     $help = [
       '/quote pickup delivery volume collateral priority',
       '/request <id|code>',
+      '/link code',
       '/myrequests',
       '/rates',
       '/ping',
     ];
-    $linkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-    $sendFollowupMessage("Commands:\n" . implode("\n", $help) . $linkLine, true);
+    $sendFollowupMessage("Commands:\n" . implode("\n", $help) . $portalLinkLine, true);
     break;
 
   case 'ping':

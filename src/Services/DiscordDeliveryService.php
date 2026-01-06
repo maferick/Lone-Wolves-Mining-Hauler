@@ -451,6 +451,18 @@ final class DiscordDeliveryService
         ],
       ],
       [
+        'name' => 'link',
+        'description' => 'Link your portal account using a one-time code.',
+        'options' => [
+          [
+            'type' => 3,
+            'name' => 'code',
+            'description' => 'One-time link code from the portal.',
+            'required' => true,
+          ],
+        ],
+      ],
+      [
         'name' => 'myrequests',
         'description' => 'List your recent hauling requests.',
       ],
