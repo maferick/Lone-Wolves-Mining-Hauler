@@ -34,7 +34,6 @@ $title = $appName . ' • Admin';
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 
 ob_start();
-require __DIR__ . '/../../src/Views/partials/admin_nav.php';
 ?>
 <section class="grid">
   <div class="card">
@@ -110,4 +109,4 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
 </section>
 <?php
 $body = ob_get_clean();
-require __DIR__ . '/../../src/Views/layout.php';
+require __DIR__ . '/../../src/Views/admin_layout.php';
