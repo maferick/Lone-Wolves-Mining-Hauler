@@ -2,9 +2,50 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../_helpers.php';
-require_once __DIR__ . '/../../../src/bootstrap.php';
+
+$bootstrapPath = null;
+$autoloadPath = null;
+$bootstrapCandidates = [];
+$autoloadCandidates = [];
+$currentDir = __DIR__;
+
+while (true) {
+  $bootstrapCandidate = $currentDir . '/src/bootstrap.php';
+  $autoloadCandidate = $currentDir . '/vendor/autoload.php';
+  $bootstrapCandidates[] = $bootstrapCandidate;
+  $autoloadCandidates[] = $autoloadCandidate;
+
+  if (is_file($bootstrapCandidate)) {
+    $bootstrapPath = $bootstrapCandidate;
+    $autoloadPath = $autoloadCandidate;
+    break;
+  }
+
+  $parentDir = dirname($currentDir);
+  if ($parentDir === $currentDir) {
+    break;
+  }
+
+  $currentDir = $parentDir;
+}
+
+if ($bootstrapPath === null || !is_file($bootstrapPath) || $autoloadPath === null || !is_file($autoloadPath)) {
+  error_log(sprintf(
+    'Discord interactions bootstrap missing. Tried bootstrap paths: %s; autoload paths: %s',
+    implode(', ', $bootstrapCandidates),
+    implode(', ', $autoloadCandidates)
+  ));
+  api_send_json(['ok' => false, 'error' => 'bootstrap_missing'], 500);
+}
+
+require_once $autoloadPath;
+require_once $bootstrapPath;
 
 use App\Db\Db;
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+  api_send_json(['ok' => true]);
+}
 
 $publicKey = (string)($config['discord']['public_key'] ?? '');
 if ($publicKey === '') {
