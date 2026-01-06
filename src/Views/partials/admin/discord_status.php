@@ -32,17 +32,22 @@
             $checkMessage = trim((string)($check['message'] ?? ''));
             $checkStatus = (int)($check['status'] ?? 0);
           ?>
-          <div class="row" style="align-items:center; gap:8px; margin-top:6px;">
-            <span class="pill <?= $checkTone ?>"><?= $checkOk ? 'pass' : ($checkRequired ? 'fail' : 'warn') ?></span>
-            <div>
+          <?php if ($checkMessage !== '' || $checkStatus > 0): ?>
+            <details style="margin-top:6px;">
+              <summary class="row" style="align-items:center; gap:8px; cursor:pointer;">
+                <span class="pill <?= $checkTone ?>"><?= $checkOk ? 'pass' : ($checkRequired ? 'fail' : 'warn') ?></span>
+                <span><?= htmlspecialchars($checkLabel, ENT_QUOTES, 'UTF-8') ?></span>
+              </summary>
+              <div class="muted" style="font-size:12px; margin-left:28px; margin-top:4px;">
+                <?= htmlspecialchars($checkMessage !== '' ? $checkMessage : 'HTTP ' . $checkStatus, ENT_QUOTES, 'UTF-8') ?>
+              </div>
+            </details>
+          <?php else: ?>
+            <div class="row" style="align-items:center; gap:8px; margin-top:6px;">
+              <span class="pill <?= $checkTone ?>"><?= $checkOk ? 'pass' : ($checkRequired ? 'fail' : 'warn') ?></span>
               <div><?= htmlspecialchars($checkLabel, ENT_QUOTES, 'UTF-8') ?></div>
-              <?php if ($checkMessage !== '' || $checkStatus > 0): ?>
-                <div class="muted" style="font-size:12px;">
-                  <?= htmlspecialchars($checkMessage !== '' ? $checkMessage : 'HTTP ' . $checkStatus, ENT_QUOTES, 'UTF-8') ?>
-                </div>
-              <?php endif; ?>
             </div>
-          </div>
+          <?php endif; ?>
         <?php endforeach; ?>
       </div>
     <?php endif; ?>
