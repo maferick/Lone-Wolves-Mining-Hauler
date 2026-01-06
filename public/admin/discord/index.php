@@ -255,6 +255,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $preview = $renderer->renderPreview($corpId, $eventKey, $mockPayload);
       $msg = 'Preview generated below.';
     }
+  } elseif ($action === 'clear_outbox') {
+    $db->execute(
+      "DELETE FROM discord_outbox
+        WHERE corp_id = :cid AND status IN ('queued','failed','sending')",
+      ['cid' => $corpId]
+    );
+    $msg = 'Discord outbox cleared.';
   }
 }
 
@@ -386,6 +393,12 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
         <div class="muted">Pending outbox: <?= $pendingCount ?></div>
         <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        <form method="post" style="margin-top:10px;">
+          <input type="hidden" name="action" value="clear_outbox" />
+          <button class="btn danger" type="submit" <?= $pendingCount > 0 ? '' : 'disabled' ?> onclick="return confirm('Clear pending Discord outbox messages?');">
+            Clear queue
+          </button>
+        </form>
       </div>
     </section>
 
