@@ -23,6 +23,25 @@ $portalRights = [
   ['key' => 'hauling.member', 'label' => 'Hauling member', 'description' => 'Base portal access for hauling participants.'],
   ['key' => 'hauling.hauler', 'label' => 'Hauling hauler', 'description' => 'Ops visibility and hauler execution tools.'],
 ];
+$discordEventOptions = [
+  'request.created' => 'Request created',
+  'request.status_changed' => 'Request status changed',
+  'contract.matched' => 'Contract matched',
+  'contract.picked_up' => 'Contract picked up',
+  'contract.completed' => 'Contract completed',
+  'contract.failed' => 'Contract failed',
+  'contract.expired' => 'Contract expired',
+  'alert.system' => 'System alert',
+  'discord.test' => 'Discord test',
+];
+$discordTabs = [
+  ['id' => 'bot-settings', 'label' => 'Bot Settings'],
+  ['id' => 'role-mapping', 'label' => 'Role Mapping'],
+  ['id' => 'channel-topology', 'label' => 'Channel Topology'],
+  ['id' => 'channel-map', 'label' => 'Channel Map'],
+  ['id' => 'templates', 'label' => 'Templates'],
+  ['id' => 'tests-status', 'label' => 'Tests & Status'],
+];
 
 $loadConfig = static function (Db $db, int $corpId): array {
   $row = $db->one(
@@ -132,6 +151,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
   $configRow = $loadConfig($db, $corpId);
+  $allowedEvents = array_keys($discordEventOptions);
 
   if ($action === 'save_bot_settings') {
     $applicationId = trim((string)($_POST['application_id'] ?? ''));
@@ -249,6 +269,127 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = 'Interaction endpoint responded successfully.';
       }
     }
+  } elseif ($action === 'save_template') {
+    $eventKey = trim((string)($_POST['event_key'] ?? ''));
+    if ($eventKey === '' || !in_array($eventKey, $allowedEvents, true)) {
+      $errors[] = 'Template event key is invalid.';
+    }
+    $titleTemplate = (string)($_POST['title_template'] ?? '');
+    $bodyTemplate = (string)($_POST['body_template'] ?? '');
+    $footerTemplate = (string)($_POST['footer_template'] ?? '');
+
+    if ($errors === []) {
+      if (trim($titleTemplate) === '' && trim($bodyTemplate) === '' && trim($footerTemplate) === '') {
+        $db->execute(
+          "DELETE FROM discord_template WHERE corp_id = :cid AND event_key = :event_key",
+          ['cid' => $corpId, 'event_key' => $eventKey]
+        );
+        $msg = 'Template reset to defaults.';
+      } else {
+        $db->execute(
+          "INSERT INTO discord_template
+            (corp_id, event_key, title_template, body_template, footer_template)
+           VALUES
+            (:cid, :event_key, :title_template, :body_template, :footer_template)
+           ON DUPLICATE KEY UPDATE
+            title_template = VALUES(title_template),
+            body_template = VALUES(body_template),
+            footer_template = VALUES(footer_template),
+            updated_at = UTC_TIMESTAMP()",
+          [
+            'cid' => $corpId,
+            'event_key' => $eventKey,
+            'title_template' => $titleTemplate,
+            'body_template' => $bodyTemplate,
+            'footer_template' => $footerTemplate,
+          ]
+        );
+        $msg = 'Template saved.';
+      }
+    }
+  } elseif ($action === 'reset_template') {
+    $eventKey = trim((string)($_POST['event_key'] ?? ''));
+    if ($eventKey === '' || !in_array($eventKey, $allowedEvents, true)) {
+      $errors[] = 'Template event key is invalid.';
+    }
+    if ($errors === []) {
+      $db->execute(
+        "DELETE FROM discord_template WHERE corp_id = :cid AND event_key = :event_key",
+        ['cid' => $corpId, 'event_key' => $eventKey]
+      );
+      $msg = 'Template reset to defaults.';
+    }
+  } elseif ($action === 'save_channel_map') {
+    $mapId = (int)($_POST['channel_map_id'] ?? 0);
+    $eventKey = trim((string)($_POST['event_key'] ?? ''));
+    $mode = (string)($_POST['mode'] ?? 'webhook');
+    $channelId = trim((string)($_POST['channel_id'] ?? ''));
+    $webhookUrl = trim((string)($_POST['webhook_url'] ?? ''));
+    $isEnabled = !empty($_POST['is_enabled']) ? 1 : 0;
+
+    if ($eventKey === '' || !in_array($eventKey, $allowedEvents, true)) {
+      $errors[] = 'Channel map event key is invalid.';
+    }
+    if (!in_array($mode, ['webhook', 'bot'], true)) {
+      $errors[] = 'Channel map mode is invalid.';
+    }
+    if ($mode === 'bot') {
+      if ($channelId === '') {
+        $errors[] = 'Channel ID is required for bot delivery.';
+      } elseif (!$isSnowflake($channelId)) {
+        $errors[] = 'Channel ID must be a numeric snowflake.';
+      }
+    }
+    if ($mode === 'webhook' && $webhookUrl === '') {
+      $errors[] = 'Webhook URL is required for webhook delivery.';
+    }
+
+    if ($errors === []) {
+      if ($mapId > 0) {
+        $db->execute(
+          "UPDATE discord_channel_map
+              SET event_key = :event_key,
+                  mode = :mode,
+                  channel_id = :channel_id,
+                  webhook_url = :webhook_url,
+                  is_enabled = :is_enabled,
+                  updated_at = UTC_TIMESTAMP()
+            WHERE channel_map_id = :id AND corp_id = :cid",
+          [
+            'event_key' => $eventKey,
+            'mode' => $mode,
+            'channel_id' => $channelId !== '' ? $channelId : null,
+            'webhook_url' => $webhookUrl !== '' ? $webhookUrl : null,
+            'is_enabled' => $isEnabled,
+            'id' => $mapId,
+            'cid' => $corpId,
+          ]
+        );
+        $msg = 'Channel mapping updated.';
+      } else {
+        $db->insert('discord_channel_map', [
+          'corp_id' => $corpId,
+          'event_key' => $eventKey,
+          'mode' => $mode,
+          'channel_id' => $channelId !== '' ? $channelId : null,
+          'webhook_url' => $webhookUrl !== '' ? $webhookUrl : null,
+          'is_enabled' => $isEnabled,
+        ]);
+        $msg = 'Channel mapping added.';
+      }
+    }
+  } elseif ($action === 'delete_channel_map') {
+    $mapId = (int)($_POST['channel_map_id'] ?? 0);
+    if ($mapId <= 0) {
+      $errors[] = 'Channel map id is missing.';
+    }
+    if ($errors === []) {
+      $db->execute(
+        "DELETE FROM discord_channel_map WHERE channel_map_id = :id AND corp_id = :cid",
+        ['id' => $mapId, 'cid' => $corpId]
+      );
+      $msg = 'Channel mapping deleted.';
+    }
   }
 
   if ($errors !== []) {
@@ -283,6 +424,31 @@ $lastErrorRow = $db->one(
   ['cid' => $corpId]
 );
 $lastError = $lastErrorRow ? (string)($lastErrorRow['last_error'] ?? '') : '';
+$templateRows = $db->select(
+  "SELECT event_key, title_template, body_template, footer_template
+     FROM discord_template
+    WHERE corp_id = :cid",
+  ['cid' => $corpId]
+);
+$templatesByKey = [];
+foreach ($templateRows as $row) {
+  $templatesByKey[(string)$row['event_key']] = [
+    'title' => (string)($row['title_template'] ?? ''),
+    'body' => (string)($row['body_template'] ?? ''),
+    'footer' => (string)($row['footer_template'] ?? ''),
+  ];
+}
+$templateDefaults = [];
+if (!empty($services['discord_renderer'])) {
+  $templateDefaults = $services['discord_renderer']->defaultTemplates(array_keys($discordEventOptions));
+}
+$channelMaps = $db->select(
+  "SELECT channel_map_id, event_key, mode, channel_id, webhook_url, is_enabled
+     FROM discord_channel_map
+    WHERE corp_id = :cid
+    ORDER BY event_key ASC, channel_map_id ASC",
+  ['cid' => $corpId]
+);
 
 $botTokenConfigured = !empty($config['discord']['bot_token']);
 $publicKeyConfigured = !empty($configRow['public_key']) || !empty($config['discord']['public_key']);
@@ -291,17 +457,24 @@ $roleMappingCount = count(array_filter($roleMap, static fn($value) => is_string(
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
-<section class="card">
+<section class="card admin-tabs" data-admin-tabs="discord">
   <div class="card-header">
     <h2>Discord Integration</h2>
     <p class="muted">Configure bot access, rights-based roles, and hauling channel topology.</p>
+    <nav class="admin-subnav admin-subnav--tabs" data-admin-tabs-nav aria-label="Discord sections">
+      <?php foreach ($discordTabs as $tab): ?>
+        <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/discord/#<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>" data-section="<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>">
+          <?= htmlspecialchars($tab['label'], ENT_QUOTES, 'UTF-8') ?>
+        </a>
+      <?php endforeach; ?>
+    </nav>
   </div>
 
   <div class="content">
     <?php if ($msg): ?><div class="pill <?= $msgTone === 'error' ? 'pill-danger' : '' ?>"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
-    <section style="margin-bottom:18px;">
-      <h3>Bot / OAuth Settings</h3>
+    <section class="admin-section is-active" id="bot-settings" data-section="bot-settings">
+      <div class="admin-section__title">Bot / OAuth Settings</div>
       <div class="card" style="padding:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_bot_settings" />
@@ -337,8 +510,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section style="margin-bottom:18px;">
-      <h3>Rights → Discord Role Mapping</h3>
+    <section class="admin-section" id="role-mapping" data-section="role-mapping">
+      <div class="admin-section__title">Rights → Discord Role Mapping</div>
       <div class="card" style="padding:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_role_mapping" />
@@ -383,8 +556,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section style="margin-bottom:18px;">
-      <h3>Channel Topology</h3>
+    <section class="admin-section" id="channel-topology" data-section="channel-topology">
+      <div class="admin-section__title">Channel Topology</div>
       <div class="card" style="padding:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_channel_topology" />
@@ -436,8 +609,149 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       </div>
     </section>
 
-    <section style="margin-bottom:18px;">
-      <h3>Tests & Status</h3>
+    <section class="admin-section" id="channel-map" data-section="channel-map">
+      <div class="admin-section__title">Channel Map</div>
+      <div class="muted">Route events to specific webhook URLs or bot channels.</div>
+      <div class="card" style="padding:12px; margin-top:12px;">
+        <form method="post">
+          <input type="hidden" name="action" value="save_channel_map" />
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Mode</th>
+                <th>Channel ID</th>
+                <th>Webhook URL</th>
+                <th>Enabled</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <select class="input" name="event_key">
+                    <?php foreach ($discordEventOptions as $eventKey => $label): ?>
+                      <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>">
+                        <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                </td>
+                <td>
+                  <select class="input" name="mode">
+                    <option value="webhook">Webhook</option>
+                    <option value="bot">Bot</option>
+                  </select>
+                </td>
+                <td><input class="input" name="channel_id" placeholder="123456789012345678" /></td>
+                <td><input class="input" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." /></td>
+                <td style="text-align:center;">
+                  <input type="checkbox" name="is_enabled" checked />
+                </td>
+                <td><button class="btn" type="submit">Add</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </form>
+        <?php if ($channelMaps !== []): ?>
+          <table class="table" style="margin-top:18px;">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Mode</th>
+                <th>Channel ID</th>
+                <th>Webhook URL</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($channelMaps as $map): ?>
+                <tr>
+                  <td colspan="6">
+                    <form method="post" class="row" style="gap:10px; align-items:center;">
+                      <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
+                      <select class="input" name="event_key">
+                        <?php foreach ($discordEventOptions as $eventKey => $label): ?>
+                          <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" <?= (string)($map['event_key'] ?? '') === $eventKey ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                      <select class="input" name="mode">
+                        <option value="webhook" <?= (string)($map['mode'] ?? '') === 'webhook' ? 'selected' : '' ?>>Webhook</option>
+                        <option value="bot" <?= (string)($map['mode'] ?? '') === 'bot' ? 'selected' : '' ?>>Bot</option>
+                      </select>
+                      <input class="input" name="channel_id" value="<?= htmlspecialchars((string)($map['channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="123456789012345678" />
+                      <input class="input" name="webhook_url" value="<?= htmlspecialchars((string)($map['webhook_url'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://discord.com/api/webhooks/..." />
+                      <label style="display:flex; gap:6px; align-items:center;">
+                        <input type="checkbox" name="is_enabled" <?= !empty($map['is_enabled']) ? 'checked' : '' ?> />
+                        <span class="muted">Enabled</span>
+                      </label>
+                      <button class="btn" type="submit" name="action" value="save_channel_map">Save</button>
+                      <button class="btn ghost" type="submit" name="action" value="delete_channel_map" onclick="return confirm('Delete this channel mapping?')">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <div class="muted" style="margin-top:12px;">No channel mappings yet.</div>
+        <?php endif; ?>
+      </div>
+    </section>
+
+    <section class="admin-section" id="templates" data-section="templates">
+      <div class="admin-section__title">Templates</div>
+      <div class="muted">Customize embed templates for Discord event notifications.</div>
+      <div style="margin-top:12px;">
+        <?php foreach ($discordEventOptions as $eventKey => $label): ?>
+          <?php
+            $customTemplate = $templatesByKey[$eventKey] ?? null;
+            $defaults = $templateDefaults[$eventKey] ?? ['title' => '', 'body' => '', 'footer' => ''];
+          ?>
+          <div class="card" style="padding:12px; margin-bottom:12px;">
+            <form method="post">
+              <input type="hidden" name="event_key" value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" />
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <strong><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></strong>
+                  <div class="muted" style="font-size:12px;">Event key: <?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?></div>
+                </div>
+                <?php if ($customTemplate): ?>
+                  <span class="pill">Custom</span>
+                <?php else: ?>
+                  <span class="pill">Default</span>
+                <?php endif; ?>
+              </div>
+              <div class="row" style="margin-top:12px; align-items:flex-start;">
+                <div style="flex:1;">
+                  <div class="label">Title template</div>
+                  <textarea class="input" name="title_template" rows="2"><?= htmlspecialchars($customTemplate['title'] ?? $defaults['title'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+                </div>
+                <div style="flex:2;">
+                  <div class="label">Body template</div>
+                  <textarea class="input" name="body_template" rows="4"><?= htmlspecialchars($customTemplate['body'] ?? $defaults['body'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+                </div>
+                <div style="flex:1;">
+                  <div class="label">Footer template</div>
+                  <textarea class="input" name="footer_template" rows="2"><?= htmlspecialchars($customTemplate['footer'] ?? $defaults['footer'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
+                </div>
+              </div>
+              <div class="muted" style="margin-top:8px;">Placeholders use {token} format, e.g. {request_code}, {pickup}, {delivery}.</div>
+              <div class="row" style="margin-top:10px; gap:10px;">
+                <button class="btn" type="submit" name="action" value="save_template">Save Template</button>
+                <button class="btn ghost" type="submit" name="action" value="reset_template" <?= $customTemplate ? '' : 'disabled' ?>>Reset to Default</button>
+              </div>
+            </form>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </section>
+
+    <section class="admin-section" id="tests-status" data-section="tests-status">
+      <div class="admin-section__title">Tests & Status</div>
       <div class="card" style="padding:12px;">
         <div class="label">Status</div>
         <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
@@ -465,6 +779,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </section>
   </div>
 </section>
+<script src="<?= ($basePath ?: '') ?>/assets/js/admin/admin-tabs.js" defer></script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
