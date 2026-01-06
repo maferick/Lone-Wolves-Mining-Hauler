@@ -332,6 +332,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = 'Interaction endpoint responded successfully.';
       }
     }
+  } elseif ($action === 'send_template_tests') {
+    if (!empty($services['discord_events'])) {
+      $delivery = strtolower(trim((string)($_POST['template_delivery'] ?? 'bot')));
+      $webhookUrl = trim((string)($_POST['template_webhook_url'] ?? ''));
+      $deliveryProvider = $delivery === 'slack' ? 'slack' : 'discord';
+
+      if (!in_array($delivery, ['bot', 'discord', 'slack'], true)) {
+        $errors[] = 'Template delivery method is invalid.';
+      }
+      if ($delivery === 'bot' && empty($configRow['hauling_channel_id'])) {
+        $errors[] = 'Hauling channel ID is required to send bot template tests.';
+      }
+      if (in_array($delivery, ['discord', 'slack'], true) && $webhookUrl === '') {
+        $errors[] = 'Webhook URL is required for webhook template delivery.';
+      }
+      if ($errors === []) {
+        $queued = 0;
+        foreach ($allowedEvents as $eventKey) {
+          $queued += $services['discord_events']->enqueueTemplateTest($corpId, $eventKey, [
+            'delivery' => $delivery,
+            'webhook_provider' => $deliveryProvider,
+            'webhook_url' => $webhookUrl,
+          ]);
+        }
+        $msg = 'Queued ' . $queued . ' template test messages.';
+      }
+    }
+  } elseif ($action === 'test_thread') {
+    if (!empty($services['discord_events'])) {
+      $duration = (int)($_POST['thread_duration'] ?? 1);
+      if (!in_array($duration, [1, 2], true)) {
+        $duration = 1;
+      }
+      if (($configRow['channel_mode'] ?? 'threads') !== 'threads') {
+        $errors[] = 'Channel mode must be set to threads to run a test thread.';
+      }
+      if (empty($configRow['hauling_channel_id'])) {
+        $errors[] = 'Hauling channel ID is required to run a test thread.';
+      }
+      if ($errors === []) {
+        $services['discord_events']->enqueueThreadTest($corpId, $duration);
+        $msg = 'Test thread queued. It will auto-close after ' . $duration . ' minute' . ($duration === 1 ? '' : 's') . '.';
+      }
+    }
   } elseif ($action === 'save_template') {
     $eventKey = trim((string)($_POST['event_key'] ?? ''));
     if ($eventKey === '' || !in_array($eventKey, $allowedEvents, true)) {
@@ -581,6 +625,9 @@ $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.bot.permissions_test' => 'Bot permissions test',
   'discord.commands.register' => 'Register slash commands',
   'discord.bot.test_message' => 'Bot test message',
+  'discord.template.test' => 'Template test message',
+  'discord.thread.test' => 'Thread test (create)',
+  'discord.thread.test_close' => 'Thread test (close)',
   'discord.roles.sync_user' => 'Role sync',
   'discord.thread.create' => 'Thread create',
   'discord.thread.complete' => 'Thread complete',

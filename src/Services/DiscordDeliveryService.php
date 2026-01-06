@@ -23,7 +23,7 @@ final class DiscordDeliveryService
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= UTC_TIMESTAMP())
         ORDER BY
           CASE
-            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user') THEN 0
+            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user', 'discord.template.test', 'discord.thread.test', 'discord.thread.test_close') THEN 0
             ELSE 1
           END,
           o.created_at ASC
@@ -176,7 +176,7 @@ final class DiscordDeliveryService
   {
     $configRow = $this->loadConfigRow($corpId);
     $token = (string)($this->config['discord']['bot_token'] ?? '');
-    if ($token === '') {
+    if ($token === '' && $eventKey !== 'discord.template.test') {
       return [
         'ok' => false,
         'status' => 0,
@@ -188,9 +188,12 @@ final class DiscordDeliveryService
 
     return match ($eventKey) {
       'discord.bot.test_message' => $this->sendBotTestMessage($configRow, $token),
+      'discord.template.test' => $this->sendTemplateTestMessage($corpId, $configRow, $payload, $token),
       'discord.roles.sync_user' => $this->syncUserRoles($corpId, $configRow, $payload, $token),
       'discord.thread.create' => $this->createThreadForRequest($corpId, $configRow, $payload, $token),
       'discord.thread.complete' => $this->completeThreadForRequest($corpId, $configRow, $payload, $token),
+      'discord.thread.test' => $this->createTestThread($corpId, $configRow, $payload, $token),
+      'discord.thread.test_close' => $this->closeTestThread($corpId, $payload, $token),
       default => [
         'ok' => false,
         'status' => 0,
@@ -265,6 +268,74 @@ final class DiscordDeliveryService
     return $this->postJson($endpoint, $payload, [
       'Authorization: Bot ' . $token,
     ]);
+  }
+
+  private function sendTemplateTestMessage(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    $templateEventKey = trim((string)($payload['template_event_key'] ?? ''));
+    if ($templateEventKey === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'template_event_key_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $templatePayload = $payload['template_payload'] ?? [];
+    if (!is_array($templatePayload)) {
+      $templatePayload = [];
+    }
+
+    $delivery = strtolower(trim((string)($payload['delivery'] ?? 'bot')));
+    $channelId = trim((string)($payload['channel_id'] ?? $configRow['hauling_channel_id'] ?? ''));
+    $webhookUrl = trim((string)($payload['webhook_url'] ?? ''));
+    $provider = strtolower(trim((string)($payload['webhook_provider'] ?? 'discord')));
+
+    $message = $this->renderer->render($corpId, $templateEventKey, $templatePayload);
+
+    if ($delivery === 'bot') {
+      if ($token === '') {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'bot_token_missing',
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+      if ($channelId === '') {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'channel_id_missing',
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+      $endpoint = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/')
+        . '/channels/' . $channelId . '/messages';
+      return $this->postJson($endpoint, $message, [
+        'Authorization: Bot ' . $token,
+      ]);
+    }
+
+    if ($webhookUrl === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'webhook_url_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    if ($delivery === 'slack' || $provider === 'slack') {
+      return $this->postJson($webhookUrl, $this->buildSlackTemplatePayload($message));
+    }
+
+    return $this->postJson($webhookUrl, $message);
   }
 
   private function syncUserRoles(int $corpId, array $configRow, array $payload, string $token): array
@@ -506,6 +577,138 @@ final class DiscordDeliveryService
       'retry_after' => null,
       'body' => '',
     ];
+  }
+
+  private function createTestThread(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    if (($configRow['channel_mode'] ?? 'threads') !== 'threads') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'channel_mode_not_threads',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $channelId = trim((string)($configRow['hauling_channel_id'] ?? ''));
+    if ($channelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'hauling_channel_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $durationMinutes = (int)($payload['duration_minutes'] ?? 1);
+    if (!in_array($durationMinutes, [1, 2], true)) {
+      $durationMinutes = 1;
+    }
+    $threadName = 'TEST THREAD • ' . gmdate('H:i:s');
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $messageResp = $this->postJson($base . '/channels/' . $channelId . '/messages', [
+      'content' => '🧪 Starting a test thread. It will close automatically in ' . $durationMinutes . ' minute' . ($durationMinutes === 1 ? '' : 's') . '.',
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($messageResp['ok'])) {
+      return $messageResp;
+    }
+
+    $messageData = json_decode((string)($messageResp['body'] ?? ''), true);
+    $messageId = is_array($messageData) ? (string)($messageData['id'] ?? '') : '';
+    if ($messageId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'message_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $threadResp = $this->postJson($base . '/channels/' . $channelId . '/messages/' . $messageId . '/threads', [
+      'name' => $threadName,
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($threadResp['ok'])) {
+      return $threadResp;
+    }
+
+    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
+    $threadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    if ($threadId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $this->postJson($base . '/channels/' . $threadId . '/messages', [
+      'content' => '✅ Test thread created. This thread will close in ' . $durationMinutes . ' minute' . ($durationMinutes === 1 ? '' : 's') . '.',
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+
+    $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.thread.test_close',
+      'payload_json' => Db::jsonEncode([
+        'thread_id' => $threadId,
+      ]),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => gmdate('Y-m-d H:i:s', time() + ($durationMinutes * 60)),
+      'dedupe_key' => null,
+    ]);
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
+  private function closeTestThread(int $corpId, array $payload, string $token): array
+  {
+    $threadId = trim((string)($payload['thread_id'] ?? ''));
+    if ($threadId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $resp = $this->patchJson($base . '/channels/' . $threadId, [
+      'archived' => true,
+      'locked' => true,
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (!empty($resp['ok'])) {
+      $this->db->execute(
+        "UPDATE discord_thread SET updated_at = UTC_TIMESTAMP() WHERE thread_id = :thread_id AND corp_id = :cid",
+        [
+          'thread_id' => $threadId,
+          'cid' => $corpId,
+        ]
+      );
+    }
+    return $resp;
   }
 
   private function completeThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
@@ -763,7 +966,50 @@ final class DiscordDeliveryService
       'discord.roles.sync_user',
       'discord.thread.create',
       'discord.thread.complete',
+      'discord.template.test',
+      'discord.thread.test',
+      'discord.thread.test_close',
     ], true);
+  }
+
+  private function buildSlackTemplatePayload(array $message): array
+  {
+    $lines = [];
+    $content = trim((string)($message['content'] ?? ''));
+    if ($content !== '') {
+      $lines[] = $content;
+    }
+
+    $embed = [];
+    if (!empty($message['embeds']) && is_array($message['embeds'])) {
+      $embed = $message['embeds'][0] ?? [];
+      if (!is_array($embed)) {
+        $embed = [];
+      }
+    }
+
+    $title = trim((string)($embed['title'] ?? ''));
+    if ($title !== '') {
+      $lines[] = '*' . $title . '*';
+    }
+    $description = trim((string)($embed['description'] ?? ''));
+    if ($description !== '') {
+      $lines[] = $description;
+    }
+    $footer = '';
+    if (!empty($embed['footer']) && is_array($embed['footer'])) {
+      $footer = trim((string)($embed['footer']['text'] ?? ''));
+    }
+    if ($footer !== '') {
+      $lines[] = '_' . $footer . '_';
+    }
+
+    $text = trim(implode("\n", $lines));
+    if ($text === '') {
+      $text = 'Template test message.';
+    }
+
+    return ['text' => $text];
   }
 
   private function runBotPermissionsTest(int $corpId, string $token, string $guildId, string $base): array

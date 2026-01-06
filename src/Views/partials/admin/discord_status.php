@@ -58,4 +58,36 @@
       <button class="btn ghost" type="submit">Test Interaction Endpoint</button>
     </form>
   </div>
+
+  <div style="margin-top:16px;">
+    <div class="label">Template tests</div>
+    <div class="muted">Send a preview of every template to a delivery target.</div>
+    <form method="post" style="margin-top:8px;">
+      <input type="hidden" name="action" value="send_template_tests" />
+      <div class="row" style="align-items:center; gap:10px;">
+        <select class="input" name="template_delivery">
+          <option value="bot">Bot (hauling channel)</option>
+          <option value="discord">Discord webhook</option>
+          <option value="slack">Slack webhook</option>
+        </select>
+        <input class="input" name="template_webhook_url" placeholder="Webhook URL (required for webhook targets)" />
+        <button class="btn" type="submit">Send Template Tests</button>
+      </div>
+    </form>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div class="label">Test thread</div>
+    <div class="muted">Create a short-lived thread in the hauling channel and auto-close it after a minute or two.</div>
+    <form method="post" style="margin-top:8px;">
+      <input type="hidden" name="action" value="test_thread" />
+      <div class="row" style="align-items:center; gap:10px;">
+        <select class="input" name="thread_duration">
+          <option value="1">Close after 1 minute</option>
+          <option value="2">Close after 2 minutes</option>
+        </select>
+        <button class="btn ghost" type="submit">Create Test Thread</button>
+      </div>
+    </form>
+  </div>
 </div>
