@@ -40,18 +40,22 @@ $generateCode = static function (): string {
   return strtoupper(bin2hex(random_bytes(4)));
 };
 
-$expiresAt = gmdate('Y-m-d H:i:s', time() + 600);
+$nowUtc = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+$expiresAt = $nowUtc->modify('+600 seconds');
+$expiresAtFormatted = $expiresAt->format('Y-m-d H:i:s');
+$createdAtFormatted = $nowUtc->format('Y-m-d H:i:s');
 $code = null;
 for ($attempt = 0; $attempt < 5; $attempt++) {
   $candidate = $generateCode();
   try {
     $db->execute(
-      "INSERT INTO discord_link_code (code, user_id, expires_at)
-       VALUES (:code, :uid, :expires_at)",
+      "INSERT INTO discord_link_code (code, user_id, expires_at, created_at)
+       VALUES (:code, :uid, :expires_at, :created_at)",
       [
         'code' => $candidate,
         'uid' => $userId,
-        'expires_at' => $expiresAt,
+        'expires_at' => $expiresAtFormatted,
+        'created_at' => $createdAtFormatted,
       ]
     );
     $code = $candidate;
@@ -72,5 +76,5 @@ if ($code === null) {
 api_send_json([
   'ok' => true,
   'code' => $code,
-  'expires_at' => $expiresAt,
+  'expires_at' => $expiresAtFormatted,
 ]);

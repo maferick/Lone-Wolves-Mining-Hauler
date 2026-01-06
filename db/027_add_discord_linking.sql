@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS discord_link_code (
   expires_at              DATETIME NOT NULL,
   used_at                 DATETIME NULL,
   used_by_discord_user_id VARCHAR(64) NULL,
-  created_at              DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at              DATETIME NOT NULL DEFAULT UTC_TIMESTAMP(),
   PRIMARY KEY (code),
   KEY idx_discord_link_code_user (user_id),
   KEY idx_discord_link_code_expires (expires_at),
