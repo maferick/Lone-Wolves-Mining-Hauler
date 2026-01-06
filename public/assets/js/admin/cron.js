@@ -7,7 +7,7 @@
   const progressCount = document.getElementById('cron-progress-count');
   const logEl = document.getElementById('cron-log');
   const resultEl = document.getElementById('cron-result');
-  const taskMessage = document.getElementById('cron-task-message');
+  const getTaskMessage = () => document.getElementById('cron-task-message');
   const logPagination = document.getElementById('cron-log-pagination');
   const logPrev = document.getElementById('cron-log-prev');
   const logNext = document.getElementById('cron-log-next');
@@ -128,8 +128,10 @@
   };
 
   const runTask = async (taskKey, force) => {
-    if (!taskMessage) return;
-    taskMessage.textContent = force ? 'Force queueing task...' : 'Queueing task...';
+    const taskMessage = getTaskMessage();
+    if (taskMessage) {
+      taskMessage.textContent = force ? 'Force queueing task...' : 'Queueing task...';
+    }
     try {
       const resp = await fetch(`${basePath}/api/cron/tasks/run/`, {
         method: 'POST',
@@ -139,12 +141,18 @@
       });
       const data = await resp.json();
       if (!data.ok) {
-        taskMessage.textContent = data.error ?? 'Unable to queue task.';
+        if (taskMessage) {
+          taskMessage.textContent = data.error ?? 'Unable to queue task.';
+        }
         return;
       }
-      taskMessage.textContent = `Queued ${taskKey} as job #${data.job_id}.`;
+      if (taskMessage) {
+        taskMessage.textContent = `Queued ${taskKey} as job #${data.job_id}.`;
+      }
     } catch (err) {
-      taskMessage.textContent = 'Queue request failed.';
+      if (taskMessage) {
+        taskMessage.textContent = 'Queue request failed.';
+      }
     }
   };
 
