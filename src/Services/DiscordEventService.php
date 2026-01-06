@@ -90,6 +90,49 @@ final class DiscordEventService
     return $this->enqueueEvent($corpId, $eventKey, $payload, null, $channelMapId, false);
   }
 
+  public function enqueueTemplateTest(int $corpId, string $eventKey, array $options = []): int
+  {
+    $payload = [
+      'event_key' => 'discord.template.test',
+      'template_event_key' => $eventKey,
+      'template_payload' => $this->buildSamplePayload($corpId, $eventKey),
+      'delivery' => (string)($options['delivery'] ?? 'bot'),
+      'webhook_provider' => (string)($options['webhook_provider'] ?? ''),
+      'webhook_url' => (string)($options['webhook_url'] ?? ''),
+      'channel_id' => (string)($options['channel_id'] ?? ''),
+    ];
+
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.template.test',
+      'payload_json' => Db::jsonEncode($payload),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
+  public function enqueueThreadTest(int $corpId, int $durationMinutes): int
+  {
+    $payload = [
+      'event_key' => 'discord.thread.test',
+      'duration_minutes' => $durationMinutes,
+    ];
+
+    return $this->db->insert('discord_outbox', [
+      'corp_id' => $corpId,
+      'channel_map_id' => null,
+      'event_key' => 'discord.thread.test',
+      'payload_json' => Db::jsonEncode($payload),
+      'status' => 'queued',
+      'attempts' => 0,
+      'next_attempt_at' => null,
+      'dedupe_key' => null,
+    ]);
+  }
+
   public function enqueueAdminTask(int $corpId, string $eventKey, array $payload = []): int
   {
     $config = $this->loadConfig($corpId);
@@ -217,6 +260,11 @@ final class DiscordEventService
       'next_attempt_at' => null,
       'dedupe_key' => null,
     ]);
+  }
+
+  public function buildSamplePayloadForEvent(int $corpId, string $eventKey): array
+  {
+    return $this->buildSamplePayload($corpId, $eventKey);
   }
 
   public function loadConfig(int $corpId): array
