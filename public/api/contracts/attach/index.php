@@ -29,7 +29,7 @@ if ($corpId <= 0) {
 
 $request = $db->one(
   "SELECT request_id, request_key, requester_user_id, from_location_id, to_location_id, collateral_isk, reward_isk, volume_m3, ship_class,
-          route_policy, price_breakdown_json, quote_id
+          route_policy, route_profile, price_breakdown_json, quote_id
      FROM haul_request
     WHERE corp_id = :cid AND quote_id = :qid
     ORDER BY request_id DESC
@@ -177,48 +177,22 @@ $toName = $db->fetchValue(
   ['id' => (int)$request['to_location_id']]
 );
 
-$securityCounts = $breakdown['security_counts'] ?? ['high' => 0, 'low' => 0, 'null' => 0, 'special' => 0];
-$specialCount = (int)($securityCounts['special'] ?? 0);
-$securitySummary = sprintf(
-  'HS %d / LS %d / NS %d',
-  (int)($securityCounts['high'] ?? 0),
-  (int)($securityCounts['low'] ?? 0),
-  (int)($securityCounts['null'] ?? 0)
-);
-if ($specialCount > 0) {
-  $securitySummary .= ' / Special ' . $specialCount;
-}
 
-$baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
-$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-$baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
-$pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
-$requestKey = (string)($request['request_key'] ?? '');
-$requestUrl = '';
-if ($requestKey !== '') {
-  $requestPath = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
-  $requestUrl = $baseUrl !== '' ? $baseUrl . $requestPath : $requestPath;
-}
-
-$webhookPayload = [
-  'username' => (string)($config['app']['name'] ?? 'Lone Wolves Hauling'),
-  'content' => sprintf(
-  "New haul request #%s (Quote #%s)\\n%s → %s • %d jumps (%s)\\nShip: %s • Volume: %s m³ • Price: %s ISK • Collateral: %s ISK\\n%s",
-  (string)$request['request_id'],
-  (string)$request['quote_id'],
-  (string)($fromName ?: 'Unknown'),
-  (string)($toName ?: 'Unknown'),
-  (int)($breakdown['jumps'] ?? 0),
-  $securitySummary,
-  (string)($request['ship_class'] ?? 'N/A'),
-  number_format((float)$request['volume_m3'], 0),
-  number_format($expectedReward, 2),
-  number_format((float)$request['collateral_isk'], 2),
-  $requestUrl
-  ),
+$webhookDetails = [
+  'title' => 'Contract attached',
+  'request_id' => (int)($request['request_id'] ?? 0),
+  'request_key' => (string)($request['request_key'] ?? ''),
+  'pickup' => (string)($fromName ?: 'Unknown'),
+  'dropoff' => (string)($toName ?: 'Unknown'),
+  'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
+  'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
+  'reward_isk' => $expectedReward,
+  'ship_class' => (string)($request['ship_class'] ?? ''),
+  'priority' => (string)($request['route_profile'] ?? $request['route_policy'] ?? ''),
+  'status' => 'contract attached',
 ];
 
-$db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, $webhookPayload, $services, $authCtx, $corpId): void {
+$db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, $webhookDetails, $services, $authCtx, $corpId): void {
   $db->execute(
     "UPDATE haul_request
         SET contract_id = :contract_id,
@@ -251,7 +225,7 @@ $db->tx(function (Db $db) use ($request, $contractId, $contractType, $contract, 
 
   /** @var \App\Services\DiscordWebhookService $webhooks */
   $webhooks = $services['discord_webhook'];
-  $webhooks->enqueue($corpId, 'haul.contract.attached', $webhookPayload);
+  $webhooks->enqueue($corpId, 'haul.contract.attached', $webhookDetails);
 });
 
 api_send_json([

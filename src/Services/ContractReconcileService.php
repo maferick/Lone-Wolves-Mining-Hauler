@@ -265,21 +265,26 @@ final class ContractReconcileService
 
         $eventKey = $this->eventKeyForState($newState);
         if ($eventKey !== null && $this->webhooks) {
+          $details = [];
           switch ($newState) {
             case 'PICKED_UP':
-              $payload = $this->buildPickupWebhookPayload($request, $contractId, $acceptorId, $acceptorName);
+              $details = $this->buildPickupWebhookDetails($request, $contractId, $acceptorId, $acceptorName);
+              $details['status'] = 'picked up';
               break;
             case 'DELIVERED':
-              $payload = $this->buildDeliveredWebhookPayload($request, $contractId, $acceptorId, $acceptorName);
+              $details = $this->buildContractLifecycleWebhookDetails($request, $contractId, $acceptorId, $acceptorName);
+              $details['status'] = 'delivered';
               break;
             case 'FAILED':
-              $payload = $this->buildFailedWebhookPayload($request, $contractId, $acceptorId, $acceptorName);
+              $details = $this->buildContractLifecycleWebhookDetails($request, $contractId, $acceptorId, $acceptorName);
+              $details['status'] = 'failed';
               break;
             case 'EXPIRED':
-              $payload = $this->buildExpiredWebhookPayload($request, $contractId, $acceptorId, $acceptorName);
+              $details = $this->buildContractLifecycleWebhookDetails($request, $contractId, $acceptorId, $acceptorName);
+              $details['status'] = 'expired';
               break;
             default:
-              $payload = [
+              $details = [
                 'request_id' => $requestId,
                 'contract_id' => $contractId,
                 'previous_state' => $oldState,
@@ -293,7 +298,7 @@ final class ContractReconcileService
           $summary['webhook_enqueued'] += $this->webhooks->enqueueUnique(
             $corpId,
             $eventKey,
-            $payload,
+            $details,
             'haul_request',
             $requestId,
             $newState
@@ -421,7 +426,7 @@ final class ContractReconcileService
     return hash('sha256', json_encode($payload, JSON_UNESCAPED_SLASHES));
   }
 
-  private function buildPickupWebhookPayload(
+  private function buildPickupWebhookDetails(
     array $request,
     int $contractId,
     ?int $acceptorId,
@@ -433,83 +438,7 @@ final class ContractReconcileService
     $toName = $this->resolveSystemName($toId, (string)($request['to_location_type'] ?? ''));
     $routeLabel = trim(($fromName !== '' ? $fromName : ('Location #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('Location #' . $toId)));
 
-    return $this->webhooks
-      ? $this->webhooks->buildContractPickedUpPayload([
-        'request_id' => (int)($request['request_id'] ?? 0),
-        'request_key' => (string)($request['request_key'] ?? ''),
-        'route' => $routeLabel,
-        'pickup' => $fromName !== '' ? $fromName : ('Location #' . $fromId),
-        'dropoff' => $toName !== '' ? $toName : ('Location #' . $toId),
-        'ship_class' => (string)($request['ship_class'] ?? ''),
-        'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
-        'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
-        'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
-        'contract_id' => $contractId,
-        'acceptor_id' => $acceptorId ?? 0,
-        'acceptor_name' => $acceptorName,
-      ])
-      : [];
-  }
-
-  private function buildDeliveredWebhookPayload(
-    array $request,
-    int $contractId,
-    ?int $acceptorId,
-    string $acceptorName
-  ): array {
-    return $this->buildContractLifecycleWebhookPayload(
-      $request,
-      $contractId,
-      $acceptorId,
-      $acceptorName,
-      'delivered'
-    );
-  }
-
-  private function buildFailedWebhookPayload(
-    array $request,
-    int $contractId,
-    ?int $acceptorId,
-    string $acceptorName
-  ): array {
-    return $this->buildContractLifecycleWebhookPayload(
-      $request,
-      $contractId,
-      $acceptorId,
-      $acceptorName,
-      'failed'
-    );
-  }
-
-  private function buildExpiredWebhookPayload(
-    array $request,
-    int $contractId,
-    ?int $acceptorId,
-    string $acceptorName
-  ): array {
-    return $this->buildContractLifecycleWebhookPayload(
-      $request,
-      $contractId,
-      $acceptorId,
-      $acceptorName,
-      'expired'
-    );
-  }
-
-  private function buildContractLifecycleWebhookPayload(
-    array $request,
-    int $contractId,
-    ?int $acceptorId,
-    string $acceptorName,
-    string $state
-  ): array {
-    $fromId = (int)($request['from_location_id'] ?? 0);
-    $toId = (int)($request['to_location_id'] ?? 0);
-    $fromName = $this->resolveSystemName($fromId, (string)($request['from_location_type'] ?? ''));
-    $toName = $this->resolveSystemName($toId, (string)($request['to_location_type'] ?? ''));
-    $routeLabel = trim(($fromName !== '' ? $fromName : ('Location #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('Location #' . $toId)));
-
-    $details = [
+    return [
       'request_id' => (int)($request['request_id'] ?? 0),
       'request_key' => (string)($request['request_key'] ?? ''),
       'route' => $routeLabel,
@@ -523,21 +452,33 @@ final class ContractReconcileService
       'acceptor_id' => $acceptorId ?? 0,
       'acceptor_name' => $acceptorName,
     ];
+  }
+  private function buildContractLifecycleWebhookDetails(
+    array $request,
+    int $contractId,
+    ?int $acceptorId,
+    string $acceptorName
+  ): array {
+    $fromId = (int)($request['from_location_id'] ?? 0);
+    $toId = (int)($request['to_location_id'] ?? 0);
+    $fromName = $this->resolveSystemName($fromId, (string)($request['from_location_type'] ?? ''));
+    $toName = $this->resolveSystemName($toId, (string)($request['to_location_type'] ?? ''));
+    $routeLabel = trim(($fromName !== '' ? $fromName : ('Location #' . $fromId)) . ' → ' . ($toName !== '' ? $toName : ('Location #' . $toId)));
 
-    if (!$this->webhooks) {
-      return [];
-    }
-
-    switch ($state) {
-      case 'delivered':
-        return $this->webhooks->buildContractDeliveredPayload($details);
-      case 'failed':
-        return $this->webhooks->buildContractFailedPayload($details);
-      case 'expired':
-        return $this->webhooks->buildContractExpiredPayload($details);
-      default:
-        return [];
-    }
+    return [
+      'request_id' => (int)($request['request_id'] ?? 0),
+      'request_key' => (string)($request['request_key'] ?? ''),
+      'route' => $routeLabel,
+      'pickup' => $fromName !== '' ? $fromName : ('Location #' . $fromId),
+      'dropoff' => $toName !== '' ? $toName : ('Location #' . $toId),
+      'ship_class' => (string)($request['ship_class'] ?? ''),
+      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
+      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
+      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
+      'contract_id' => $contractId,
+      'acceptor_id' => $acceptorId ?? 0,
+      'acceptor_name' => $acceptorName,
+    ];
   }
 
   private function resolveSystemName(int $locationId, string $locationType): string

@@ -542,7 +542,7 @@ final class ContractMatchService
       )
       : '';
 
-    $payload = $this->webhooks->buildContractLinkedPayload([
+    $details = [
       'request_id' => (int)($request['request_id'] ?? 0),
       'request_key' => (string)($request['request_key'] ?? ''),
       'contract_hint_text' => (string)($request['contract_hint_text'] ?? ''),
@@ -556,8 +556,9 @@ final class ContractMatchService
       'contract_id' => (int)($contract['contract_id'] ?? 0),
       'issuer_id' => $issuerId,
       'issuer_name' => $issuerName,
-    ]);
+      'status' => 'linked',
+    ];
 
-    return $this->webhooks->enqueueContractLinked((int)($request['corp_id'] ?? 0), $payload);
+    return $this->webhooks->enqueueContractLinked((int)($request['corp_id'] ?? 0), $details);
   }
 }

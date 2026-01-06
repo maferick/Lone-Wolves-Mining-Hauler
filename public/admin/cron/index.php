@@ -288,7 +288,7 @@ $taskDefinitions = [
     'name' => 'Webhook Delivery',
     'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::WEBHOOK_DELIVERY_JOB] ?? 0), $webhookInterval),
     'scope' => 'global',
-    'description' => 'Flushes queued Discord webhook deliveries.',
+    'description' => 'Flushes queued webhook deliveries.',
     'runner' => 'task',
   ],
   JobQueueService::DISCORD_DELIVERY_JOB => [
@@ -304,7 +304,7 @@ $taskDefinitions = [
     'name' => 'Webhook Requeue',
     'interval' => $normalizeInterval((int)($intervalSettingsGlobal[JobQueueService::WEBHOOK_REQUEUE_JOB] ?? 0), $webhookRequeueInterval),
     'scope' => 'global',
-    'description' => 'Requeues failed Discord webhooks that are still enabled.',
+    'description' => 'Requeues failed webhooks that are still enabled.',
     'runner' => 'task',
   ],
 ];
@@ -506,7 +506,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>">
   <div class="card-header">
     <h2>Cron Manager</h2>
-    <p class="muted">Run the scheduler every minute. It queues ESI sync, token refresh, structure pulls, contract pulls, Discord webhooks, and contract matching.</p>
+    <p class="muted">Run the scheduler every minute. It queues ESI sync, token refresh, structure pulls, contract pulls, webhooks, and contract matching.</p>
   </div>
 
   <div class="content">

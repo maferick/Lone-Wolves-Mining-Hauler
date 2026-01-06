@@ -46,6 +46,8 @@ $request = $db->one(
           r.reward_isk,
           r.title,
           r.ship_class,
+          r.route_policy,
+          r.route_profile,
           u.display_name AS requester_name,
           u.character_id AS requester_character_id,
           fs.system_name AS from_system_name,
@@ -140,7 +142,7 @@ if (!empty($services['discord_webhook'])) {
   $webhooks = $services['discord_webhook'];
   try {
     $assignerName = (string)($authCtx['character_name'] ?? $authCtx['display_name'] ?? 'Unknown');
-    $payload = $webhooks->buildHaulAssignmentPayload([
+    $details = [
       'title' => 'Haul Assigned #' . (string)$requestId,
       'request_id' => $requestId,
       'request_key' => (string)($request['request_key'] ?? ''),
@@ -157,8 +159,9 @@ if (!empty($services['discord_webhook'])) {
       'actor_character_id' => (int)($authCtx['character_id'] ?? 0),
       'status' => 'assigned',
       'ship_class' => (string)($request['ship_class'] ?? ''),
-    ]);
-    $webhooks->enqueue($corpId, 'haul.assignment.created', $payload);
+      'priority' => (string)($request['route_profile'] ?? $request['route_policy'] ?? ''),
+    ];
+    $webhooks->enqueue($corpId, 'haul.assignment.created', $details);
   } catch (\Throwable $e) {
     // Ignore webhook enqueue failures to avoid blocking the assignment flow.
   }

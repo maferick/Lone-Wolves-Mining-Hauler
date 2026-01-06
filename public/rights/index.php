@@ -26,7 +26,7 @@ $permList = [
   ['haul.execute','Execute hauls','Update status (pickup/in-transit/delivered).'],
   ['haul.buyback','Buyback haulage','Access the buyback haulage option on the quote page.'],
   ['pricing.manage','Manage pricing','Create/update pricing rules and lanes.'],
-  ['webhook.manage','Manage webhooks','Create/update Discord webhooks and templates.'],
+  ['webhook.manage','Manage webhooks','Create/update Discord and Slack webhooks and templates.'],
   ['esi.manage','Manage ESI','Configure ESI tokens and scheduled pulls.'],
   ['user.manage','Manage users','Manage user access and role assignments.'],
   ['corp.manage','Manage corporation settings','Configure corp profile, defaults, and access rules.'],

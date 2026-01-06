@@ -345,14 +345,14 @@ final class CronSyncService
       $stats['contracts'] = gmdate('c');
       if ($this->webhooks) {
         try {
-          $payload = $this->webhooks->buildContractsPulledPayload($results['contracts']);
-          $this->webhooks->enqueue($corpId, 'esi.contracts.pulled', $payload);
+          $results['contracts']['status'] = 'completed';
+          $this->webhooks->enqueue($corpId, 'esi.contracts.pulled', $results['contracts']);
         } catch (\Throwable $e) {
           // Ignore webhook enqueue failures.
         }
         try {
-          $payload = $this->webhooks->buildContractsReconciledPayload($results['contracts_reconcile']);
-          $this->webhooks->enqueue($corpId, 'esi.contracts.reconciled', $payload);
+          $results['contracts_reconcile']['status'] = 'completed';
+          $this->webhooks->enqueue($corpId, 'esi.contracts.reconciled', $results['contracts_reconcile']);
         } catch (\Throwable $e) {
           // Ignore webhook enqueue failures.
         }

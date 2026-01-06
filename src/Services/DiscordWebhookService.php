@@ -7,24 +7,34 @@ use App\Db\Db;
 
 final class DiscordWebhookService
 {
+  private const EVENT_LABELS = [
+    'haul.request.created' => 'Haul request created',
+    'haul.quote.created' => 'Quote created',
+    'haul.contract.attached' => 'Contract attached',
+    'haul.contract.picked_up' => 'Contract picked up',
+    'contract.picked_up' => 'Contract picked up (reconciled)',
+    'contract.delivered' => 'Contract delivered (reconciled)',
+    'contract.failed' => 'Contract failed (reconciled)',
+    'contract.expired' => 'Contract expired (reconciled)',
+    'haul.assignment.created' => 'Haul assigned',
+    'haul.assignment.picked_up' => 'Haul picked up',
+    'esi.contracts.pulled' => 'Contracts pulled (ESI)',
+    'esi.contracts.reconciled' => 'Contracts reconciled (ESI)',
+    'haul.contract.linked' => 'Contract linked',
+  ];
   public function __construct(private Db $db, private array $config = [])
   {
   }
 
-  public function enqueue(int $corpId, string $eventKey, array $payload, ?int $webhookId = null): int
+  public function enqueue(int $corpId, string $eventKey, array $details, ?int $webhookId = null): int
   {
-    return $this->enqueueInternal($corpId, $eventKey, $payload, $webhookId, true);
-  }
-
-  public function enqueueTest(int $corpId, string $eventKey, array $payload, ?int $webhookId = null): int
-  {
-    return $this->enqueueInternal($corpId, $eventKey, $payload, $webhookId, false);
+    return $this->enqueueInternal($corpId, $eventKey, $details, $webhookId, true);
   }
 
   public function enqueueUnique(
     int $corpId,
     string $eventKey,
-    array $payload,
+    array $details,
     string $entityType,
     int $entityId,
     string $transitionTo,
@@ -33,7 +43,7 @@ final class DiscordWebhookService
     $hooks = $this->selectWebhookTargets($corpId, $eventKey, $webhookId, true);
 
     $count = 0;
-    $payloadJson = Db::jsonEncode($payload);
+    $payloadJson = Db::jsonEncode(['event_details' => $details]);
     foreach ($hooks as $hook) {
       $count += $this->db->execute(
         "INSERT IGNORE INTO webhook_delivery
@@ -55,7 +65,7 @@ final class DiscordWebhookService
     return $count;
   }
 
-  public function enqueueContractLinked(int $corpId, array $payload): int
+  public function enqueueContractLinked(int $corpId, array $details): int
   {
     $hooks = $this->db->select(
       "SELECT webhook_id
@@ -71,7 +81,7 @@ final class DiscordWebhookService
         'webhook_id' => (int)$hook['webhook_id'],
         'event_key' => 'haul.contract.linked',
         'status' => 'pending',
-        'payload_json' => Db::jsonEncode($payload),
+        'payload_json' => Db::jsonEncode(['event_details' => $details]),
       ]);
       $count++;
     }
@@ -83,7 +93,7 @@ final class DiscordWebhookService
   {
     $rows = $this->db->select(
       "SELECT d.delivery_id, d.corp_id, d.webhook_id, d.event_key, d.payload_json, d.attempts,
-              d.next_attempt_at, w.webhook_url
+              d.next_attempt_at, w.webhook_url, w.provider
          FROM webhook_delivery d
          JOIN discord_webhook w ON w.webhook_id = d.webhook_id
         WHERE d.status = 'pending'
@@ -104,9 +114,12 @@ final class DiscordWebhookService
       $deliveryId = (int)$row['delivery_id'];
       $attempt = (int)($row['attempts'] ?? 0);
       $attemptNext = $attempt + 1;
-      $payload = Db::jsonDecode((string)$row['payload_json'], []);
-      $payload = $this->ensurePayload((string)($row['event_key'] ?? ''), $payload);
-      $payload = $this->ensureAllowedMentions($payload);
+      $payloadEnvelope = Db::jsonDecode((string)$row['payload_json'], []);
+      $provider = (string)($row['provider'] ?? 'discord');
+      $payload = $this->buildPayloadForProvider((string)($row['event_key'] ?? ''), $provider, $payloadEnvelope);
+      if ($provider === 'discord') {
+        $payload = $this->ensureAllowedMentions($payload);
+      }
 
       try {
         $resp = $this->postWebhook((string)$row['webhook_url'], $payload);
@@ -220,6 +233,96 @@ final class DiscordWebhookService
   public function dispatchQueued(int $limit = 10): array
   {
     return $this->sendPending($limit);
+  }
+
+  private function buildPayloadForProvider(string $eventKey, string $provider, array $payloadEnvelope): array
+  {
+    $provider = strtolower(trim($provider));
+    $eventDetails = $payloadEnvelope['event_details'] ?? null;
+    if (is_array($eventDetails)) {
+      return $provider === 'slack'
+        ? $this->buildSlackPayloadForEvent($eventKey, $eventDetails)
+        : $this->buildDiscordPayloadForEvent($eventKey, $eventDetails);
+    }
+
+    if ($provider === 'slack') {
+      return $this->ensureSlackPayload($eventKey, $payloadEnvelope);
+    }
+
+    return $this->ensurePayload($eventKey, $payloadEnvelope);
+  }
+
+  private function buildDiscordPayloadForEvent(string $eventKey, array $details): array
+  {
+    return match ($eventKey) {
+      'haul.request.created' => $this->buildHaulRequestEmbed($details),
+      'haul.quote.created' => $this->buildHaulRequestEmbed($details),
+      'haul.contract.attached' => $this->buildContractAttachedPayload($details),
+      'haul.assignment.created' => $this->buildHaulAssignmentPayload($details),
+      'haul.assignment.picked_up' => $this->buildHaulAssignmentPayload($details),
+      'esi.contracts.pulled' => $this->buildContractsPulledPayload($details),
+      'esi.contracts.reconciled' => $this->buildContractsReconciledPayload($details),
+      'haul.contract.linked' => $this->buildContractLinkedPayload($details),
+      'haul.contract.picked_up', 'contract.picked_up' => $this->buildContractPickedUpPayload($details),
+      'contract.delivered' => $this->buildContractDeliveredPayload($details),
+      'contract.failed' => $this->buildContractFailedPayload($details),
+      'contract.expired' => $this->buildContractExpiredPayload($details),
+      default => $this->ensurePayload($eventKey, $details),
+    };
+  }
+
+  private function buildSlackPayloadForEvent(string $eventKey, array $details): array
+  {
+    $eventLabel = self::EVENT_LABELS[$eventKey] ?? 'Webhook notification';
+    $requestCode = $this->formatRequestCode($details);
+    $headerText = $requestCode !== '' ? $eventLabel . ' • ' . $requestCode : $eventLabel;
+    $summaryText = $requestCode !== '' ? $eventLabel . ' — ' . $requestCode : $eventLabel;
+
+    $blocks = [
+      [
+        'type' => 'header',
+        'text' => [
+          'type' => 'plain_text',
+          'text' => $headerText,
+        ],
+      ],
+    ];
+
+    $fields = $this->buildSlackFields($details);
+    if ($fields !== []) {
+      foreach (array_chunk($fields, 10) as $chunk) {
+        $blocks[] = [
+          'type' => 'section',
+          'fields' => $chunk,
+        ];
+      }
+    }
+
+    $linksText = $this->buildSlackLinks($details);
+    if ($linksText !== '') {
+      $blocks[] = [
+        'type' => 'section',
+        'text' => [
+          'type' => 'mrkdwn',
+          'text' => $linksText,
+        ],
+      ];
+    }
+
+    $blocks[] = [
+      'type' => 'context',
+      'elements' => [
+        [
+          'type' => 'mrkdwn',
+          'text' => 'Lone Wolves Mining • Hauling Operations',
+        ],
+      ],
+    ];
+
+    return [
+      'text' => $summaryText,
+      'blocks' => $blocks,
+    ];
   }
 
   public function buildHaulRequestEmbed(array $details): array
@@ -555,6 +658,54 @@ final class DiscordWebhookService
     ];
   }
 
+  public function buildContractAttachedPayload(array $details): array
+  {
+    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
+    $title = (string)($details['title'] ?? 'Contract attached');
+    $pickup = trim((string)($details['pickup'] ?? $details['from_system'] ?? ''));
+    $dropoff = trim((string)($details['dropoff'] ?? $details['to_system'] ?? ''));
+    $volume = (float)($details['volume_m3'] ?? 0.0);
+    $collateral = (float)($details['collateral_isk'] ?? 0.0);
+    $reward = (float)($details['reward_isk'] ?? $details['price_isk'] ?? 0.0);
+    $requestId = (int)($details['request_id'] ?? 0);
+    $requestKey = (string)($details['request_key'] ?? '');
+    $requestUrl = $this->buildRequestUrl($requestKey !== '' ? $requestKey : null);
+
+    $fields = [];
+    if ($pickup !== '') {
+      $fields[] = ['name' => 'Pickup', 'value' => $pickup, 'inline' => true];
+    }
+    if ($dropoff !== '') {
+      $fields[] = ['name' => 'Dropoff', 'value' => $dropoff, 'inline' => true];
+    }
+    if ($volume > 0) {
+      $fields[] = ['name' => 'Volume', 'value' => number_format($volume, 0) . ' m³', 'inline' => true];
+    }
+    if ($reward > 0) {
+      $fields[] = ['name' => 'Reward', 'value' => number_format($reward, 2) . ' ISK', 'inline' => true];
+    }
+    if ($collateral > 0) {
+      $fields[] = ['name' => 'Collateral', 'value' => number_format($collateral, 2) . ' ISK', 'inline' => true];
+    }
+    if ($requestUrl !== '') {
+      $fields[] = ['name' => 'Request', 'value' => '[Request #' . $requestId . '](' . $requestUrl . ')', 'inline' => false];
+    }
+
+    $embed = [
+      'title' => $title,
+      'description' => 'Contract attached and validated.',
+      'fields' => $fields,
+      'timestamp' => gmdate('c'),
+    ];
+
+    return [
+      'username' => $appName,
+      'embeds' => [
+        $embed,
+      ],
+    ];
+  }
+
   public function buildContractLinkedPayload(array $details): array
   {
     $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
@@ -713,34 +864,10 @@ final class DiscordWebhookService
     );
   }
 
-  public function buildTestPayloadForEvent(int $corpId, string $eventKey, array $options = []): array
-  {
-    $message = trim((string)($options['message'] ?? ''));
-    $request = $this->fetchLatestHaulRequest($corpId);
-    $assignment = $this->fetchLatestHaulAssignment($corpId);
-    $contractRequest = $this->fetchLatestContractRequest($corpId);
-
-    return match ($eventKey) {
-      'haul.request.created' => $this->buildHaulRequestTestPayload($request, 'Haul Request'),
-      'haul.quote.created' => $this->buildHaulQuoteTestPayload($corpId),
-      'haul.contract.attached' => $this->buildContractAttachedTestPayload($request),
-      'haul.contract.picked_up', 'contract.picked_up' => $this->buildContractPickedUpTestPayload($contractRequest),
-      'contract.delivered' => $this->buildContractLifecycleTestPayload($contractRequest, 'delivered'),
-      'contract.failed' => $this->buildContractLifecycleTestPayload($contractRequest, 'failed'),
-      'contract.expired' => $this->buildContractLifecycleTestPayload($contractRequest, 'expired'),
-      'haul.assignment.created' => $this->buildAssignmentTestPayload($assignment, 'assigned'),
-      'haul.assignment.picked_up' => $this->buildAssignmentTestPayload($assignment, 'in_transit'),
-      'esi.contracts.pulled' => $this->buildContractsPulledPayload($this->buildContractsPulledSummary($corpId)),
-      'esi.contracts.reconciled' => $this->buildContractsReconciledPayload($this->buildContractsReconciledSummary($corpId)),
-      'webhook.test' => $this->buildManualTestPayload($message),
-      default => $this->ensurePayload($eventKey, []),
-    };
-  }
-
   private function enqueueInternal(
     int $corpId,
     string $eventKey,
-    array $payload,
+    array $details,
     ?int $webhookId,
     bool $respectSettings
   ): int {
@@ -753,7 +880,7 @@ final class DiscordWebhookService
         'webhook_id' => (int)$hook['webhook_id'],
         'event_key' => $eventKey,
         'status' => 'pending',
-        'payload_json' => Db::jsonEncode($payload),
+        'payload_json' => Db::jsonEncode(['event_details' => $details]),
       ]);
       $count++;
     }
@@ -1007,21 +1134,107 @@ final class DiscordWebhookService
     return false;
   }
 
-  private function buildManualTestPayload(string $message): array
+  private function ensureSlackPayload(string $eventKey, array $payload): array
   {
-    $appName = (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling');
-    $content = $message !== '' ? $message : 'Test notification from hauling.';
+    if (isset($payload['text']) || isset($payload['blocks'])) {
+      if (!isset($payload['text'])) {
+        $payload['text'] = self::EVENT_LABELS[$eventKey] ?? 'Webhook notification';
+      }
+      return $payload;
+    }
 
+    return $this->buildSlackPayloadForEvent($eventKey, []);
+  }
+
+  private function formatRequestCode(array $details): string
+  {
+    $requestKey = trim((string)($details['request_key'] ?? ''));
+    if ($requestKey !== '') {
+      return 'Request ' . $requestKey;
+    }
+    $requestId = (int)($details['request_id'] ?? 0);
+    if ($requestId > 0) {
+      return 'Request #' . $requestId;
+    }
+    return '';
+  }
+
+  private function buildSlackFields(array $details): array
+  {
+    $fields = [];
+    $route = $details['route'] ?? [];
+    if (!is_array($route)) {
+      $route = [];
+    }
+
+    $pickup = trim((string)($details['pickup'] ?? ''));
+    $dropoff = trim((string)($details['dropoff'] ?? $details['delivery'] ?? ''));
+    if ($pickup === '') {
+      $pickup = trim((string)($details['from_system'] ?? $this->extractRouteEndpoint($route, 'from')));
+    }
+    if ($dropoff === '') {
+      $dropoff = trim((string)($details['to_system'] ?? $this->extractRouteEndpoint($route, 'to')));
+    }
+
+    if ($pickup !== '') {
+      $fields[] = $this->slackField('Pickup', $pickup);
+    }
+    if ($dropoff !== '') {
+      $fields[] = $this->slackField('Delivery', $dropoff);
+    }
+
+    $volume = (float)($details['volume_m3'] ?? 0.0);
+    if ($volume > 0) {
+      $fields[] = $this->slackField('Volume', number_format($volume, 0) . ' m³');
+    }
+
+    $collateral = (float)($details['collateral_isk'] ?? 0.0);
+    if ($collateral > 0) {
+      $fields[] = $this->slackField('Collateral', number_format($collateral, 2) . ' ISK');
+    }
+
+    $reward = (float)($details['reward_isk'] ?? $details['price_isk'] ?? 0.0);
+    if ($reward > 0) {
+      $fields[] = $this->slackField('Reward', number_format($reward, 2) . ' ISK');
+    }
+
+    $status = trim((string)($details['status'] ?? ''));
+    if ($status !== '') {
+      $fields[] = $this->slackField('Status', $status);
+    }
+
+    $priority = trim((string)($details['priority'] ?? ''));
+    if ($priority !== '') {
+      $fields[] = $this->slackField('Priority', $priority);
+    }
+
+    return $fields;
+  }
+
+  private function buildSlackLinks(array $details): string
+  {
+    $linkRequest = trim((string)($details['link_request'] ?? ''));
+    if ($linkRequest === '') {
+      $linkRequest = $this->buildRequestUrl((string)($details['request_key'] ?? ''));
+    }
+    $linkContract = trim((string)($details['link_contract_instructions'] ?? ''));
+
+    $links = [];
+    if ($linkRequest !== '') {
+      $links[] = '<' . $linkRequest . '|Request>';
+    }
+    if ($linkContract !== '') {
+      $links[] = '<' . $linkContract . '|Contract instructions>';
+    }
+
+    return implode(' • ', $links);
+  }
+
+  private function slackField(string $label, string $value): array
+  {
     return [
-      'username' => $appName,
-      'allowed_mentions' => ['parse' => []],
-      'embeds' => [
-        [
-          'title' => 'Webhook test',
-          'description' => $content,
-          'timestamp' => gmdate('c'),
-        ],
-      ],
+      'type' => 'mrkdwn',
+      'text' => '*' . $label . "*\n" . $value,
     ];
   }
 
@@ -1031,360 +1244,6 @@ final class DiscordWebhookService
       $payload['allowed_mentions'] = ['parse' => []];
     }
     return $payload;
-  }
-
-  private function buildHaulRequestTestPayload(?array $request, string $fallbackTitle): array
-  {
-    if (!$request) {
-      return $this->ensurePayload('haul.request.created', []);
-    }
-
-    $fromName = $this->resolveLocationName(
-      (int)($request['from_location_id'] ?? 0),
-      (string)($request['from_location_type'] ?? '')
-    );
-    $toName = $this->resolveLocationName(
-      (int)($request['to_location_id'] ?? 0),
-      (string)($request['to_location_type'] ?? '')
-    );
-    $title = trim((string)($request['title'] ?? ''));
-    if ($title === '') {
-      $title = $fallbackTitle . ' #' . (string)($request['request_id'] ?? '');
-    }
-    $route = $this->buildRoutePayload($fromName, $toName, (int)($request['expected_jumps'] ?? 0));
-
-    return $this->buildHaulRequestEmbed([
-      'title' => $title,
-      'route' => $route,
-      'from_system' => $fromName,
-      'to_system' => $toName,
-      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
-      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
-      'price_isk' => (float)($request['reward_isk'] ?? 0.0),
-      'requester' => (string)($request['requester_character_name'] ?? $request['requester_display_name'] ?? 'Unknown'),
-      'requester_character_id' => (int)($request['requester_character_id'] ?? 0),
-      'ship_class' => (string)($request['ship_class'] ?? ''),
-      'request_key' => (string)($request['request_key'] ?? ''),
-    ]);
-  }
-
-  private function buildHaulQuoteTestPayload(int $corpId): array
-  {
-    $quote = $this->db->one(
-      "SELECT quote_id, route_json, breakdown_json, volume_m3, collateral_isk, price_total
-         FROM quote
-        WHERE corp_id = :cid
-        ORDER BY created_at DESC, quote_id DESC
-        LIMIT 1",
-      ['cid' => $corpId]
-    );
-
-    if (!$quote) {
-      return $this->ensurePayload('haul.quote.created', []);
-    }
-
-    $route = Db::jsonDecode((string)($quote['route_json'] ?? ''), []);
-    $breakdown = Db::jsonDecode((string)($quote['breakdown_json'] ?? ''), []);
-    if (!is_array($route)) {
-      $route = [];
-    }
-    if (!is_array($breakdown)) {
-      $breakdown = [];
-    }
-
-    return $this->buildHaulRequestEmbed([
-      'title' => 'Haul Quote #' . (string)($quote['quote_id'] ?? ''),
-      'route' => $route,
-      'volume_m3' => (float)($quote['volume_m3'] ?? 0.0),
-      'collateral_isk' => (float)($quote['collateral_isk'] ?? 0.0),
-      'price_isk' => (float)($quote['price_total'] ?? 0.0),
-      'requester' => 'Quote Request',
-      'ship_class' => (string)($breakdown['ship_class']['service_class'] ?? ''),
-    ]);
-  }
-
-  private function buildContractAttachedTestPayload(?array $request): array
-  {
-    if (!$request) {
-      return $this->ensurePayload('haul.contract.attached', []);
-    }
-
-    $fromName = $this->resolveLocationName(
-      (int)($request['from_location_id'] ?? 0),
-      (string)($request['from_location_type'] ?? '')
-    );
-    $toName = $this->resolveLocationName(
-      (int)($request['to_location_id'] ?? 0),
-      (string)($request['to_location_type'] ?? '')
-    );
-    $jumps = (int)($request['expected_jumps'] ?? 0);
-    $routeLabel = trim(($fromName !== '' ? $fromName : 'Unknown') . ' → ' . ($toName !== '' ? $toName : 'Unknown'));
-    $requestUrl = $this->buildRequestUrl((string)($request['request_key'] ?? ''));
-
-    return [
-      'username' => (string)($this->config['app']['name'] ?? 'Lone Wolves Hauling'),
-      'content' => sprintf(
-        "New haul request #%s (Quote #%s)\n%s • %d jumps\nShip: %s • Volume: %s m³ • Price: %s ISK • Collateral: %s ISK\n%s",
-        (string)($request['request_id'] ?? ''),
-        (string)($request['quote_id'] ?? 'n/a'),
-        $routeLabel,
-        $jumps,
-        (string)($request['ship_class'] ?? 'N/A'),
-        number_format((float)($request['volume_m3'] ?? 0.0), 0),
-        number_format((float)($request['reward_isk'] ?? 0.0), 2),
-        number_format((float)($request['collateral_isk'] ?? 0.0), 2),
-        $requestUrl
-      ),
-    ];
-  }
-
-  private function buildContractPickedUpTestPayload(?array $request): array
-  {
-    if (!$request) {
-      return $this->ensurePayload('contract.picked_up', []);
-    }
-
-    $contractId = (int)($request['contract_id'] ?? $request['esi_contract_id'] ?? 0);
-    $acceptorName = (string)($request['acceptor_name'] ?? $request['esi_acceptor_name'] ?? '');
-    $acceptorId = (int)($request['acceptor_id'] ?? $request['esi_acceptor_id'] ?? 0);
-    $route = $this->buildRouteLabel($request);
-
-    return $this->buildContractPickedUpPayload([
-      'request_id' => (int)($request['request_id'] ?? 0),
-      'request_key' => (string)($request['request_key'] ?? ''),
-      'route' => $route,
-      'pickup' => (string)($request['from_name'] ?? ''),
-      'dropoff' => (string)($request['to_name'] ?? ''),
-      'ship_class' => (string)($request['ship_class'] ?? ''),
-      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
-      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
-      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
-      'contract_id' => $contractId,
-      'acceptor_id' => $acceptorId,
-      'acceptor_name' => $acceptorName,
-    ]);
-  }
-
-  private function buildContractLifecycleTestPayload(?array $request, string $state): array
-  {
-    if (!$request) {
-      return $this->ensurePayload('contract.' . $state, []);
-    }
-
-    $contractId = (int)($request['contract_id'] ?? $request['esi_contract_id'] ?? 0);
-    $acceptorName = (string)($request['acceptor_name'] ?? $request['esi_acceptor_name'] ?? '');
-    $acceptorId = (int)($request['acceptor_id'] ?? $request['esi_acceptor_id'] ?? 0);
-    $route = $this->buildRouteLabel($request);
-
-    $details = [
-      'request_id' => (int)($request['request_id'] ?? 0),
-      'request_key' => (string)($request['request_key'] ?? ''),
-      'route' => $route,
-      'pickup' => (string)($request['from_name'] ?? ''),
-      'dropoff' => (string)($request['to_name'] ?? ''),
-      'ship_class' => (string)($request['ship_class'] ?? ''),
-      'volume_m3' => (float)($request['volume_m3'] ?? 0.0),
-      'collateral_isk' => (float)($request['collateral_isk'] ?? 0.0),
-      'reward_isk' => (float)($request['reward_isk'] ?? 0.0),
-      'contract_id' => $contractId,
-      'acceptor_id' => $acceptorId,
-      'acceptor_name' => $acceptorName,
-    ];
-
-    return match ($state) {
-      'delivered' => $this->buildContractDeliveredPayload($details),
-      'failed' => $this->buildContractFailedPayload($details),
-      'expired' => $this->buildContractExpiredPayload($details),
-      default => $this->ensurePayload('contract.' . $state, []),
-    };
-  }
-
-  private function buildAssignmentTestPayload(?array $assignment, string $status): array
-  {
-    if (!$assignment) {
-      return $this->ensurePayload('haul.assignment.created', []);
-    }
-
-    $route = $this->buildRoutePayload(
-      (string)($assignment['from_name'] ?? ''),
-      (string)($assignment['to_name'] ?? ''),
-      (int)($assignment['expected_jumps'] ?? 0)
-    );
-
-    return $this->buildHaulAssignmentPayload([
-      'title' => 'Haul Assignment #' . (string)($assignment['request_id'] ?? ''),
-      'route' => $route,
-      'volume_m3' => (float)($assignment['volume_m3'] ?? 0.0),
-      'reward_isk' => (float)($assignment['reward_isk'] ?? 0.0),
-      'requester' => (string)($assignment['requester_character_name'] ?? $assignment['requester_display_name'] ?? 'Unknown'),
-      'requester_character_id' => (int)($assignment['requester_character_id'] ?? 0),
-      'hauler' => (string)($assignment['hauler_name'] ?? ''),
-      'hauler_character_id' => (int)($assignment['hauler_character_id'] ?? 0),
-      'status' => $status,
-      'actor' => (string)($assignment['assigned_by_name'] ?? ''),
-      'actor_label' => 'Assigned by',
-      'actor_character_id' => (int)($assignment['assigned_by_character_id'] ?? 0),
-      'ship_class' => (string)($assignment['ship_class'] ?? ''),
-      'request_key' => (string)($assignment['request_key'] ?? ''),
-    ]);
-  }
-
-  private function buildContractsPulledSummary(int $corpId): array
-  {
-    $contractCount = (int)($this->db->fetchValue(
-      "SELECT COUNT(*) FROM esi_corp_contract WHERE corp_id = :cid",
-      ['cid' => $corpId]
-    ) ?? 0);
-    $itemCount = (int)($this->db->fetchValue(
-      "SELECT COUNT(*) FROM esi_corp_contract_item WHERE corp_id = :cid",
-      ['cid' => $corpId]
-    ) ?? 0);
-
-    return [
-      'fetched_contracts' => $contractCount,
-      'upserted_contracts' => $contractCount,
-      'upserted_items' => $itemCount,
-      'pages' => $contractCount > 0 ? 1 : 0,
-    ];
-  }
-
-  private function buildContractsReconciledSummary(int $corpId): array
-  {
-    $scanned = (int)($this->db->fetchValue(
-      "SELECT COUNT(*)
-         FROM haul_request
-        WHERE corp_id = :cid
-          AND (contract_id IS NOT NULL OR esi_contract_id IS NOT NULL)",
-      ['cid' => $corpId]
-    ) ?? 0);
-    $updated = (int)($this->db->fetchValue(
-      "SELECT COUNT(*)
-         FROM haul_request
-        WHERE corp_id = :cid
-          AND contract_state IS NOT NULL",
-      ['cid' => $corpId]
-    ) ?? 0);
-
-    return [
-      'scanned' => $scanned,
-      'updated' => $updated,
-      'skipped' => max(0, $scanned - $updated),
-      'not_found' => 0,
-      'errors' => 0,
-      'pages' => $scanned > 0 ? 1 : 0,
-    ];
-  }
-
-  private function fetchLatestHaulRequest(int $corpId): ?array
-  {
-    return $this->db->one(
-      "SELECT *
-         FROM v_haul_request_display
-        WHERE corp_id = :cid
-        ORDER BY updated_at DESC, request_id DESC
-        LIMIT 1",
-      ['cid' => $corpId]
-    );
-  }
-
-  private function fetchLatestContractRequest(int $corpId): ?array
-  {
-    return $this->db->one(
-      "SELECT *
-         FROM v_haul_request_display
-        WHERE corp_id = :cid
-          AND (contract_id IS NOT NULL OR esi_contract_id IS NOT NULL)
-        ORDER BY updated_at DESC, request_id DESC
-        LIMIT 1",
-      ['cid' => $corpId]
-    );
-  }
-
-  private function fetchLatestHaulAssignment(int $corpId): ?array
-  {
-    return $this->db->one(
-      "SELECT v.*,
-              a.status AS assignment_status,
-              a.hauler_user_id,
-              a.assigned_by_user_id,
-              h.display_name AS hauler_name,
-              h.character_id AS hauler_character_id,
-              h.avatar_url AS hauler_avatar_url,
-              b.display_name AS assigned_by_name,
-              b.character_id AS assigned_by_character_id,
-              b.avatar_url AS assigned_by_avatar_url
-         FROM haul_assignment a
-         JOIN v_haul_request_display v ON v.request_id = a.request_id
-         LEFT JOIN app_user h ON h.user_id = a.hauler_user_id
-         LEFT JOIN app_user b ON b.user_id = a.assigned_by_user_id
-        WHERE v.corp_id = :cid
-        ORDER BY a.updated_at DESC, a.assignment_id DESC
-        LIMIT 1",
-      ['cid' => $corpId]
-    );
-  }
-
-  private function resolveLocationName(int $locationId, string $locationType): string
-  {
-    if ($locationId <= 0) {
-      return '';
-    }
-
-    return match ($locationType) {
-      'station' => trim((string)$this->db->fetchValue(
-        "SELECT station_name FROM eve_station WHERE station_id = :id LIMIT 1",
-        ['id' => $locationId]
-      )),
-      'structure' => trim((string)$this->db->fetchValue(
-        "SELECT structure_name FROM eve_structure WHERE structure_id = :id LIMIT 1",
-        ['id' => $locationId]
-      )),
-      default => trim((string)$this->db->fetchValue(
-        "SELECT system_name FROM eve_system WHERE system_id = :id LIMIT 1",
-        ['id' => $locationId]
-      )),
-    };
-  }
-
-  private function buildRoutePayload(string $fromName, string $toName, int $jumps): array
-  {
-    $path = [];
-    if ($fromName !== '') {
-      $path[] = ['system_name' => $fromName];
-    }
-    if ($toName !== '') {
-      $path[] = ['system_name' => $toName];
-    }
-
-    return [
-      'path' => $path,
-      'jumps' => $jumps,
-      'hs_count' => 0,
-      'ls_count' => 0,
-      'ns_count' => 0,
-    ];
-  }
-
-  private function buildRouteLabel(array $request): string
-  {
-    $fromName = (string)($request['from_name'] ?? '');
-    $toName = (string)($request['to_name'] ?? '');
-    if ($fromName === '') {
-      $fromName = $this->resolveLocationName(
-        (int)($request['from_location_id'] ?? 0),
-        (string)($request['from_location_type'] ?? '')
-      );
-    }
-    if ($toName === '') {
-      $toName = $this->resolveLocationName(
-        (int)($request['to_location_id'] ?? 0),
-        (string)($request['to_location_type'] ?? '')
-      );
-    }
-
-    $fromLabel = $fromName !== '' ? $fromName : ('Location #' . (string)($request['from_location_id'] ?? ''));
-    $toLabel = $toName !== '' ? $toName : ('Location #' . (string)($request['to_location_id'] ?? ''));
-    return trim($fromLabel . ' → ' . $toLabel);
   }
 
   private function extractRouteEndpoint(array $route, string $type): string

@@ -89,7 +89,7 @@ require __DIR__ . '/../../src/Views/partials/admin_nav.php';
         <?php if (Auth::can($authCtx, 'webhook.manage')): ?>
           <div>
             <div class="label">Webhooks</div>
-            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Discord webhooks</a>
+            <a class="btn" href="<?= ($basePath ?: '') ?>/admin/webhooks/">Webhook endpoints</a>
           </div>
         <?php endif; ?>
       </div>
