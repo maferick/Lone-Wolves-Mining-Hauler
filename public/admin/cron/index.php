@@ -240,7 +240,7 @@ $taskDefinitions = [
     'name' => 'Structures',
     'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_STRUCTURES_JOB] ?? 0), $structuresInterval),
     'scope' => 'corp',
-    'description' => 'Pulls corp structure data.',
+    'description' => 'Pulls corp structures.',
     'runner' => 'task',
   ],
   JobQueueService::CRON_PUBLIC_STRUCTURES_JOB => [
@@ -277,10 +277,10 @@ $taskDefinitions = [
   ],
   JobQueueService::CONTRACT_MATCH_JOB => [
     'key' => JobQueueService::CONTRACT_MATCH_JOB,
-    'name' => 'Contract Match',
+    'name' => 'Contract Matching',
     'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CONTRACT_MATCH_JOB] ?? 0), $matchInterval),
     'scope' => 'corp',
-    'description' => 'Matches open hauling requests against contracts.',
+    'description' => 'Matches contracts to hauling requests.',
     'runner' => 'task',
   ],
   JobQueueService::WEBHOOK_DELIVERY_JOB => [
