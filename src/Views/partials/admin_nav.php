@@ -4,7 +4,6 @@ declare(strict_types=1);
 use App\Auth\Auth;
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-$me = $authCtx['display_name'] ?? 'User';
 $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
 $adminPerms = [
   'corp.manage',
@@ -44,7 +43,18 @@ $isActivePath = static function (string $currentPath, string $targetPath): bool 
     || $currentPath === $baseTarget . '.php'
     || strpos($currentPath, $baseTarget . '/') === 0;
 };
-$isAdminArea = strpos($requestPath, '/admin') === 0;
+$isRightsPath = static function (string $currentPath): bool {
+  return strpos($currentPath, '/rights') === 0
+    || strpos($currentPath, '/admin/rights') === 0;
+};
+$isItemActive = static function (array $item, string $currentPath) use ($isActivePath, $isRightsPath): bool {
+  if (($item['match'] ?? '') === 'rights') {
+    return $isRightsPath($currentPath);
+  }
+
+  return $isActivePath($currentPath, $item['path']);
+};
+$isAdminArea = strpos($requestPath, '/admin') === 0 || $isRightsPath($requestPath);
 $navItems = [
   ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
   ['label' => 'Corp', 'path' => '/admin/settings/', 'perm' => 'corp.manage'],
@@ -53,6 +63,7 @@ $navItems = [
   ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
   ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
   ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
+  ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
   ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
   ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
   ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
@@ -66,7 +77,7 @@ $subNavGroups = [
     'items' => [
       ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
       ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
-      ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true],
+      ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
     ],
   ],
   [
@@ -100,19 +111,23 @@ $subNavGroups = [
   <div class="adminbar-left">
     <a class="nav-link<?= $isActivePath($requestPath, '/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
     <?php foreach ($navItems as $item): ?>
-      <?php if (($item['perm'] === null && $hasAnyAdmin) || ($item['perm'] !== null && Auth::can($authCtx, $item['perm']))): ?>
-        <?php $isActive = $isActivePath($requestPath, $item['path']); ?>
+      <?php
+        $requiresRights = !empty($item['requires_rights']);
+        $isAllowed = false;
+        if ($item['perm'] === null) {
+          $isAllowed = $hasAnyAdmin;
+        } elseif ($requiresRights) {
+          $isAllowed = $canRights && Auth::can($authCtx, $item['perm']);
+        } else {
+          $isAllowed = Auth::can($authCtx, $item['perm']);
+        }
+      ?>
+      <?php if ($isAllowed): ?>
+        <?php $isActive = $isItemActive($item, $requestPath); ?>
         <a class="nav-link<?= $isActive ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
       <?php endif; ?>
     <?php endforeach; ?>
     <a class="nav-link<?= $isActivePath($requestPath, '/api/ping') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
-    <?php if ($canRights): ?>
-      <a class="nav-link<?= $isActivePath($requestPath, '/rights/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
-    <?php endif; ?>
-  </div>
-  <div class="adminbar-right">
-    <span class="pill subtle"><?= htmlspecialchars($me, ENT_QUOTES, 'UTF-8') ?></span>
-    <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
   </div>
 </div>
 <?php if ($isAdminArea): ?>
@@ -140,7 +155,7 @@ $subNavGroups = [
         }
         $groupActive = false;
         foreach ($groupItems as $item) {
-          if ($isActivePath($requestPath, $item['path'])) {
+          if ($isItemActive($item, $requestPath)) {
             $groupActive = true;
             break;
           }
@@ -150,7 +165,7 @@ $subNavGroups = [
         <div class="admin-subnav-label"><?= htmlspecialchars($group['label'], ENT_QUOTES, 'UTF-8') ?></div>
         <div class="admin-subnav-links">
           <?php foreach ($groupItems as $item): ?>
-            <?php $isActive = $isActivePath($requestPath, $item['path']); ?>
+            <?php $isActive = $isItemActive($item, $requestPath); ?>
             <a class="nav-link<?= $isActive ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') . $item['path'] ?>">
               <?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?>
             </a>
