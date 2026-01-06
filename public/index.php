@@ -37,6 +37,7 @@ if ($basePath === '') {
     '/my-contracts',
     '/request',
     '/docs',
+    '/privacy',
     '/rates',
     '/faq',
     '/quote',
@@ -314,6 +315,13 @@ switch ($path) {
     $title = $appName . ' • Docs';
     $basePathForViews = $basePath;
     require __DIR__ . '/../src/Views/docs.php';
+    break;
+
+  case '/privacy':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Privacy';
+    $basePathForViews = $basePath;
+    require __DIR__ . '/../src/Views/privacy.php';
     break;
 
   case '/operations':

@@ -153,6 +153,12 @@ DISCORD_GUILD_ID=...   # optional for guild-scoped command registration
 ```
 https://example.com/api/discord/interactions/
 ```
+7) Set the **Privacy Policy URL** to:
+```
+https://example.com/privacy
+```
+
+If hosting under a subdirectory, use `https://example.com/hauling/privacy`.
 
 ### Message templates and embeds
 Discord notifications are delivered as rich embeds. In **Admin → Discord → Message Templates**, you can edit the Title/Body/Footer templates using tokens such as:
