@@ -55,22 +55,6 @@ $isItemActive = static function (array $item, string $currentPath) use ($isActiv
   return $isActivePath($currentPath, $item['path']);
 };
 $isAdminArea = strpos($requestPath, '/admin') === 0 || $isRightsPath($requestPath);
-$navItems = [
-  ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
-  ['label' => 'Corp', 'path' => '/admin/settings/', 'perm' => 'corp.manage'],
-  ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
-  ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
-  ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
-  ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
-  ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
-  ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
-  ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
-  ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
-  ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
-  ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
-  ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
-  ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
-];
 $subNavGroups = [
   [
     'label' => 'Platform',
@@ -107,29 +91,6 @@ $subNavGroups = [
   ],
 ];
 ?>
-<div class="adminbar">
-  <div class="adminbar-left">
-    <a class="nav-link<?= $isActivePath($requestPath, '/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/">Dashboard</a>
-    <?php foreach ($navItems as $item): ?>
-      <?php
-        $requiresRights = !empty($item['requires_rights']);
-        $isAllowed = false;
-        if ($item['perm'] === null) {
-          $isAllowed = $hasAnyAdmin;
-        } elseif ($requiresRights) {
-          $isAllowed = $canRights && Auth::can($authCtx, $item['perm']);
-        } else {
-          $isAllowed = Auth::can($authCtx, $item['perm']);
-        }
-      ?>
-      <?php if ($isAllowed): ?>
-        <?php $isActive = $isItemActive($item, $requestPath); ?>
-        <a class="nav-link<?= $isActive ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') . $item['path'] ?>"><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?></a>
-      <?php endif; ?>
-    <?php endforeach; ?>
-    <a class="nav-link<?= $isActivePath($requestPath, '/api/ping') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
-  </div>
-</div>
 <?php if ($isAdminArea): ?>
   <nav class="admin-subnav" aria-label="Admin sections">
     <?php foreach ($subNavGroups as $group): ?>
