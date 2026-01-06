@@ -16,4 +16,4 @@ ob_start();
 </section>
 <?php
 $body = ob_get_clean();
-require __DIR__ . '/../admin_layout.php';
+require __DIR__ . '/../layout.php';

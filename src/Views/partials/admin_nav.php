@@ -66,7 +66,7 @@ $subNavGroups = [
     'items' => [
       ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
       ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
-      ['label' => 'Rights', 'path' => '/admin/rights/', 'perm' => 'user.manage', 'requires_rights' => true],
+      ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true],
     ],
   ],
   [
@@ -107,7 +107,7 @@ $subNavGroups = [
     <?php endforeach; ?>
     <a class="nav-link<?= $isActivePath($requestPath, '/api/ping') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/api/ping">API</a>
     <?php if ($canRights): ?>
-      <a class="nav-link<?= $isActivePath($requestPath, '/admin/rights/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/admin/rights/">Rights</a>
+      <a class="nav-link<?= $isActivePath($requestPath, '/rights/') ? ' is-active' : '' ?>" href="<?= ($basePath ?: '') ?>/rights/">Rights</a>
     <?php endif; ?>
   </div>
   <div class="adminbar-right">
