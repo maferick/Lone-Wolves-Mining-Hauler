@@ -309,10 +309,24 @@ $lastError = $lastErrorRow ? (string)($lastErrorRow['last_error'] ?? '') : '';
 
 $botTokenConfigured = !empty($config['discord']['bot_token']);
 $publicKeyConfigured = !empty($config['discord']['public_key']);
+$discordTabs = [
+  ['id' => 'settings', 'label' => 'Settings'],
+  ['id' => 'bot', 'label' => 'Bot'],
+  ['id' => 'routing', 'label' => 'Routing'],
+  ['id' => 'templates', 'label' => 'Templates'],
+  ['id' => 'status', 'label' => 'Status'],
+];
 
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
+<nav class="admin-subnav admin-subnav--secondary discord-subnav" data-discord-tabs aria-label="Discord sections">
+  <?php foreach ($discordTabs as $tab): ?>
+    <a class="nav-link" href="<?= ($basePath ?: '') ?>/admin/discord/#<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>" data-section="<?= htmlspecialchars($tab['id'], ENT_QUOTES, 'UTF-8') ?>">
+      <?= htmlspecialchars($tab['label'], ENT_QUOTES, 'UTF-8') ?>
+    </a>
+  <?php endforeach; ?>
+</nav>
 <section class="card">
   <div class="card-header">
     <h2>Discord Integration</h2>
@@ -323,232 +337,248 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <?php if ($msg): ?><div class="pill"><?= htmlspecialchars($msg, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
 
     <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:16px; margin-bottom:20px;">
-      <div class="card" style="padding:12px;">
-        <div class="label">Connection Mode</div>
-        <form method="post">
-          <input type="hidden" name="action" value="save_config" />
-          <label style="display:flex; gap:8px; align-items:center;">
-            <input type="checkbox" name="enabled_webhooks" <?= !empty($configRow['enabled_webhooks']) ? 'checked' : '' ?> />
-            <span>Enable Discord Webhooks</span>
-          </label>
-          <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-            <input type="checkbox" name="enabled_bot" <?= !empty($configRow['enabled_bot']) ? 'checked' : '' ?> />
-            <span>Enable Discord Bot</span>
-          </label>
-
-          <div class="row" style="margin-top:12px;">
-            <div>
-              <div class="label">Rate limit (msgs/min/channel)</div>
-              <input class="input" type="number" min="1" name="rate_limit_per_minute" value="<?= (int)($configRow['rate_limit_per_minute'] ?? 20) ?>" />
-            </div>
-            <div>
-              <div class="label">Dedupe window (seconds)</div>
-              <input class="input" type="number" min="0" name="dedupe_window_seconds" value="<?= (int)($configRow['dedupe_window_seconds'] ?? 60) ?>" />
-            </div>
-          </div>
-
-          <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
-            <input type="checkbox" name="commands_ephemeral_default" <?= !empty($configRow['commands_ephemeral_default']) ? 'checked' : '' ?> />
-            <span>Default ephemeral responses for slash commands</span>
-          </label>
-
-          <div style="margin-top:12px;">
-            <button class="btn" type="submit">Save Settings</button>
-          </div>
-        </form>
-      </div>
-      <div class="card" style="padding:12px;">
-        <div class="label">Status</div>
-        <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
-        <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
-        <div class="muted">Webhook URLs configured: <?= $webhookCount ?></div>
-        <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-        <div class="muted">Pending outbox: <?= $pendingCount ?></div>
-        <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
-      </div>
-    </div>
-
-    <div class="card" style="padding:12px; margin-bottom:18px;">
-      <div class="label">Bot Configuration</div>
-      <form method="post" style="margin-top:8px;">
-        <input type="hidden" name="action" value="save_config" />
-        <div class="row">
-          <div>
-            <div class="label">Discord Application ID</div>
-            <input class="input" name="application_id" value="<?= htmlspecialchars((string)($configRow['application_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-          </div>
-          <div>
-            <div class="label">Guild ID (optional)</div>
-            <input class="input" name="guild_id" value="<?= htmlspecialchars((string)($configRow['guild_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-          </div>
-        </div>
-        <div class="row" style="margin-top:12px;">
-          <button class="btn" type="submit">Save Bot Settings</button>
-        </div>
-      </form>
-      <div class="row" style="margin-top:12px; gap:10px;">
-        <form method="post">
-          <input type="hidden" name="action" value="register_commands" />
-          <button class="btn" type="submit">Register/Refresh Slash Commands</button>
-        </form>
-        <form method="post">
-          <input type="hidden" name="action" value="test_permissions" />
-          <button class="btn ghost" type="submit">Test Bot Permissions</button>
-        </form>
-      </div>
-    </div>
-
-    <div class="card" style="padding:12px; margin-bottom:18px;">
-      <div class="label">Channel Routing</div>
-      <form method="post" style="margin-top:10px;">
-        <input type="hidden" name="action" value="add_channel" />
-        <div class="row">
-          <div>
-            <div class="label">Event</div>
-            <select class="input" name="event_key">
-              <?php foreach ($eventOptions as $eventKey => $label): ?>
-                <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div>
-            <div class="label">Mode</div>
-            <select class="input" name="mode">
-              <option value="webhook">Webhook</option>
-              <option value="bot">Bot</option>
-            </select>
-          </div>
-          <div>
-            <div class="label">Channel ID</div>
-            <input class="input" name="channel_id" placeholder="123456789" />
-          </div>
-          <div>
-            <div class="label">Webhook URL</div>
-            <input class="input" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." />
-          </div>
-          <div style="display:flex; align-items:end;">
+      <section class="admin-section" id="settings">
+        <div class="admin-section__title">Settings</div>
+        <div class="card" style="padding:12px;">
+          <div class="label">Connection Mode</div>
+          <form method="post">
+            <input type="hidden" name="action" value="save_config" />
             <label style="display:flex; gap:8px; align-items:center;">
-              <input type="checkbox" name="is_enabled" checked />
-              <span>Enabled</span>
+              <input type="checkbox" name="enabled_webhooks" <?= !empty($configRow['enabled_webhooks']) ? 'checked' : '' ?> />
+              <span>Enable Discord Webhooks</span>
             </label>
-          </div>
-        </div>
-        <div style="margin-top:10px;">
-          <button class="btn" type="submit">Add Mapping</button>
-        </div>
-      </form>
+            <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+              <input type="checkbox" name="enabled_bot" <?= !empty($configRow['enabled_bot']) ? 'checked' : '' ?> />
+              <span>Enable Discord Bot</span>
+            </label>
 
-      <?php if ($channelMaps === []): ?>
-        <div class="muted" style="margin-top:12px;">No channel mappings yet.</div>
-      <?php else: ?>
-        <table class="table" style="margin-top:12px;">
-          <thead>
-            <tr>
-              <th>Event</th>
-              <th>Mode</th>
-              <th>Channel ID</th>
-              <th>Webhook URL</th>
-              <th>Enabled</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-          <?php foreach ($channelMaps as $map): ?>
-            <tr>
-              <td>
-                <form method="post" style="display:flex; gap:6px; align-items:center;">
-                  <input type="hidden" name="action" value="update_channel" />
-                  <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
-                  <select class="input" name="event_key">
-                    <?php foreach ($eventOptions as $eventKey => $label): ?>
-                      <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" <?= $eventKey === $map['event_key'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-              </td>
-              <td>
-                  <select class="input" name="mode">
-                    <option value="webhook" <?= $map['mode'] === 'webhook' ? 'selected' : '' ?>>Webhook</option>
-                    <option value="bot" <?= $map['mode'] === 'bot' ? 'selected' : '' ?>>Bot</option>
-                  </select>
-              </td>
-              <td>
-                  <input class="input" name="channel_id" value="<?= htmlspecialchars((string)($map['channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-              </td>
-              <td>
-                  <input class="input" name="webhook_url" value="<?= htmlspecialchars((string)($map['webhook_url'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
-              </td>
-              <td>
-                  <label style="display:flex; gap:6px; align-items:center;">
-                    <input type="checkbox" name="is_enabled" <?= !empty($map['is_enabled']) ? 'checked' : '' ?> />
-                    <span class="muted" style="font-size:12px;">Enable</span>
-                  </label>
-              </td>
-              <td>
-                  <button class="btn" type="submit">Save</button>
-                </form>
-                <form method="post" style="margin-top:6px;">
-                  <input type="hidden" name="action" value="send_test" />
-                  <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
-                  <input type="hidden" name="event_key" value="<?= htmlspecialchars((string)$map['event_key'], ENT_QUOTES, 'UTF-8') ?>" />
-                  <button class="btn ghost" type="submit">Send Test Message</button>
-                </form>
-                <form method="post" style="margin-top:6px;">
-                  <input type="hidden" name="action" value="delete_channel" />
-                  <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
-                  <button class="btn danger" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      <?php endif; ?>
+            <div class="row" style="margin-top:12px;">
+              <div>
+                <div class="label">Rate limit (msgs/min/channel)</div>
+                <input class="input" type="number" min="1" name="rate_limit_per_minute" value="<?= (int)($configRow['rate_limit_per_minute'] ?? 20) ?>" />
+              </div>
+              <div>
+                <div class="label">Dedupe window (seconds)</div>
+                <input class="input" type="number" min="0" name="dedupe_window_seconds" value="<?= (int)($configRow['dedupe_window_seconds'] ?? 60) ?>" />
+              </div>
+            </div>
+
+            <label style="display:flex; gap:8px; align-items:center; margin-top:10px;">
+              <input type="checkbox" name="commands_ephemeral_default" <?= !empty($configRow['commands_ephemeral_default']) ? 'checked' : '' ?> />
+              <span>Default ephemeral responses for slash commands</span>
+            </label>
+
+            <div style="margin-top:12px;">
+              <button class="btn" type="submit">Save Settings</button>
+            </div>
+          </form>
+        </div>
+      </section>
+      <section class="admin-section" id="status">
+        <div class="admin-section__title">Status</div>
+        <div class="card" style="padding:12px;">
+          <div class="label">Status</div>
+          <div class="muted">Bot token configured: <?= $botTokenConfigured ? 'yes' : 'no' ?></div>
+          <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
+          <div class="muted">Webhook URLs configured: <?= $webhookCount ?></div>
+          <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+          <div class="muted">Pending outbox: <?= $pendingCount ?></div>
+          <div class="muted">Last error: <?= $lastError !== '' ? htmlspecialchars($lastError, ENT_QUOTES, 'UTF-8') : '—' ?></div>
+        </div>
+      </section>
     </div>
 
-    <div class="card" style="padding:12px;">
-      <div class="label">Message Templates</div>
-      <div class="muted" style="margin-bottom:10px;">Supported tokens: {request_id}, {request_code}, {pickup}, {delivery}, {volume}, {collateral}, {reward}, {status}, {priority}, {user}, {requester}, {hauler}, {ship_name}, {requester_portrait}, {hauler_portrait}, {ship_render}, {link_request}, {link_contract_instructions}</div>
-      <form method="post" style="margin-bottom:14px;">
-        <input type="hidden" name="action" value="reset_templates" />
-        <button class="btn ghost" type="submit">Reset templates to defaults</button>
-      </form>
-      <?php foreach ($eventOptions as $eventKey => $label): ?>
-        <?php $template = $templateIndex[$eventKey] ?? []; ?>
-        <form method="post" style="margin-bottom:14px;">
-          <input type="hidden" name="event_key" value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" />
-          <div class="label">Template: <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></div>
+    <section class="admin-section" id="bot">
+      <div class="admin-section__title">Bot</div>
+      <div class="card" style="padding:12px; margin-bottom:18px;">
+        <div class="label">Bot Configuration</div>
+        <form method="post" style="margin-top:8px;">
+          <input type="hidden" name="action" value="save_config" />
           <div class="row">
             <div>
-              <div class="label">Title</div>
-              <textarea class="input" name="title_template" rows="2"><?= htmlspecialchars((string)($template['title_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
+              <div class="label">Discord Application ID</div>
+              <input class="input" name="application_id" value="<?= htmlspecialchars((string)($configRow['application_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
             </div>
             <div>
-              <div class="label">Body</div>
-              <textarea class="input" name="body_template" rows="4"><?= htmlspecialchars((string)($template['body_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
-            </div>
-            <div>
-              <div class="label">Footer</div>
-              <textarea class="input" name="footer_template" rows="2"><?= htmlspecialchars((string)($template['footer_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
+              <div class="label">Guild ID (optional)</div>
+              <input class="input" name="guild_id" value="<?= htmlspecialchars((string)($configRow['guild_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
             </div>
           </div>
-          <div class="row" style="margin-top:8px; gap:10px;">
-            <button class="btn" type="submit" name="action" value="save_template">Save Template</button>
-            <button class="btn ghost" type="submit" name="action" value="preview_template">Preview Render</button>
+          <div class="row" style="margin-top:12px;">
+            <button class="btn" type="submit">Save Bot Settings</button>
           </div>
         </form>
-      <?php endforeach; ?>
-
-      <?php if ($preview): ?>
-        <div class="card" style="padding:12px;">
-          <div class="label">Preview Render</div>
-          <pre style="white-space:pre-wrap; font-size:12px;"><?= htmlspecialchars(Db::jsonEncode($preview), ENT_QUOTES, 'UTF-8') ?></pre>
+        <div class="row" style="margin-top:12px; gap:10px;">
+          <form method="post">
+            <input type="hidden" name="action" value="register_commands" />
+            <button class="btn" type="submit">Register/Refresh Slash Commands</button>
+          </form>
+          <form method="post">
+            <input type="hidden" name="action" value="test_permissions" />
+            <button class="btn ghost" type="submit">Test Bot Permissions</button>
+          </form>
         </div>
-      <?php endif; ?>
-    </div>
+      </div>
+    </section>
+
+    <section class="admin-section" id="routing">
+      <div class="admin-section__title">Routing</div>
+      <div class="card" style="padding:12px; margin-bottom:18px;">
+        <div class="label">Channel Routing</div>
+        <form method="post" style="margin-top:10px;">
+          <input type="hidden" name="action" value="add_channel" />
+          <div class="row">
+            <div>
+              <div class="label">Event</div>
+              <select class="input" name="event_key">
+                <?php foreach ($eventOptions as $eventKey => $label): ?>
+                  <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div>
+              <div class="label">Mode</div>
+              <select class="input" name="mode">
+                <option value="webhook">Webhook</option>
+                <option value="bot">Bot</option>
+              </select>
+            </div>
+            <div>
+              <div class="label">Channel ID</div>
+              <input class="input" name="channel_id" placeholder="123456789" />
+            </div>
+            <div>
+              <div class="label">Webhook URL</div>
+              <input class="input" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." />
+            </div>
+            <div style="display:flex; align-items:end;">
+              <label style="display:flex; gap:8px; align-items:center;">
+                <input type="checkbox" name="is_enabled" checked />
+                <span>Enabled</span>
+              </label>
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <button class="btn" type="submit">Add Mapping</button>
+          </div>
+        </form>
+
+        <?php if ($channelMaps === []): ?>
+          <div class="muted" style="margin-top:12px;">No channel mappings yet.</div>
+        <?php else: ?>
+          <table class="table" style="margin-top:12px;">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Mode</th>
+                <th>Channel ID</th>
+                <th>Webhook URL</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($channelMaps as $map): ?>
+              <tr>
+                <td>
+                  <form method="post" style="display:flex; gap:6px; align-items:center;">
+                    <input type="hidden" name="action" value="update_channel" />
+                    <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
+                    <select class="input" name="event_key">
+                      <?php foreach ($eventOptions as $eventKey => $label): ?>
+                        <option value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" <?= $eventKey === $map['event_key'] ? 'selected' : '' ?>>
+                          <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                </td>
+                <td>
+                    <select class="input" name="mode">
+                      <option value="webhook" <?= $map['mode'] === 'webhook' ? 'selected' : '' ?>>Webhook</option>
+                      <option value="bot" <?= $map['mode'] === 'bot' ? 'selected' : '' ?>>Bot</option>
+                    </select>
+                </td>
+                <td>
+                    <input class="input" name="channel_id" value="<?= htmlspecialchars((string)($map['channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
+                </td>
+                <td>
+                    <input class="input" name="webhook_url" value="<?= htmlspecialchars((string)($map['webhook_url'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
+                </td>
+                <td>
+                    <label style="display:flex; gap:6px; align-items:center;">
+                      <input type="checkbox" name="is_enabled" <?= !empty($map['is_enabled']) ? 'checked' : '' ?> />
+                      <span class="muted" style="font-size:12px;">Enable</span>
+                    </label>
+                </td>
+                <td>
+                    <button class="btn" type="submit">Save</button>
+                  </form>
+                  <form method="post" style="margin-top:6px;">
+                    <input type="hidden" name="action" value="send_test" />
+                    <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
+                    <input type="hidden" name="event_key" value="<?= htmlspecialchars((string)$map['event_key'], ENT_QUOTES, 'UTF-8') ?>" />
+                    <button class="btn ghost" type="submit">Send Test Message</button>
+                  </form>
+                  <form method="post" style="margin-top:6px;">
+                    <input type="hidden" name="action" value="delete_channel" />
+                    <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
+                    <button class="btn danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
+      </div>
+    </section>
+
+    <section class="admin-section" id="templates">
+      <div class="admin-section__title">Templates</div>
+      <div class="card" style="padding:12px;">
+        <div class="label">Message Templates</div>
+        <div class="muted" style="margin-bottom:10px;">Supported tokens: {request_id}, {request_code}, {pickup}, {delivery}, {volume}, {collateral}, {reward}, {status}, {priority}, {user}, {requester}, {hauler}, {ship_name}, {requester_portrait}, {hauler_portrait}, {ship_render}, {link_request}, {link_contract_instructions}</div>
+        <form method="post" style="margin-bottom:14px;">
+          <input type="hidden" name="action" value="reset_templates" />
+          <button class="btn ghost" type="submit">Reset templates to defaults</button>
+        </form>
+        <?php foreach ($eventOptions as $eventKey => $label): ?>
+          <?php $template = $templateIndex[$eventKey] ?? []; ?>
+          <form method="post" style="margin-bottom:14px;">
+            <input type="hidden" name="event_key" value="<?= htmlspecialchars($eventKey, ENT_QUOTES, 'UTF-8') ?>" />
+            <div class="label">Template: <?= htmlspecialchars($label, ENT_QUOTES, 'UTF-8') ?></div>
+            <div class="row">
+              <div>
+                <div class="label">Title</div>
+                <textarea class="input" name="title_template" rows="2"><?= htmlspecialchars((string)($template['title_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
+              </div>
+              <div>
+                <div class="label">Body</div>
+                <textarea class="input" name="body_template" rows="4"><?= htmlspecialchars((string)($template['body_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
+              </div>
+              <div>
+                <div class="label">Footer</div>
+                <textarea class="input" name="footer_template" rows="2"><?= htmlspecialchars((string)($template['footer_template'] ?? ''), ENT_QUOTES, 'UTF-8') ?></textarea>
+              </div>
+            </div>
+            <div class="row" style="margin-top:8px; gap:10px;">
+              <button class="btn" type="submit" name="action" value="save_template">Save Template</button>
+              <button class="btn ghost" type="submit" name="action" value="preview_template">Preview Render</button>
+            </div>
+          </form>
+        <?php endforeach; ?>
+
+        <?php if ($preview): ?>
+          <div class="card" style="padding:12px;">
+            <div class="label">Preview Render</div>
+            <pre style="white-space:pre-wrap; font-size:12px;"><?= htmlspecialchars(Db::jsonEncode($preview), ENT_QUOTES, 'UTF-8') ?></pre>
+          </div>
+        <?php endif; ?>
+      </div>
+    </section>
   </div>
 </section>
+<script src="<?= ($basePath ?: '') ?>/assets/js/admin/discord.js?v=2026"></script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
