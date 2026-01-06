@@ -165,6 +165,30 @@ $previousRequests = array_values(array_filter(
     <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') ?>">Back to dashboard</a>
   </div>
 </section>
+<section class="card" data-discord-link-card="true"
+  data-link-status-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/link-status/', ENT_QUOTES, 'UTF-8') ?>"
+  data-link-code-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/link-code/', ENT_QUOTES, 'UTF-8') ?>"
+  data-unlink-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/unlink/', ENT_QUOTES, 'UTF-8') ?>">
+  <div class="card-header">
+    <h2>Discord Account Linking</h2>
+    <p class="muted">Generate a one-time code to connect your portal account to Discord commands.</p>
+  </div>
+  <div class="content">
+    <div class="pill pill-danger" data-discord-link-error style="display:none;"></div>
+    <div data-discord-link-status class="muted">Checking link status…</div>
+    <div data-discord-link-user style="margin-top:8px;"></div>
+    <div data-discord-link-code-block style="display:none; margin-top:12px;">
+      <div><strong>Link code:</strong> <span data-discord-link-code></span></div>
+      <div class="muted" data-discord-link-expires>Expires in 10 minutes.</div>
+      <div class="muted">Run <strong>/link &lt;code&gt;</strong> in Discord to finish linking.</div>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn" type="button" data-discord-link-generate>Generate link code</button>
+      <button class="btn ghost" type="button" data-discord-link-unlink style="display:none;">Unlink</button>
+    </div>
+  </div>
+</section>
+<script src="<?= ($basePath ?: '') ?>/assets/js/discord-linking.js" defer></script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/layout.php';

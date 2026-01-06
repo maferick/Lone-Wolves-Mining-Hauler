@@ -165,10 +165,18 @@ Double-check the URL is exact (including the trailing slash) and then review ser
 Available commands:
 - `/quote` — Quote a haul using local routing data.
 - `/request` — Lookup request status by ID or code.
+- `/link` — Link your Discord user to a portal account using a one-time code.
 - `/myrequests` — Show your last 5 requests (requires Discord ↔ account link).
 - `/rates` — Snapshot of current rate plans.
 - `/help` — Quick usage hints.
 - `/ping` — Bot health check.
+
+### How to link Discord account
+1) Sign in to the hauling portal (EVE SSO).
+2) Open **My Contracts** and find the **Discord Account Linking** card.
+3) Click **Generate link code** and copy the one-time code (expires in 10 minutes).
+4) In Discord, run `/link <code>` in the server with the hauling bot.
+5) You can confirm the link status back on the portal, or unlink from the portal/admin page.
 
 ### Cron job
 Ensure the delivery worker is enabled:

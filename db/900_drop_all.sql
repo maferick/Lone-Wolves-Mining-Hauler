@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS discord_outbox;
 DROP TABLE IF EXISTS discord_channel_map;
 DROP TABLE IF EXISTS discord_template;
 DROP TABLE IF EXISTS discord_config;
+DROP TABLE IF EXISTS discord_link_code;
 DROP TABLE IF EXISTS discord_user_link;
 
 DROP TABLE IF EXISTS esi_corp_contract_item;

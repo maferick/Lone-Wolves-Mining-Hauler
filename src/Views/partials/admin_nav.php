@@ -37,6 +37,7 @@ $navItems = [
   ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
   ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
   ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
+  ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
 ];
 ?>
 <div class="adminbar">
