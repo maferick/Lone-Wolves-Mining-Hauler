@@ -141,7 +141,8 @@ final class DiscordEventService
     );
     $queued = 0;
     foreach ($rows as $row) {
-      $queued += $this->enqueueRoleSyncUser($corpId, (int)$row['user_id'], (string)$row['discord_user_id']);
+      $this->enqueueRoleSyncUser($corpId, (int)$row['user_id'], (string)$row['discord_user_id']);
+      $queued += 1;
     }
     return $queued;
   }
