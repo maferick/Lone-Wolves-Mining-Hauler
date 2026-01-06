@@ -220,10 +220,7 @@ final class DiscordDeliveryService
     $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
 
     if ($eventKey === 'discord.bot.permissions_test') {
-      $endpoint = $base . '/users/@me';
-      return $this->getJson($endpoint, [
-        'Authorization: Bot ' . $token,
-      ]);
+      return $this->runBotPermissionsTest($corpId, $token, $guildId, $base);
     }
 
     if ($eventKey === 'discord.commands.register') {
@@ -765,6 +762,298 @@ final class DiscordDeliveryService
       'discord.thread.create',
       'discord.thread.complete',
     ], true);
+  }
+
+  private function runBotPermissionsTest(int $corpId, string $token, string $guildId, string $base): array
+  {
+    $headers = ['Authorization: Bot ' . $token];
+    $checks = [];
+    $overallOk = true;
+    $firstFailure = null;
+
+    $tokenResp = $this->getJson($base . '/users/@me', $headers);
+    $tokenCheck = $this->buildPermissionCheck(
+      'token',
+      'Token valid (GET /users/@me)',
+      $tokenResp['ok'] ?? false,
+      (int)($tokenResp['status'] ?? 0),
+      $this->responseMessage($tokenResp)
+    );
+    $checks[] = $tokenCheck;
+    if (!$tokenCheck['ok']) {
+      $overallOk = false;
+      $firstFailure = $firstFailure ?? $tokenCheck;
+    }
+
+    if ($guildId === '') {
+      $guildCheck = $this->buildPermissionCheck(
+        'guild_id',
+        'Guild ID configured',
+        false,
+        0,
+        'Guild ID is not configured.'
+      );
+      $checks[] = $guildCheck;
+      $overallOk = false;
+      $firstFailure = $firstFailure ?? $guildCheck;
+      $this->storePermissionTestResult($corpId, $checks, $overallOk);
+      return $this->permissionTestResponse($overallOk, $firstFailure, $checks);
+    }
+
+    $guildResp = $this->getJson($base . '/guilds/' . $guildId, $headers);
+    $guildCheck = $this->buildPermissionCheck(
+      'guild_access',
+      'Guild access (GET /guilds/{guild_id})',
+      $guildResp['ok'] ?? false,
+      (int)($guildResp['status'] ?? 0),
+      $this->responseMessage($guildResp)
+    );
+    $checks[] = $guildCheck;
+    if (!$guildCheck['ok']) {
+      $overallOk = false;
+      $firstFailure = $firstFailure ?? $guildCheck;
+    }
+
+    $rolesResp = $this->getJson($base . '/guilds/' . $guildId . '/roles', $headers);
+    $rolesCheck = $this->buildPermissionCheck(
+      'role_list',
+      'Read roles (GET /guilds/{guild_id}/roles)',
+      $rolesResp['ok'] ?? false,
+      (int)($rolesResp['status'] ?? 0),
+      $this->responseMessage($rolesResp)
+    );
+    $checks[] = $rolesCheck;
+    if (!$rolesCheck['ok']) {
+      $overallOk = false;
+      $firstFailure = $firstFailure ?? $rolesCheck;
+    }
+
+    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/@me', $headers);
+    $memberCheck = $this->buildPermissionCheck(
+      'bot_member',
+      'Bot membership (GET /guilds/{guild_id}/members/@me)',
+      $memberResp['ok'] ?? false,
+      (int)($memberResp['status'] ?? 0),
+      $this->responseMessage($memberResp)
+    );
+    $memberCheck['required'] = false;
+    $checks[] = $memberCheck;
+
+    $roleEval = $this->evaluateRoleHierarchy($corpId, $rolesResp, $memberResp);
+    if ($roleEval !== null) {
+      $roleEval['required'] = false;
+      $checks[] = $roleEval;
+    }
+
+    $this->storePermissionTestResult($corpId, $checks, $overallOk);
+    return $this->permissionTestResponse($overallOk, $firstFailure, $checks);
+  }
+
+  private function buildPermissionCheck(
+    string $id,
+    string $label,
+    bool $ok,
+    int $status,
+    string $message
+  ): array {
+    return [
+      'id' => $id,
+      'label' => $label,
+      'ok' => $ok,
+      'status' => $status,
+      'message' => $message,
+      'required' => true,
+    ];
+  }
+
+  private function permissionTestResponse(bool $overallOk, ?array $firstFailure, array $checks): array
+  {
+    if ($overallOk) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => Db::jsonEncode(['checks' => $checks]),
+      ];
+    }
+
+    $error = 'Permission test failed';
+    if ($firstFailure && !empty($firstFailure['label'])) {
+      $error .= ': ' . $firstFailure['label'];
+    }
+
+    return [
+      'ok' => false,
+      'status' => (int)($firstFailure['status'] ?? 400),
+      'error' => $error,
+      'retry_after' => null,
+      'body' => Db::jsonEncode(['checks' => $checks]),
+    ];
+  }
+
+  private function responseMessage(array $resp): string
+  {
+    $body = trim((string)($resp['body'] ?? ''));
+    if ($body === '') {
+      return trim((string)($resp['error'] ?? ''));
+    }
+    $decoded = json_decode($body, true);
+    if (is_array($decoded) && isset($decoded['message'])) {
+      return trim((string)$decoded['message']);
+    }
+    return $body;
+  }
+
+  private function evaluateRoleHierarchy(int $corpId, array $rolesResp, array $memberResp): ?array
+  {
+    if (empty($rolesResp['ok']) || empty($memberResp['ok'])) {
+      return null;
+    }
+
+    $rolesBody = json_decode((string)($rolesResp['body'] ?? ''), true);
+    $memberBody = json_decode((string)($memberResp['body'] ?? ''), true);
+    if (!is_array($rolesBody) || !is_array($memberBody)) {
+      return [
+        'id' => 'role_hierarchy',
+        'label' => 'Role hierarchy (bot role above mapped roles)',
+        'ok' => false,
+        'status' => 0,
+        'message' => 'Unable to parse role/member response.',
+        'required' => false,
+      ];
+    }
+
+    $roleMap = $this->loadRoleMap($corpId);
+    if ($roleMap === []) {
+      return [
+        'id' => 'role_hierarchy',
+        'label' => 'Role hierarchy (bot role above mapped roles)',
+        'ok' => true,
+        'status' => 200,
+        'message' => 'No mapped roles configured.',
+        'required' => false,
+      ];
+    }
+
+    $roleIndex = [];
+    foreach ($rolesBody as $role) {
+      if (!is_array($role)) {
+        continue;
+      }
+      $roleId = (string)($role['id'] ?? '');
+      if ($roleId === '') {
+        continue;
+      }
+      $roleIndex[$roleId] = [
+        'position' => (int)($role['position'] ?? 0),
+        'permissions' => (int)($role['permissions'] ?? 0),
+        'name' => (string)($role['name'] ?? ''),
+      ];
+    }
+
+    $botRoleIds = is_array($memberBody['roles'] ?? null) ? $memberBody['roles'] : [];
+    $botRolePositions = [];
+    $botPermissions = 0;
+    foreach ($botRoleIds as $roleId) {
+      $roleId = (string)$roleId;
+      if (!isset($roleIndex[$roleId])) {
+        continue;
+      }
+      $botRolePositions[] = $roleIndex[$roleId]['position'];
+      $botPermissions |= $roleIndex[$roleId]['permissions'];
+    }
+
+    $highestBotRole = $botRolePositions !== [] ? max($botRolePositions) : 0;
+    $hasManageRoles = ($botPermissions & 0x10000000) !== 0;
+
+    $blockedRoles = [];
+    foreach ($roleMap as $mappedRoleId) {
+      if (!isset($roleIndex[$mappedRoleId])) {
+        $blockedRoles[] = $mappedRoleId . ' (missing)';
+        continue;
+      }
+      if ($roleIndex[$mappedRoleId]['position'] >= $highestBotRole) {
+        $label = $roleIndex[$mappedRoleId]['name'] !== ''
+          ? $roleIndex[$mappedRoleId]['name'] . ' (' . $mappedRoleId . ')'
+          : $mappedRoleId;
+        $blockedRoles[] = $label;
+      }
+    }
+
+    if (!$hasManageRoles) {
+      return [
+        'id' => 'manage_roles',
+        'label' => 'Manage Roles permission',
+        'ok' => false,
+        'status' => 0,
+        'message' => 'Bot role lacks MANAGE_ROLES.',
+        'required' => false,
+      ];
+    }
+
+    if ($blockedRoles !== []) {
+      return [
+        'id' => 'role_hierarchy',
+        'label' => 'Role hierarchy (bot role above mapped roles)',
+        'ok' => false,
+        'status' => 0,
+        'message' => 'Roles above bot: ' . implode(', ', $blockedRoles),
+        'required' => false,
+      ];
+    }
+
+    return [
+      'id' => 'role_hierarchy',
+      'label' => 'Role hierarchy (bot role above mapped roles)',
+      'ok' => true,
+      'status' => 200,
+      'message' => 'Bot can manage mapped roles.',
+      'required' => false,
+    ];
+  }
+
+  private function loadRoleMap(int $corpId): array
+  {
+    $row = $this->db->one(
+      "SELECT role_map_json FROM discord_config WHERE corp_id = :cid LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if (!$row || empty($row['role_map_json'])) {
+      return [];
+    }
+    $decoded = json_decode((string)$row['role_map_json'], true);
+    if (!is_array($decoded)) {
+      return [];
+    }
+    $roles = [];
+    foreach ($decoded as $roleId) {
+      $roleId = trim((string)$roleId);
+      if ($roleId !== '') {
+        $roles[] = $roleId;
+      }
+    }
+    return $roles;
+  }
+
+  private function storePermissionTestResult(int $corpId, array $checks, bool $overallOk): void
+  {
+    $payload = Db::jsonEncode([
+      'overall_ok' => $overallOk,
+      'checks' => $checks,
+    ]);
+
+    $this->db->execute(
+      "INSERT INTO discord_config (corp_id, bot_permissions_test_json, bot_permissions_test_at)
+       VALUES (:cid, :json, UTC_TIMESTAMP())
+       ON DUPLICATE KEY UPDATE
+         bot_permissions_test_json = VALUES(bot_permissions_test_json),
+         bot_permissions_test_at = VALUES(bot_permissions_test_at)",
+      [
+        'cid' => $corpId,
+        'json' => $payload,
+      ]
+    );
   }
 
   private function loadConfigRow(int $corpId): array
