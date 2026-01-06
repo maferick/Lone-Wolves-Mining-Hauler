@@ -183,6 +183,14 @@ Recommended configuration: create a private hauling channel accessible to hauler
 
 Admin → Webhooks is the dedicated home for webhook routing and delivery settings.
 
+### Outbox Error Help
+Admin → Discord → Outbox shows a Help ▸ toggle for failed deliveries. The help panel is driven by
+`App\Services\DiscordOutboxErrorHelp::playbooks()` and the error normalization in
+`DiscordOutboxErrorHelp::normalize()`.
+
+To add a new playbook, create a new error key in `playbooks()` and update `selectErrorKey()` to map the
+normalized HTTP status/Discord error code/message to that key.
+
 Expected responses:
 - `GET /api/discord/interactions/health` returns `200 {"ok":true}`.
 - `POST /api/discord/interactions/` without a signature returns `401 signature_missing`.

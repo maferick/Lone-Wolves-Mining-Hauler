@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../src/bootstrap.php';
 
 use App\Auth\Auth;
 use App\Db\Db;
+use App\Services\DiscordOutboxErrorHelp;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
@@ -68,6 +69,8 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
     'last_bot_action_at' => null,
+    'bot_permissions_test_json' => null,
+    'bot_permissions_test_at' => null,
   ];
 };
 
@@ -77,6 +80,65 @@ $isSnowflake = static function (?string $value): bool {
   }
   $value = trim($value);
   return $value !== '' && ctype_digit($value) && strlen($value) >= 17;
+};
+
+$renderOutboxErrorHelp = static function (string $errorKey, array $details): string {
+  $playbook = DiscordOutboxErrorHelp::resolve($errorKey)
+    ?? DiscordOutboxErrorHelp::resolve('discord.unknown_error');
+  if (!$playbook) {
+    return '';
+  }
+
+  $detailParts = [];
+  if (!empty($details['http_status'])) {
+    $detailParts[] = 'HTTP ' . (int)$details['http_status'];
+  }
+  if (!empty($details['discord_code'])) {
+    $detailParts[] = 'Discord code ' . (int)$details['discord_code'];
+  }
+  if (!empty($details['message'])) {
+    $detailParts[] = (string)$details['message'];
+  }
+  $detailLine = $detailParts !== [] ? implode(' • ', $detailParts) : 'Discord error details unavailable.';
+
+  ob_start();
+  ?>
+  <div class="card" style="padding:10px; background:rgba(255,255,255,0.02);">
+    <div style="font-weight:600;"><?= htmlspecialchars((string)($playbook['title'] ?? 'Discord error help'), ENT_QUOTES, 'UTF-8') ?></div>
+    <div class="muted" style="margin-top:4px;"><?= htmlspecialchars($detailLine, ENT_QUOTES, 'UTF-8') ?></div>
+    <div style="margin-top:8px;">
+      <div class="label" style="font-size:12px;">What this means</div>
+      <div><?= htmlspecialchars((string)($playbook['meaning'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
+    </div>
+    <div style="margin-top:8px;">
+      <div class="label" style="font-size:12px;">Most common causes</div>
+      <ul style="margin:6px 0 0 18px;">
+        <?php foreach (($playbook['causes'] ?? []) as $cause): ?>
+          <li><?= htmlspecialchars((string)$cause, ENT_QUOTES, 'UTF-8') ?></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+    <div style="margin-top:8px;">
+      <div class="label" style="font-size:12px;">How to fix</div>
+      <ul style="margin:6px 0 0 18px;">
+        <?php foreach (($playbook['fix'] ?? []) as $fix): ?>
+          <li>☐ <?= htmlspecialchars((string)$fix, ENT_QUOTES, 'UTF-8') ?></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+    <?php if (!empty($playbook['verify'])): ?>
+      <div style="margin-top:8px;">
+        <div class="label" style="font-size:12px;">How to verify</div>
+        <ul style="margin:6px 0 0 18px;">
+          <?php foreach (($playbook['verify'] ?? []) as $verify): ?>
+            <li><?= htmlspecialchars((string)$verify, ENT_QUOTES, 'UTF-8') ?></li>
+          <?php endforeach; ?>
+        </ul>
+      </div>
+    <?php endif; ?>
+  </div>
+  <?php
+  return (string)ob_get_clean();
 };
 
 $saveConfig = static function (Db $db, int $corpId, array $updates, array $authCtx) use ($loadConfig): void {
@@ -450,7 +512,27 @@ $permissionTestRow = $db->one(
 );
 $permissionTest = null;
 $permissionTestTone = 'warning';
-if ($permissionTestRow) {
+$permissionResults = [];
+$permissionTestAt = (string)($configRow['bot_permissions_test_at'] ?? '');
+if (!empty($configRow['bot_permissions_test_json'])) {
+  try {
+    $decoded = Db::jsonDecode((string)$configRow['bot_permissions_test_json'], []);
+    if (is_array($decoded)) {
+      $permissionResults = $decoded;
+    }
+  } catch (Throwable $e) {
+    $permissionResults = [];
+  }
+}
+
+if ($permissionResults !== [] && isset($permissionResults['overall_ok'])) {
+  $permissionTestTone = !empty($permissionResults['overall_ok']) ? 'success' : 'danger';
+  $permissionTest = 'Permission test ' . (!empty($permissionResults['overall_ok']) ? 'passed' : 'failed');
+  if ($permissionTestAt !== '') {
+    $permissionTest .= ' at ' . $permissionTestAt;
+  }
+  $permissionTest .= '.';
+} elseif ($permissionTestRow) {
   $permissionStatus = (string)($permissionTestRow['status'] ?? '');
   $permissionAt = (string)($permissionTestRow['sent_at'] ?? $permissionTestRow['created_at'] ?? '');
   if ($permissionStatus === 'sent') {
@@ -840,6 +922,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   } elseif ($status === 'failed') {
                     $statusClass = 'pill-danger';
                   }
+                  $helpPanelId = 'outbox-help-' . (int)$row['outbox_id'];
+                  $normalizedError = null;
+                  if ($status === 'failed' && !empty($row['last_error'])) {
+                    $normalizedError = DiscordOutboxErrorHelp::normalize((string)$row['last_error']);
+                  }
                 ?>
                 <tr>
                   <td><?= (int)$row['outbox_id'] ?></td>
@@ -854,7 +941,14 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <td><?= htmlspecialchars((string)($row['sent_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
                     <?php if (!empty($row['last_error'])): ?>
-                      <div class="pill pill-danger" style="margin-bottom:6px;"><?= htmlspecialchars((string)$row['last_error'], ENT_QUOTES, 'UTF-8') ?></div>
+                      <div class="pill pill-danger" style="margin-bottom:6px;">
+                        <?= htmlspecialchars((string)$row['last_error'], ENT_QUOTES, 'UTF-8') ?>
+                        <?php if ($status === 'failed'): ?>
+                          <button type="button" class="btn ghost" data-outbox-help-toggle data-target="<?= htmlspecialchars($helpPanelId, ENT_QUOTES, 'UTF-8') ?>" aria-expanded="false" style="margin-left:8px; padding:2px 6px; font-size:12px;">
+                            Help ▸
+                          </button>
+                        <?php endif; ?>
+                      </div>
                     <?php endif; ?>
                     <details>
                       <summary class="muted" style="cursor:pointer;">Payload</summary>
@@ -862,6 +956,13 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     </details>
                   </td>
                 </tr>
+                <?php if ($status === 'failed'): ?>
+                  <tr id="<?= htmlspecialchars($helpPanelId, ENT_QUOTES, 'UTF-8') ?>" class="outbox-help-row" style="display:none;">
+                    <td colspan="8">
+                      <?= $renderOutboxErrorHelp((string)($normalizedError['error_key'] ?? 'discord.unknown_error'), $normalizedError ?? []) ?>
+                    </td>
+                  </tr>
+                <?php endif; ?>
               <?php endforeach; ?>
             </tbody>
           </table>
@@ -895,6 +996,31 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <?php else: ?>
             <div class="pill subtle">No permission test result yet.</div>
           <?php endif; ?>
+          <?php if (!empty($permissionResults['checks']) && is_array($permissionResults['checks'])): ?>
+            <div style="margin-top:8px;">
+              <?php foreach ($permissionResults['checks'] as $check): ?>
+                <?php
+                  $checkOk = !empty($check['ok']);
+                  $checkRequired = isset($check['required']) ? (bool)$check['required'] : true;
+                  $checkTone = $checkOk ? 'pill-success' : ($checkRequired ? 'pill-danger' : 'pill-warning');
+                  $checkLabel = (string)($check['label'] ?? 'Check');
+                  $checkMessage = trim((string)($check['message'] ?? ''));
+                  $checkStatus = (int)($check['status'] ?? 0);
+                ?>
+                <div class="row" style="align-items:center; gap:8px; margin-top:6px;">
+                  <span class="pill <?= $checkTone ?>"><?= $checkOk ? 'pass' : ($checkRequired ? 'fail' : 'warn') ?></span>
+                  <div>
+                    <div><?= htmlspecialchars($checkLabel, ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php if ($checkMessage !== '' || $checkStatus > 0): ?>
+                      <div class="muted" style="font-size:12px;">
+                        <?= htmlspecialchars($checkMessage !== '' ? $checkMessage : 'HTTP ' . $checkStatus, ENT_QUOTES, 'UTF-8') ?>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
         </div>
 
         <div class="row" style="margin-top:12px; gap:10px;">
@@ -912,6 +1038,26 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   </div>
 </section>
 <script src="<?= ($basePath ?: '') ?>/assets/js/admin/admin-tabs.js" defer></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-outbox-help-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const targetId = button.getAttribute('data-target');
+        if (!targetId) {
+          return;
+        }
+        const panel = document.getElementById(targetId);
+        if (!panel) {
+          return;
+        }
+        const isHidden = panel.style.display === 'none' || panel.style.display === '';
+        panel.style.display = isHidden ? 'table-row' : 'none';
+        button.textContent = isHidden ? 'Help ▾' : 'Help ▸';
+        button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+      });
+    });
+  });
+</script>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
