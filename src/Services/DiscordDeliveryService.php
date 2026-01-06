@@ -504,7 +504,14 @@ final class DiscordDeliveryService
     }
 
     $message = $this->renderer->render($corpId, 'request.created', $payload);
-    $message['content'] = trim(implode(' ', $mentionParts) . ' New haul request thread.');
+    $mentionLine = trim(implode(' ', $mentionParts));
+    if ($mentionLine !== '') {
+      if (!empty($message['content'])) {
+        $message['content'] = trim($mentionLine . ' ' . $message['content']);
+      } else {
+        $message['content'] = $mentionLine;
+      }
+    }
     $message['allowed_mentions'] = [
       'parse' => [],
       'roles' => !empty($roleMap['hauling.hauler']) ? [$roleMap['hauling.hauler']] : [],
