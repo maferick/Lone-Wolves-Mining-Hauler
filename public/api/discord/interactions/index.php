@@ -409,8 +409,9 @@ switch ($commandName) {
 
     try {
       $result = $db->tx(static function (Db $db) use ($code, $discordUserId, $discordUsername, $corpId): array {
+        $nowUtc = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         $codeRow = $db->one(
-          "SELECT code, user_id, expires_at, used_at
+          "SELECT code, user_id, expires_at, used_at, created_at
              FROM discord_link_code
             WHERE code = :code
             LIMIT 1
@@ -418,16 +419,60 @@ switch ($commandName) {
           ['code' => $code]
         );
         if (!$codeRow) {
-          return ['ok' => false, 'error' => 'code_not_found'];
+          return [
+            'ok' => false,
+            'error' => 'invalid_code',
+            'log' => [
+              'code_id' => $code,
+              'created_at' => null,
+              'expires_at' => null,
+              'used_at' => null,
+              'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+              'decision' => 'invalid_code',
+              'discord_user_id' => $discordUserId,
+            ],
+          ];
         }
 
         if (!empty($codeRow['used_at'])) {
-          return ['ok' => false, 'error' => 'code_used'];
+          return [
+            'ok' => false,
+            'error' => 'code_used',
+            'log' => [
+              'code_id' => (string)$codeRow['code'],
+              'created_at' => $codeRow['created_at'],
+              'expires_at' => $codeRow['expires_at'],
+              'used_at' => $codeRow['used_at'],
+              'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+              'decision' => 'already_used',
+              'discord_user_id' => $discordUserId,
+            ],
+          ];
         }
 
-        $expiresAt = strtotime((string)$codeRow['expires_at']);
-        if ($expiresAt !== false && $expiresAt <= time()) {
-          return ['ok' => false, 'error' => 'code_expired'];
+        $expiresAt = DateTimeImmutable::createFromFormat(
+          'Y-m-d H:i:s',
+          (string)$codeRow['expires_at'],
+          new DateTimeZone('UTC')
+        );
+        if (!$expiresAt) {
+          $expiresAt = new DateTimeImmutable((string)$codeRow['expires_at'], new DateTimeZone('UTC'));
+        }
+        $expiryThreshold = $nowUtc->modify('-5 seconds');
+        if ($expiresAt <= $expiryThreshold) {
+          return [
+            'ok' => false,
+            'error' => 'code_expired',
+            'log' => [
+              'code_id' => (string)$codeRow['code'],
+              'created_at' => $codeRow['created_at'],
+              'expires_at' => $codeRow['expires_at'],
+              'used_at' => $codeRow['used_at'],
+              'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+              'decision' => 'expired',
+              'discord_user_id' => $discordUserId,
+            ],
+          ];
         }
 
         $userRow = $db->one(
@@ -435,7 +480,19 @@ switch ($commandName) {
           ['uid' => (int)$codeRow['user_id']]
         );
         if (!$userRow || (int)$userRow['corp_id'] !== $corpId) {
-          return ['ok' => false, 'error' => 'code_not_valid'];
+          return [
+            'ok' => false,
+            'error' => 'code_not_valid',
+            'log' => [
+              'code_id' => (string)$codeRow['code'],
+              'created_at' => $codeRow['created_at'],
+              'expires_at' => $codeRow['expires_at'],
+              'used_at' => $codeRow['used_at'],
+              'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+              'decision' => 'invalid_corp',
+              'discord_user_id' => $discordUserId,
+            ],
+          ];
         }
 
         $existing = $db->one(
@@ -443,7 +500,19 @@ switch ($commandName) {
           ['did' => $discordUserId]
         );
         if ($existing && (int)$existing['user_id'] !== (int)$codeRow['user_id']) {
-          return ['ok' => false, 'error' => 'discord_already_linked'];
+          return [
+            'ok' => false,
+            'error' => 'discord_already_linked',
+            'log' => [
+              'code_id' => (string)$codeRow['code'],
+              'created_at' => $codeRow['created_at'],
+              'expires_at' => $codeRow['expires_at'],
+              'used_at' => $codeRow['used_at'],
+              'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+              'decision' => 'discord_already_linked',
+              'discord_user_id' => $discordUserId,
+            ],
+          ];
         }
 
         $db->execute(
@@ -474,11 +543,26 @@ switch ($commandName) {
           ]
         );
 
-        return ['ok' => true];
+        return [
+          'ok' => true,
+          'log' => [
+            'code_id' => (string)$codeRow['code'],
+            'created_at' => $codeRow['created_at'],
+            'expires_at' => $codeRow['expires_at'],
+            'used_at' => $codeRow['used_at'],
+            'now_utc' => $nowUtc->format('Y-m-d H:i:s'),
+            'decision' => 'linked',
+            'discord_user_id' => $discordUserId,
+          ],
+        ];
       });
     } catch (Throwable $e) {
       $sendFollowupMessage('Unable to link your account right now.' . $portalLinkLine, $linkEphemeral);
       exit;
+    }
+
+    if (!empty($result['log']) && is_array($result['log'])) {
+      error_log('[discord-link] ' . json_encode($result['log'], JSON_UNESCAPED_SLASHES));
     }
 
     if (!empty($result['ok'])) {
@@ -488,7 +572,7 @@ switch ($commandName) {
 
     $error = (string)($result['error'] ?? 'unknown');
     $errorMessage = match ($error) {
-      'code_not_found' => 'Link code not found. Please generate a new code in the portal.',
+      'invalid_code' => 'Link code not found. Please generate a new code in the portal.',
       'code_used' => 'That link code has already been used. Generate a new code in the portal.',
       'code_expired' => 'That link code has expired. Generate a new code in the portal.',
       'discord_already_linked' => 'This Discord user is already linked to another portal account.',

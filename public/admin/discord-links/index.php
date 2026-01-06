@@ -44,6 +44,19 @@ $links = $db->select(
   ['cid' => $corpId]
 );
 
+$recentCodes = $db->select(
+  "SELECT c.code, c.created_at, c.expires_at, c.used_at, c.used_by_discord_user_id,
+          u.display_name, u.character_name,
+          TIMESTAMPDIFF(SECOND, c.created_at, c.expires_at) AS ttl_seconds,
+          TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), c.expires_at) AS ttl_remaining_seconds
+     FROM discord_link_code c
+     JOIN app_user u ON u.user_id = c.user_id
+    WHERE u.corp_id = :cid
+    ORDER BY c.created_at DESC
+    LIMIT 20",
+  ['cid' => $corpId]
+);
+
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
@@ -101,6 +114,52 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
   </div>
   <div class="card-footer">
     <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
+  </div>
+</section>
+<section class="card" style="margin-top:20px;">
+  <div class="card-header">
+    <h2>Recent Link Codes (Diagnostics)</h2>
+    <p class="muted">Latest 20 link codes with TTL details (UTC).</p>
+  </div>
+  <div class="content">
+    <?php if (!$recentCodes): ?>
+      <p class="muted">No recent link codes found.</p>
+    <?php else: ?>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>User</th>
+            <th>Created (UTC)</th>
+            <th>Expires (UTC)</th>
+            <th>Used At (UTC)</th>
+            <th>Used By</th>
+            <th>TTL (sec)</th>
+            <th>TTL Remaining (sec)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($recentCodes as $codeRow): ?>
+            <?php
+              $userLabel = trim((string)($codeRow['display_name'] ?? '') ?: (string)($codeRow['character_name'] ?? 'User'));
+              if (!empty($codeRow['character_name']) && $userLabel !== (string)$codeRow['character_name']) {
+                $userLabel .= ' (' . (string)$codeRow['character_name'] . ')';
+              }
+            ?>
+            <tr>
+              <td><?= htmlspecialchars((string)($codeRow['code'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars($userLabel, ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['created_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['expires_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['used_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['used_by_discord_user_id'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['ttl_seconds'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+              <td><?= htmlspecialchars((string)($codeRow['ttl_remaining_seconds'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php endif; ?>
   </div>
 </section>
 <?php
