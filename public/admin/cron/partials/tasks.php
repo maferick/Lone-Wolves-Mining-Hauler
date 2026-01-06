@@ -186,26 +186,26 @@ $taskDefinitions = [
     'description' => 'Pulls corp contracts.',
     'runner' => 'task',
   ],
-  JobQueueService::CRON_MATCH_JOB => [
-    'key' => JobQueueService::CRON_MATCH_JOB,
+  JobQueueService::CONTRACT_MATCH_JOB => [
+    'key' => JobQueueService::CONTRACT_MATCH_JOB,
     'name' => 'Contract Matching',
-    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_MATCH_JOB] ?? 0), $matchInterval),
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CONTRACT_MATCH_JOB] ?? 0), $matchInterval),
     'scope' => 'corp',
     'description' => 'Matches contracts to hauling requests.',
     'runner' => 'task',
   ],
-  JobQueueService::CRON_WEBHOOK_JOB => [
-    'key' => JobQueueService::CRON_WEBHOOK_JOB,
+  JobQueueService::WEBHOOK_DELIVERY_JOB => [
+    'key' => JobQueueService::WEBHOOK_DELIVERY_JOB,
     'name' => 'Webhook Delivery',
-    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_WEBHOOK_JOB] ?? 0), $webhookInterval),
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::WEBHOOK_DELIVERY_JOB] ?? 0), $webhookInterval),
     'scope' => 'corp',
     'description' => 'Flushes queued webhook deliveries.',
     'runner' => 'task',
   ],
-  JobQueueService::CRON_DISCORD_JOB => [
-    'key' => JobQueueService::CRON_DISCORD_JOB,
+  JobQueueService::DISCORD_DELIVERY_JOB => [
+    'key' => JobQueueService::DISCORD_DELIVERY_JOB,
     'name' => 'Discord Delivery',
-    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_DISCORD_JOB] ?? 0), $discordInterval),
+    'interval' => $normalizeInterval((int)($intervalSettings[JobQueueService::DISCORD_DELIVERY_JOB] ?? 0), $discordInterval),
     'scope' => 'corp',
     'description' => 'Flushes queued Discord outbox notifications.',
     'runner' => 'task',
