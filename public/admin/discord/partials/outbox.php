@@ -96,12 +96,15 @@ $db->execute(
     LEFT JOIN (
       SELECT outbox_id
         FROM discord_outbox
-       WHERE corp_id = :cid
+       WHERE corp_id = :cid_keep
        ORDER BY outbox_id DESC
        LIMIT 15
     ) keep_rows ON keep_rows.outbox_id = o.outbox_id
-   WHERE o.corp_id = :cid AND keep_rows.outbox_id IS NULL",
-  ['cid' => $corpId]
+   WHERE o.corp_id = :cid_delete AND keep_rows.outbox_id IS NULL",
+  [
+    'cid_keep' => $corpId,
+    'cid_delete' => $corpId,
+  ]
 );
 
 $pendingCount = (int)($db->fetchValue(
