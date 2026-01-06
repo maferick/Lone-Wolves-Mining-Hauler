@@ -349,6 +349,64 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
 .adminbar .nav-link{padding:8px 10px}
 .adminbar-left{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .adminbar-right{display:flex; align-items:center; gap:10px}
+.admin-subnav{
+  position: sticky;
+  top: 12px;
+  z-index: 2;
+  margin-bottom:18px;
+  padding:10px 12px;
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(0,0,0,.22);
+}
+.admin-subnav-links{
+  display:flex;
+  gap:8px;
+  overflow-x:auto;
+  scrollbar-width:thin;
+}
+.admin-subnav .btn{
+  white-space:nowrap;
+  padding:6px 12px;
+  font-size:12px;
+}
+.admin-subnav .btn.is-active{
+  background: rgba(255,157,77,.22);
+  border-color: rgba(255,157,77,.45);
+  color: #FFE7B8;
+}
+.admin-section{
+  scroll-margin-top: 90px;
+  margin-bottom:18px;
+}
+.admin-section-title{
+  margin:0 0 10px;
+  font-size:16px;
+  color: var(--text);
+}
+.template-group{
+  margin-bottom:14px;
+}
+.template-group-toggle,
+.template-toggle{
+  width:100%;
+  justify-content:space-between;
+  text-align:left;
+}
+.template-group-body,
+.template-item-body{
+  margin-top:10px;
+}
+.template-item{
+  margin-bottom:12px;
+  padding:10px;
+  border:1px solid var(--border);
+  border-radius:14px;
+  background: rgba(0,0,0,.16);
+}
+.is-collapsed{
+  display:none;
+}
 .input, select, textarea{
   width:100%;
   padding:10px 12px;
