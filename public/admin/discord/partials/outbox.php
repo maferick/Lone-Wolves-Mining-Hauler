@@ -91,6 +91,19 @@ $renderOutboxErrorHelp = static function (string $errorKey, array $details): str
   return (string)ob_get_clean();
 };
 
+$db->execute(
+  "DELETE o FROM discord_outbox o
+    LEFT JOIN (
+      SELECT outbox_id
+        FROM discord_outbox
+       WHERE corp_id = :cid
+       ORDER BY outbox_id DESC
+       LIMIT 15
+    ) keep_rows ON keep_rows.outbox_id = o.outbox_id
+   WHERE o.corp_id = :cid AND keep_rows.outbox_id IS NULL",
+  ['cid' => $corpId]
+);
+
 $pendingCount = (int)($db->fetchValue(
   "SELECT COUNT(*) FROM discord_outbox WHERE corp_id = :cid AND status IN ('queued','failed','sending')",
   ['cid' => $corpId]
@@ -100,7 +113,7 @@ $outboxRows = $db->select(
      FROM discord_outbox
     WHERE corp_id = :cid
     ORDER BY outbox_id DESC
-    LIMIT 50",
+    LIMIT 15",
   ['cid' => $corpId]
 );
 
