@@ -309,9 +309,11 @@ final class DiscordDeliveryService
       $permRows = $this->db->select(
         "SELECT DISTINCT p.perm_key
            FROM user_role ur
+           JOIN role r ON r.role_id = ur.role_id
            JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
            JOIN permission p ON p.perm_id = rp.perm_id
-          WHERE ur.user_id = :uid",
+          WHERE ur.user_id = :uid
+            AND r.role_key <> 'admin'",
         ['uid' => $userId]
       );
       $permKeys = array_map(static fn($row) => (string)($row['perm_key'] ?? ''), $permRows);
