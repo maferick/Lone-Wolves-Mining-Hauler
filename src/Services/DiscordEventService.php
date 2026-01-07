@@ -14,12 +14,7 @@ final class DiscordEventService
   public function enqueueRequestCreated(int $corpId, int $requestId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
-    $queued = $this->enqueueEvent($corpId, 'request.created', $payload);
-    $config = $this->loadConfig($corpId);
-    if (($config['channel_mode'] ?? 'threads') === 'threads' && !empty($config['auto_thread_create_on_request'])) {
-      $queued += $this->enqueueThreadCreate($corpId, $requestId, $context);
-    }
-    return $queued;
+    return $this->enqueueEvent($corpId, 'request.created', $payload);
   }
 
   public function enqueueRequestStatusChanged(int $corpId, int $requestId, string $status, ?string $previousStatus = null, array $context = []): int
@@ -294,7 +289,8 @@ final class DiscordEventService
       'channel_mode' => 'threads',
       'hauling_channel_id' => '',
       'requester_thread_access' => 'read_only',
-      'auto_thread_create_on_request' => 1,
+      'auto_thread_create_on_request' => 0,
+      'thread_auto_archive_minutes' => 1440,
       'auto_archive_on_complete' => 1,
       'auto_lock_on_complete' => 1,
       'role_map_json' => null,

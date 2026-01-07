@@ -7,6 +7,17 @@ use App\Db\Db;
 
 final class DiscordDeliveryService
 {
+  private const OPS_THREAD_EVENTS = [
+    'request.created',
+    'request.status_changed',
+    'contract.matched',
+    'contract.picked_up',
+    'contract.completed',
+    'contract.failed',
+    'contract.expired',
+    'alert.system',
+  ];
+
   public function __construct(private Db $db, private DiscordMessageRenderer $renderer, private array $config = [])
   {
   }
@@ -131,17 +142,6 @@ final class DiscordDeliveryService
 
   private function sendBotMessage(int $corpId, array $row, array $payload): array
   {
-    $channelId = trim((string)($row['channel_id'] ?? ''));
-    if ($channelId === '') {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'channel_id_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-
     if (!$this->checkRateLimit((int)($row['channel_map_id'] ?? 0), $corpId)) {
       return [
         'ok' => false,
@@ -163,13 +163,558 @@ final class DiscordDeliveryService
       ];
     }
 
-    $message = $this->renderer->render($corpId, (string)($row['event_key'] ?? ''), $payload);
+    $eventKey = (string)($row['event_key'] ?? '');
+    $configRow = $this->loadConfigRow($corpId);
+    if ($this->shouldUseThreadDelivery($configRow, $eventKey, $payload)) {
+      return $this->sendThreadedOpsMessage($corpId, $configRow, $eventKey, $payload, $token);
+    }
+
+    $channelId = trim((string)($row['channel_id'] ?? ''));
+    if ($channelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'channel_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $message = $this->renderer->render($corpId, $eventKey, $payload);
     $endpoint = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/')
       . '/channels/' . $channelId . '/messages';
 
     return $this->postJson($endpoint, $message, [
       'Authorization: Bot ' . $token,
     ]);
+  }
+
+  private function shouldUseThreadDelivery(array $configRow, string $eventKey, array $payload): bool
+  {
+    if (($configRow['channel_mode'] ?? 'threads') !== 'threads') {
+      return false;
+    }
+    if (!in_array($eventKey, self::OPS_THREAD_EVENTS, true)) {
+      return false;
+    }
+    if (empty($payload['request_id'])) {
+      return false;
+    }
+    return trim((string)($configRow['hauling_channel_id'] ?? '')) !== '';
+  }
+
+  private function sendThreadedOpsMessage(
+    int $corpId,
+    array $configRow,
+    string $eventKey,
+    array $payload,
+    string $token
+  ): array {
+    $requestId = (int)($payload['request_id'] ?? 0);
+    if ($requestId <= 0) {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'request_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $opsChannelId = trim((string)($configRow['hauling_channel_id'] ?? ''));
+    if ($opsChannelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'hauling_channel_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $threadRow = $this->loadThreadRow($corpId, $requestId);
+    $threadId = $threadRow ? trim((string)($threadRow['thread_id'] ?? '')) : '';
+    $message = $this->renderer->render($corpId, $eventKey, $payload);
+
+    if ($threadId !== '') {
+      $resp = $this->postJson($base . '/channels/' . $threadId . '/messages', $message, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (!empty($resp['ok'])) {
+        $this->markThreadActivity($corpId, $requestId, $threadId, 'active');
+        return $resp;
+      }
+
+      return $this->recoverThreadDelivery($corpId, $configRow, $eventKey, $payload, $token, $resp, $threadRow);
+    }
+
+    $claimed = $threadRow
+      ? $this->markThreadCreating($corpId, $requestId)
+      : $this->claimThreadCreation($corpId, $requestId, $opsChannelId);
+    if (!$claimed) {
+      return [
+        'ok' => false,
+        'status' => 409,
+        'error' => 'thread_pending',
+        'retry_after' => 15,
+        'body' => '',
+      ];
+    }
+
+    $anchor = $this->sendAnchorMessage($corpId, $eventKey, $payload, $opsChannelId, $token, $base, $configRow);
+    if (empty($anchor['ok'])) {
+      $this->releaseThreadClaim($corpId, $requestId);
+      return $anchor;
+    }
+
+    $messageId = $anchor['message_id'] ?? '';
+    $threadName = $this->buildThreadName($payload);
+    $threadPayload = [
+      'name' => $threadName,
+    ];
+    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
+    if ($autoArchive !== null) {
+      $threadPayload['auto_archive_duration'] = $autoArchive;
+    }
+
+    $threadResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages/' . $messageId . '/threads', $threadPayload, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($threadResp['ok'])) {
+      $this->releaseThreadClaim($corpId, $requestId);
+      return $threadResp;
+    }
+
+    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
+    $newThreadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    if ($newThreadId === '') {
+      $this->releaseThreadClaim($corpId, $requestId);
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $this->storeThreadRecord($corpId, $requestId, $opsChannelId, $messageId, $newThreadId, 'active');
+    $this->addRequesterToThread($corpId, $payload, $configRow, $newThreadId, $token, $base);
+    if (!empty($configRow['auto_thread_create_on_request'])) {
+      $repeatMessage = $this->renderer->render($corpId, $eventKey, $payload);
+      $repeatResp = $this->postJson($base . '/channels/' . $newThreadId . '/messages', $repeatMessage, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (!empty($repeatResp['ok'])) {
+        $this->markThreadActivity($corpId, $requestId, $newThreadId, 'active');
+      }
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
+  private function recoverThreadDelivery(
+    int $corpId,
+    array $configRow,
+    string $eventKey,
+    array $payload,
+    string $token,
+    array $resp,
+    ?array $threadRow
+  ): array {
+    $requestId = (int)($payload['request_id'] ?? 0);
+    $threadId = $threadRow ? trim((string)($threadRow['thread_id'] ?? '')) : '';
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $parsed = $this->parseDiscordError($resp);
+
+    $shouldRecreate = false;
+    if ($threadId !== '' && $this->isThreadRecoverable($parsed)) {
+      $unarchive = $this->patchJson($base . '/channels/' . $threadId, [
+        'archived' => false,
+        'locked' => false,
+      ], [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (!empty($unarchive['ok'])) {
+        $message = $this->renderer->render($corpId, $eventKey, $payload);
+        $retry = $this->postJson($base . '/channels/' . $threadId . '/messages', $message, [
+          'Authorization: Bot ' . $token,
+        ]);
+        if (!empty($retry['ok'])) {
+          $this->markThreadActivity($corpId, $requestId, $threadId, 'active');
+          return $retry;
+        }
+      }
+      $shouldRecreate = true;
+    }
+
+    if (!$shouldRecreate && !$this->isThreadMissing($parsed)) {
+      return $resp;
+    }
+
+    if ($requestId <= 0) {
+      return $resp;
+    }
+
+    $opsChannelId = trim((string)($configRow['hauling_channel_id'] ?? ''));
+    if ($opsChannelId === '') {
+      return $resp;
+    }
+
+    $anchor = $this->sendAnchorMessage($corpId, $eventKey, $payload, $opsChannelId, $token, $base, $configRow);
+    if (empty($anchor['ok'])) {
+      $this->markThreadState($corpId, $requestId, $threadId, 'missing');
+      return $anchor;
+    }
+
+    $messageId = $anchor['message_id'] ?? '';
+    $threadName = $this->buildThreadName($payload);
+    $threadPayload = [
+      'name' => $threadName,
+    ];
+    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
+    if ($autoArchive !== null) {
+      $threadPayload['auto_archive_duration'] = $autoArchive;
+    }
+
+    $threadResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages/' . $messageId . '/threads', $threadPayload, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($threadResp['ok'])) {
+      $this->markThreadState($corpId, $requestId, $threadId, 'missing');
+      return $threadResp;
+    }
+
+    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
+    $newThreadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    if ($newThreadId === '') {
+      $this->markThreadState($corpId, $requestId, $threadId, 'missing');
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $this->storeThreadRecord($corpId, $requestId, $opsChannelId, $messageId, $newThreadId, 'active');
+    $this->addRequesterToThread($corpId, $payload, $configRow, $newThreadId, $token, $base);
+    $this->auditThreadRecovery($corpId, $requestId, $threadId, $newThreadId);
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
+  private function sendAnchorMessage(
+    int $corpId,
+    string $eventKey,
+    array $payload,
+    string $opsChannelId,
+    string $token,
+    string $base,
+    array $configRow
+  ): array {
+    $message = $this->renderer->render($corpId, $eventKey, $payload);
+    $message = $this->applyAnchorMentions($corpId, $eventKey, $payload, $message, $configRow);
+
+    $messageResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages', $message, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($messageResp['ok'])) {
+      return $messageResp;
+    }
+
+    $messageData = json_decode((string)($messageResp['body'] ?? ''), true);
+    $messageId = is_array($messageData) ? (string)($messageData['id'] ?? '') : '';
+    if ($messageId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'message_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+      'message_id' => $messageId,
+    ];
+  }
+
+  private function applyAnchorMentions(int $corpId, string $eventKey, array $payload, array $message, array $configRow): array
+  {
+    if ($eventKey !== 'request.created') {
+      return $message;
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $mentionParts = [];
+    if (!empty($roleMap['hauling.hauler'])) {
+      $mentionParts[] = '<@&' . $roleMap['hauling.hauler'] . '>';
+    }
+
+    $requesterDiscordId = $this->resolveRequesterDiscordId($payload, $configRow);
+    if ($requesterDiscordId !== '') {
+      $mentionParts[] = '<@' . $requesterDiscordId . '>';
+    }
+
+    $mentionLine = trim(implode(' ', $mentionParts));
+    if ($mentionLine !== '') {
+      if (!empty($message['content'])) {
+        $message['content'] = trim($mentionLine . ' ' . $message['content']);
+      } else {
+        $message['content'] = $mentionLine;
+      }
+      $message['allowed_mentions'] = [
+        'parse' => [],
+        'roles' => !empty($roleMap['hauling.hauler']) ? [$roleMap['hauling.hauler']] : [],
+        'users' => $requesterDiscordId !== '' ? [$requesterDiscordId] : [],
+      ];
+    }
+
+    return $message;
+  }
+
+  private function buildThreadName(array $payload): string
+  {
+    $requestCode = trim((string)($payload['request_code'] ?? ''));
+    $threadLabel = $requestCode !== '' ? strtoupper($requestCode) : (string)($payload['request_id'] ?? '');
+    $prefix = $threadLabel !== '' ? 'HAUL-' . $threadLabel : 'HAUL';
+    $route = trim((string)($payload['route'] ?? ''));
+    if ($route !== '') {
+      return $prefix . ' • ' . $route;
+    }
+    return $prefix;
+  }
+
+  private function resolveThreadAutoArchiveDuration(array $configRow): ?int
+  {
+    $duration = (int)($configRow['thread_auto_archive_minutes'] ?? 1440);
+    if (in_array($duration, [60, 1440, 4320, 10080], true)) {
+      return $duration;
+    }
+    return null;
+  }
+
+  private function resolveRequesterDiscordId(array $payload, array $configRow): string
+  {
+    if (empty($payload['requester_user_id']) || ($configRow['requester_thread_access'] ?? 'read_only') === 'none') {
+      return '';
+    }
+    $link = $this->db->one(
+      "SELECT discord_user_id FROM discord_user_link WHERE user_id = :uid LIMIT 1",
+      ['uid' => (int)$payload['requester_user_id']]
+    );
+    return $link ? (string)($link['discord_user_id'] ?? '') : '';
+  }
+
+  private function addRequesterToThread(
+    int $corpId,
+    array $payload,
+    array $configRow,
+    string $threadId,
+    string $token,
+    string $base
+  ): void {
+    $requesterDiscordId = $this->resolveRequesterDiscordId($payload, $configRow);
+    if ($requesterDiscordId === '') {
+      return;
+    }
+
+    $this->putJson($base . '/channels/' . $threadId . '/thread-members/' . $requesterDiscordId, [], [
+      'Authorization: Bot ' . $token,
+    ]);
+  }
+
+  private function loadThreadRow(int $corpId, int $requestId): ?array
+  {
+    $row = $this->db->one(
+      "SELECT request_id, thread_id, ops_channel_id, anchor_message_id, thread_state
+         FROM discord_thread
+        WHERE request_id = :rid AND corp_id = :cid
+        LIMIT 1",
+      ['rid' => $requestId, 'cid' => $corpId]
+    );
+    return $row ?: null;
+  }
+
+  private function claimThreadCreation(int $corpId, int $requestId, string $opsChannelId): bool
+  {
+    $claimed = $this->db->execute(
+      "INSERT IGNORE INTO discord_thread
+        (request_id, corp_id, ops_channel_id, thread_state, thread_created_at, created_at, updated_at)
+       VALUES
+        (:rid, :cid, :ops_channel_id, 'creating', NULL, UTC_TIMESTAMP(), UTC_TIMESTAMP())",
+      [
+        'rid' => $requestId,
+        'cid' => $corpId,
+        'ops_channel_id' => $opsChannelId,
+      ]
+    );
+
+    return $claimed > 0;
+  }
+
+  private function markThreadCreating(int $corpId, int $requestId): bool
+  {
+    $updated = $this->db->execute(
+      "UPDATE discord_thread
+          SET thread_state = 'creating',
+              updated_at = UTC_TIMESTAMP()
+        WHERE request_id = :rid
+          AND corp_id = :cid
+          AND thread_id IS NULL
+          AND (thread_state IS NULL OR thread_state <> 'creating')",
+      [
+        'rid' => $requestId,
+        'cid' => $corpId,
+      ]
+    );
+
+    return $updated > 0;
+  }
+
+  private function releaseThreadClaim(int $corpId, int $requestId): void
+  {
+    $this->db->execute(
+      "UPDATE discord_thread
+          SET thread_state = 'missing',
+              updated_at = UTC_TIMESTAMP()
+        WHERE request_id = :rid
+          AND corp_id = :cid
+          AND thread_id IS NULL",
+      ['rid' => $requestId, 'cid' => $corpId]
+    );
+  }
+
+  private function storeThreadRecord(
+    int $corpId,
+    int $requestId,
+    string $opsChannelId,
+    string $anchorMessageId,
+    string $threadId,
+    string $state
+  ): void {
+    $this->db->execute(
+      "INSERT INTO discord_thread
+        (request_id, corp_id, thread_id, ops_channel_id, anchor_message_id, thread_state, thread_created_at)
+       VALUES
+        (:rid, :cid, :thread_id, :ops_channel_id, :anchor_message_id, :thread_state, UTC_TIMESTAMP())
+       ON DUPLICATE KEY UPDATE
+        thread_id = VALUES(thread_id),
+        ops_channel_id = VALUES(ops_channel_id),
+        anchor_message_id = VALUES(anchor_message_id),
+        thread_state = VALUES(thread_state),
+        thread_created_at = VALUES(thread_created_at),
+        updated_at = UTC_TIMESTAMP()",
+      [
+        'rid' => $requestId,
+        'cid' => $corpId,
+        'thread_id' => $threadId,
+        'ops_channel_id' => $opsChannelId,
+        'anchor_message_id' => $anchorMessageId,
+        'thread_state' => $state,
+      ]
+    );
+  }
+
+  private function markThreadActivity(int $corpId, int $requestId, string $threadId, string $state): void
+  {
+    $this->db->execute(
+      "UPDATE discord_thread
+          SET thread_last_posted_at = UTC_TIMESTAMP(),
+              thread_state = :thread_state,
+              updated_at = UTC_TIMESTAMP()
+        WHERE request_id = :rid AND corp_id = :cid AND thread_id = :thread_id",
+      [
+        'thread_state' => $state,
+        'rid' => $requestId,
+        'cid' => $corpId,
+        'thread_id' => $threadId,
+      ]
+    );
+  }
+
+  private function markThreadState(int $corpId, int $requestId, string $threadId, string $state): void
+  {
+    $this->db->execute(
+      "UPDATE discord_thread
+          SET thread_state = :thread_state,
+              updated_at = UTC_TIMESTAMP()
+        WHERE request_id = :rid AND corp_id = :cid AND thread_id = :thread_id",
+      [
+        'thread_state' => $state,
+        'rid' => $requestId,
+        'cid' => $corpId,
+        'thread_id' => $threadId,
+      ]
+    );
+  }
+
+  private function parseDiscordError(array $resp): array
+  {
+    $body = (string)($resp['body'] ?? '');
+    $decoded = json_decode($body, true);
+    return [
+      'status' => (int)($resp['status'] ?? 0),
+      'code' => is_array($decoded) ? (int)($decoded['code'] ?? 0) : 0,
+      'message' => is_array($decoded) ? (string)($decoded['message'] ?? '') : $body,
+    ];
+  }
+
+  private function isThreadRecoverable(array $error): bool
+  {
+    $message = strtolower($error['message'] ?? '');
+    $code = (int)($error['code'] ?? 0);
+    return $code === 50083
+      || $code === 50084
+      || str_contains($message, 'thread is archived')
+      || str_contains($message, 'thread is locked');
+  }
+
+  private function isThreadMissing(array $error): bool
+  {
+    $message = strtolower($error['message'] ?? '');
+    $code = (int)($error['code'] ?? 0);
+    $status = (int)($error['status'] ?? 0);
+    return $code === 10003
+      || str_contains($message, 'unknown channel')
+      || str_contains($message, 'unknown thread')
+      || $status === 404;
+  }
+
+  private function auditThreadRecovery(int $corpId, int $requestId, string $oldThreadId, string $newThreadId): void
+  {
+    $this->db->audit(
+      $corpId,
+      null,
+      null,
+      'discord.thread.recovered',
+      'discord_thread',
+      (string)$requestId,
+      ['thread_id' => $oldThreadId],
+      ['thread_id' => $newThreadId],
+      null,
+      null
+    );
   }
 
   private function handleBotTask(int $corpId, string $eventKey, array $payload): array
@@ -463,16 +1008,14 @@ final class DiscordDeliveryService
       ];
     }
 
-    $requestCode = trim((string)($payload['request_code'] ?? ''));
     $requestId = (int)($payload['request_id'] ?? 0);
-    $threadLabel = $requestCode !== '' ? strtoupper($requestCode) : (string)$requestId;
-    $threadName = 'HAUL #' . $threadLabel;
+    $threadName = $this->buildThreadName($payload);
     if ($requestId > 0) {
       $existing = $this->db->one(
         "SELECT thread_id FROM discord_thread WHERE request_id = :rid AND corp_id = :cid LIMIT 1",
         ['rid' => $requestId, 'cid' => $corpId]
       );
-      if ($existing) {
+      if ($existing && !empty($existing['thread_id'])) {
         return [
           'ok' => true,
           'status' => 200,
@@ -483,40 +1026,8 @@ final class DiscordDeliveryService
       }
     }
 
-    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
-    $mentionParts = [];
-    if (!empty($roleMap['hauling.hauler'])) {
-      $mentionParts[] = '<@&' . $roleMap['hauling.hauler'] . '>';
-    }
-
-    $requesterDiscordId = '';
-    if (!empty($payload['requester_user_id']) && ($configRow['requester_thread_access'] ?? 'read_only') !== 'none') {
-      $link = $this->db->one(
-        "SELECT discord_user_id FROM discord_user_link WHERE user_id = :uid LIMIT 1",
-        ['uid' => (int)$payload['requester_user_id']]
-      );
-      if ($link) {
-        $requesterDiscordId = (string)($link['discord_user_id'] ?? '');
-        if ($requesterDiscordId !== '') {
-          $mentionParts[] = '<@' . $requesterDiscordId . '>';
-        }
-      }
-    }
-
     $message = $this->renderer->render($corpId, 'request.created', $payload);
-    $mentionLine = trim(implode(' ', $mentionParts));
-    if ($mentionLine !== '') {
-      if (!empty($message['content'])) {
-        $message['content'] = trim($mentionLine . ' ' . $message['content']);
-      } else {
-        $message['content'] = $mentionLine;
-      }
-    }
-    $message['allowed_mentions'] = [
-      'parse' => [],
-      'roles' => !empty($roleMap['hauling.hauler']) ? [$roleMap['hauling.hauler']] : [],
-      'users' => $requesterDiscordId !== '' ? [$requesterDiscordId] : [],
-    ];
+    $message = $this->applyAnchorMentions($corpId, 'request.created', $payload, $message, $configRow);
 
     $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
     $messageResp = $this->postJson($base . '/channels/' . $channelId . '/messages', $message, [
@@ -538,9 +1049,14 @@ final class DiscordDeliveryService
       ];
     }
 
-    $threadResp = $this->postJson($base . '/channels/' . $channelId . '/messages/' . $messageId . '/threads', [
+    $threadPayload = [
       'name' => $threadName,
-    ], [
+    ];
+    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
+    if ($autoArchive !== null) {
+      $threadPayload['auto_archive_duration'] = $autoArchive;
+    }
+    $threadResp = $this->postJson($base . '/channels/' . $channelId . '/messages/' . $messageId . '/threads', $threadPayload, [
       'Authorization: Bot ' . $token,
     ]);
     if (empty($threadResp['ok'])) {
@@ -559,22 +1075,16 @@ final class DiscordDeliveryService
       ];
     }
 
-    $this->db->execute(
-      "INSERT INTO discord_thread (thread_id, corp_id, request_id, channel_id)
-       VALUES (:thread_id, :cid, :rid, :channel_id)
-       ON DUPLICATE KEY UPDATE thread_id = VALUES(thread_id), channel_id = VALUES(channel_id), updated_at = UTC_TIMESTAMP()",
-      [
-        'thread_id' => $threadId,
-        'cid' => $corpId,
-        'rid' => $requestId,
-        'channel_id' => $channelId,
-      ]
-    );
-
-    if ($requesterDiscordId !== '') {
-      $this->putJson($base . '/channels/' . $threadId . '/thread-members/' . $requesterDiscordId, [], [
+    $this->storeThreadRecord($corpId, $requestId, $channelId, $messageId, $threadId, 'active');
+    $this->addRequesterToThread($corpId, $payload, $configRow, $threadId, $token, $base);
+    if (!empty($configRow['auto_thread_create_on_request'])) {
+      $threadMessage = $this->renderer->render($corpId, 'request.created', $payload);
+      $repeatResp = $this->postJson($base . '/channels/' . $threadId . '/messages', $threadMessage, [
         'Authorization: Bot ' . $token,
       ]);
+      if (!empty($repeatResp['ok'])) {
+        $this->markThreadActivity($corpId, $requestId, $threadId, 'active');
+      }
     }
 
     return [
@@ -708,7 +1218,10 @@ final class DiscordDeliveryService
     ]);
     if (!empty($resp['ok'])) {
       $this->db->execute(
-        "UPDATE discord_thread SET updated_at = UTC_TIMESTAMP() WHERE thread_id = :thread_id AND corp_id = :cid",
+        "UPDATE discord_thread
+            SET thread_state = 'archived',
+                updated_at = UTC_TIMESTAMP()
+          WHERE thread_id = :thread_id AND corp_id = :cid",
         [
           'thread_id' => $threadId,
           'cid' => $corpId,
@@ -754,7 +1267,10 @@ final class DiscordDeliveryService
     ]);
     if (!empty($resp['ok'])) {
       $this->db->execute(
-        "UPDATE discord_thread SET updated_at = UTC_TIMESTAMP() WHERE thread_id = :thread_id AND corp_id = :cid",
+        "UPDATE discord_thread
+            SET thread_state = 'archived',
+                updated_at = UTC_TIMESTAMP()
+          WHERE thread_id = :thread_id AND corp_id = :cid",
         [
           'thread_id' => $threadId,
           'cid' => $corpId,

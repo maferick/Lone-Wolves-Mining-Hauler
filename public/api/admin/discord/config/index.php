@@ -34,7 +34,8 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'channel_mode' => 'threads',
     'hauling_channel_id' => '',
     'requester_thread_access' => 'read_only',
-    'auto_thread_create_on_request' => 1,
+    'auto_thread_create_on_request' => 0,
+    'thread_auto_archive_minutes' => 1440,
     'auto_archive_on_complete' => 1,
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
@@ -97,7 +98,13 @@ if ($method === 'POST') {
   }
   $autoThreadCreate = array_key_exists('auto_thread_create_on_request', $data)
     ? (!empty($data['auto_thread_create_on_request']) ? 1 : 0)
-    : (int)($current['auto_thread_create_on_request'] ?? 1);
+    : (int)($current['auto_thread_create_on_request'] ?? 0);
+  $threadAutoArchive = array_key_exists('thread_auto_archive_minutes', $data)
+    ? (int)($data['thread_auto_archive_minutes'] ?? 1440)
+    : (int)($current['thread_auto_archive_minutes'] ?? 1440);
+  if (!in_array($threadAutoArchive, [60, 1440, 4320, 10080], true)) {
+    $threadAutoArchive = 1440;
+  }
   $autoArchive = array_key_exists('auto_archive_on_complete', $data)
     ? (!empty($data['auto_archive_on_complete']) ? 1 : 0)
     : (int)($current['auto_archive_on_complete'] ?? 1);
@@ -116,11 +123,11 @@ if ($method === 'POST') {
     "INSERT INTO discord_config
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute, dedupe_window_seconds,
        commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access, auto_thread_create_on_request,
-       auto_archive_on_complete, auto_lock_on_complete, role_map_json, bot_token_configured)
+       thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access, :auto_thread_create_on_request,
-       :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :bot_token_configured)
+       :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -134,6 +141,7 @@ if ($method === 'POST') {
       hauling_channel_id = VALUES(hauling_channel_id),
       requester_thread_access = VALUES(requester_thread_access),
       auto_thread_create_on_request = VALUES(auto_thread_create_on_request),
+      thread_auto_archive_minutes = VALUES(thread_auto_archive_minutes),
       auto_archive_on_complete = VALUES(auto_archive_on_complete),
       auto_lock_on_complete = VALUES(auto_lock_on_complete),
       role_map_json = VALUES(role_map_json),
@@ -153,6 +161,7 @@ if ($method === 'POST') {
       'hauling_channel_id' => $haulingChannelId !== '' ? $haulingChannelId : null,
       'requester_thread_access' => $requesterThreadAccess,
       'auto_thread_create_on_request' => $autoThreadCreate,
+      'thread_auto_archive_minutes' => $threadAutoArchive,
       'auto_archive_on_complete' => $autoArchive,
       'auto_lock_on_complete' => $autoLock,
       'role_map_json' => $roleMapJson,
