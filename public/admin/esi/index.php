@@ -19,6 +19,16 @@ $ssoUrl = ($basePath ?: '') . '/login/?mode=esi&start=1&return=' . urlencode($re
 
 $msg = null;
 $cronCharId = 0;
+$courierStats = [
+  'total' => 0,
+  'matched' => 0,
+  'mismatch' => 0,
+  'unmatched' => 0,
+];
+$courierContracts = [];
+$courierContractsAvailable = false;
+$hasCourierContracts = false;
+$courierListLimit = 200;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -114,6 +124,73 @@ $tokens = $db->select(
   ['cid'=>$corpId]
 );
 
+if ($corpId > 0) {
+  $hasCourierContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
+  $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+
+  if ($hasCourierContracts) {
+    if ($hasHaulRequest) {
+      $statsRow = $db->one(
+        "SELECT COUNT(*) AS total,
+                SUM(CASE WHEN r.request_id IS NOT NULL THEN 1 ELSE 0 END) AS matched,
+                SUM(CASE WHEN r.status = 'contract_mismatch' THEN 1 ELSE 0 END) AS mismatch
+           FROM esi_corp_contract c
+           LEFT JOIN haul_request r
+             ON r.corp_id = c.corp_id
+            AND (r.esi_contract_id = c.contract_id OR r.contract_id = c.contract_id)
+          WHERE c.corp_id = :cid
+            AND c.type = 'courier'",
+        ['cid' => $corpId]
+      );
+    } else {
+      $statsRow = $db->one(
+        "SELECT COUNT(*) AS total
+           FROM esi_corp_contract c
+          WHERE c.corp_id = :cid
+            AND c.type = 'courier'",
+        ['cid' => $corpId]
+      );
+    }
+
+    if ($statsRow) {
+      $courierStats['total'] = (int)($statsRow['total'] ?? 0);
+      $courierStats['matched'] = (int)($statsRow['matched'] ?? 0);
+      $courierStats['mismatch'] = (int)($statsRow['mismatch'] ?? 0);
+      $courierStats['unmatched'] = max(0, $courierStats['total'] - $courierStats['matched']);
+    }
+
+    $hasContractView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_contract_display'");
+    $contractTable = $hasContractView ? 'v_contract_display' : 'esi_corp_contract';
+    $startNameSelect = $hasContractView ? 'c.start_name' : "CONCAT('loc:', c.start_location_id)";
+    $endNameSelect = $hasContractView ? 'c.end_name' : "CONCAT('loc:', c.end_location_id)";
+
+    $requestSelect = $hasHaulRequest
+      ? "r.request_id, r.status AS request_status"
+      : "NULL AS request_id, NULL AS request_status";
+    $requestJoin = $hasHaulRequest
+      ? "LEFT JOIN haul_request r
+           ON r.corp_id = c.corp_id
+          AND (r.esi_contract_id = c.contract_id OR r.contract_id = c.contract_id)"
+      : '';
+
+    $courierContracts = $db->select(
+      "SELECT c.contract_id, c.status, c.title, c.volume_m3, c.reward_isk, c.collateral_isk,
+              c.date_issued, c.date_expired,
+              {$startNameSelect} AS start_name,
+              {$endNameSelect} AS end_name,
+              {$requestSelect}
+         FROM {$contractTable} c
+         {$requestJoin}
+        WHERE c.corp_id = :cid
+          AND c.type = 'courier'
+        ORDER BY c.date_issued DESC, c.contract_id DESC
+        LIMIT {$courierListLimit}",
+      ['cid' => $corpId]
+    );
+    $courierContractsAvailable = !empty($courierContracts);
+  }
+}
+
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
@@ -179,6 +256,80 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <?php endforeach; ?>
       </tbody>
     </table>
+
+    <div class="card" style="margin-top:20px;">
+      <div class="card-header">
+        <h3>Downloaded Courier Contracts</h3>
+        <p class="muted">Overview of courier contracts pulled from ESI so you can spot anything that needs manual matching.</p>
+      </div>
+      <div class="content">
+        <?php if (!$hasCourierContracts): ?>
+          <div class="muted">No contract mirror table found yet. Pull contracts first to populate this list.</div>
+        <?php elseif ($courierStats['total'] <= 0): ?>
+          <div class="muted">No courier contracts downloaded yet.</div>
+        <?php else: ?>
+          <div class="row" style="gap:16px; margin-bottom:16px;">
+            <div class="pill"><strong>Total:</strong> <?= number_format($courierStats['total']) ?></div>
+            <div class="pill"><strong>Matched:</strong> <?= number_format($courierStats['matched']) ?></div>
+            <div class="pill"><strong>Unmatched:</strong> <?= number_format($courierStats['unmatched']) ?></div>
+            <div class="pill"><strong>Mismatched:</strong> <?= number_format($courierStats['mismatch']) ?></div>
+          </div>
+
+          <?php if (!$courierContractsAvailable): ?>
+            <div class="muted">No courier contract rows available.</div>
+          <?php else: ?>
+            <div class="muted" style="margin-bottom:10px;">
+              Showing the latest <?= (int)$courierListLimit ?> courier contracts.
+            </div>
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Contract</th>
+                  <th>Status</th>
+                  <th>Route</th>
+                  <th>Volume</th>
+                  <th>Reward</th>
+                  <th>Collateral</th>
+                  <th>Issued</th>
+                  <th>Match</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($courierContracts as $contract): ?>
+                  <?php
+                  $requestId = (int)($contract['request_id'] ?? 0);
+                  $requestStatus = (string)($contract['request_status'] ?? '');
+                  $matchLabel = 'Unmatched';
+                  $matchBadge = 'badge';
+                  if ($requestId > 0 && $requestStatus === 'contract_mismatch') {
+                    $matchLabel = 'Mismatch (Request #' . $requestId . ')';
+                    $matchBadge = 'badge';
+                  } elseif ($requestId > 0) {
+                    $matchLabel = 'Linked (Request #' . $requestId . ')';
+                    $matchBadge = 'badge';
+                  }
+                  ?>
+                  <tr>
+                    <td>#<?= htmlspecialchars((string)$contract['contract_id'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars((string)$contract['status'], ENT_QUOTES, 'UTF-8') ?></td>
+                    <td>
+                      <?= htmlspecialchars((string)($contract['start_name'] ?? 'Unknown'), ENT_QUOTES, 'UTF-8') ?>
+                      →
+                      <?= htmlspecialchars((string)($contract['end_name'] ?? 'Unknown'), ENT_QUOTES, 'UTF-8') ?>
+                    </td>
+                    <td><?= number_format((float)($contract['volume_m3'] ?? 0), 0) ?> m³</td>
+                    <td><?= number_format((float)($contract['reward_isk'] ?? 0), 2) ?> ISK</td>
+                    <td><?= number_format((float)($contract['collateral_isk'] ?? 0), 2) ?> ISK</td>
+                    <td><?= htmlspecialchars((string)($contract['date_issued'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><span class="<?= htmlspecialchars($matchBadge, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($matchLabel, ENT_QUOTES, 'UTF-8') ?></span></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        <?php endif; ?>
+      </div>
+    </div>
 
     <div style="margin-top:14px;">
       <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/">Back</a>
