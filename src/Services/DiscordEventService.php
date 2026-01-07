@@ -296,6 +296,46 @@ final class DiscordEventService
     );
   }
 
+  public function enqueueThreadDelete(int $corpId, int $requestId, array $threadRow): int
+  {
+    $config = $this->loadConfig($corpId);
+    if (($config['channel_mode'] ?? 'threads') !== 'threads') {
+      return 0;
+    }
+
+    $threadId = trim((string)($threadRow['thread_id'] ?? ''));
+    $opsChannelId = trim((string)($threadRow['ops_channel_id'] ?? ''));
+    $anchorMessageId = trim((string)($threadRow['anchor_message_id'] ?? ''));
+    if ($threadId === '' && $anchorMessageId === '') {
+      return 0;
+    }
+
+    $payload = [
+      'request_id' => $requestId,
+      'thread_id' => $threadId,
+      'ops_channel_id' => $opsChannelId,
+      'anchor_message_id' => $anchorMessageId,
+      'event_key' => 'discord.thread.delete',
+    ];
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.delete', $payload);
+    $dedupeKey = 'discord:thread-delete:' . $requestId;
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.thread.delete',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => $dedupeKey,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
+  }
+
   public function enqueueBotTestMessage(int $corpId): int
   {
     $payload = ['event_key' => 'discord.bot.test_message'];

@@ -36,6 +36,14 @@ if (!$request) {
   api_send_json(['ok' => false, 'error' => 'request not found'], 404);
 }
 
+$threadRow = $db->one(
+  "SELECT thread_id, ops_channel_id, anchor_message_id
+     FROM discord_thread
+    WHERE request_id = :rid AND corp_id = :cid
+    LIMIT 1",
+  ['rid' => $requestId, 'cid' => $corpId]
+);
+
 $canManage = Auth::can($authCtx, 'haul.request.manage');
 $isOwner = (int)$request['requester_user_id'] === (int)$authCtx['user_id'];
 if (!$canManage && !$isOwner) {
@@ -61,5 +69,15 @@ $db->tx(function ($db) use ($request, $corpId, $authCtx): void {
     $_SERVER['HTTP_USER_AGENT'] ?? null
   );
 });
+
+if ($threadRow && !empty($services['discord_events'])) {
+  try {
+    /** @var \App\Services\DiscordEventService $discordEvents */
+    $discordEvents = $services['discord_events'];
+    $discordEvents->enqueueThreadDelete($corpId, (int)$request['request_id'], $threadRow);
+  } catch (Throwable $e) {
+    // Ignore Discord event enqueue failures to avoid blocking deletions.
+  }
+}
 
 api_send_json(['ok' => true, 'request_id' => $requestId]);
