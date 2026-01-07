@@ -1244,14 +1244,41 @@ final class DiscordDeliveryService
   {
     $baseUrl = rtrim((string)($this->config['app']['base_url'] ?? ''), '/');
     $basePath = rtrim((string)($this->config['app']['base_path'] ?? ''), '/');
-    $portalLink = $baseUrl !== '' ? $baseUrl . ($basePath !== '' ? $basePath : '') : '';
-    $steps = [
-      $portalLink !== '' ? '1) Visit ' . $portalLink : '1) Visit the hauling portal',
-      '2) Open My Contracts and generate a Discord link code.',
-      '3) Run /link <code> in this server to finish linking.',
+    $portalRoot = $baseUrl !== '' ? $baseUrl . ($basePath !== '' ? $basePath : '') : '';
+    $portalLink = $portalRoot !== '' ? rtrim($portalRoot, '/') . '/my-contracts/' : 'https://lonewolves.online/my-contracts/';
+    $lines = [
+      '🔒 Identity verification required',
+      '',
+      'Capsuleer, your Discord identity is not yet linked to the Lone Wolves Mining logistics network.',
+      'To proceed, you must establish a secure link between your Discord account and your hauling profile.',
+      '',
+      '🧭 How to link your account',
+      '',
+      'Open the Lone Wolves Mining portal:',
+      '👉 ' . $portalLink,
+      '',
+      'Log in and navigate to My Contracts',
+      'Generate a Discord link code',
+      'Return here and run the following command in this server:',
+      '',
+      '/link <your-code>',
+      '',
+      'Once completed, your identity will be fully synchronized.',
+      '',
+      '📦 Why this matters',
+      '',
+      'Linking your account allows:',
+      'Automatic association of hauling requests and contracts',
+      'Accurate dispatch notifications',
+      'Proper access control based on corp roles',
+      '',
+      'No link means no clearance.',
+      '',
+      'Lone Wolves Mining',
+      'Logistics Command · Identity Verification',
     ];
 
-    return "No linked account found. To link:\n" . implode("\n", $steps);
+    return implode("\n", $lines);
   }
 
   private function fetchLinkedDiscordUserIds(int $corpId): array

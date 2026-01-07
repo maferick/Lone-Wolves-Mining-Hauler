@@ -176,11 +176,42 @@ $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
 $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
 $createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($pathPrefix ?: '/');
 $portalLinkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-$onboardingMessage = "No linked account found. To link:\n"
-  . "1) Sign in to the hauling portal to create your account.\n"
-  . "2) Open My Contracts and generate a Discord link code.\n"
-  . "3) Run /link <code> in this channel to finish linking."
-  . $portalLinkLine;
+$dashboardUrl = '';
+if ($baseUrl !== '' || $pathPrefix !== '') {
+  $portalRoot = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') : ($pathPrefix ?: '');
+  $dashboardUrl = rtrim($portalRoot, '/') . '/my-contracts/';
+}
+$onboardingMessage = implode("\n", [
+  '🔒 Identity verification required',
+  '',
+  'Capsuleer, your Discord identity is not yet linked to the Lone Wolves Mining logistics network.',
+  'To proceed, you must establish a secure link between your Discord account and your hauling profile.',
+  '',
+  '🧭 How to link your account',
+  '',
+  'Open the Lone Wolves Mining portal:',
+  $dashboardUrl !== '' ? '👉 ' . $dashboardUrl : '👉 https://lonewolves.online/my-contracts/',
+  '',
+  'Log in and navigate to My Contracts',
+  'Generate a Discord link code',
+  'Return here and run the following command in this server:',
+  '',
+  '/link <your-code>',
+  '',
+  'Once completed, your identity will be fully synchronized.',
+  '',
+  '📦 Why this matters',
+  '',
+  'Linking your account allows:',
+  'Automatic association of hauling requests and contracts',
+  'Accurate dispatch notifications',
+  'Proper access control based on corp roles',
+  '',
+  'No link means no clearance.',
+  '',
+  'Lone Wolves Mining',
+  'Logistics Command · Identity Verification',
+]);
 $deniedMessage = 'Your linked account does not have the required portal rights.' . $portalLinkLine;
 
 $requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, $sendFollowupMessage, $onboardingMessage, $ephemeral): ?int {
@@ -636,7 +667,37 @@ switch ($commandName) {
           error_log('[discord-link] rights sync failed: ' . $e->getMessage());
         }
       }
-      $sendFollowupMessage('Your Discord account is now linked.' . $portalLinkLine, $linkEphemeral);
+      $successDashboardUrl = $dashboardUrl !== '' ? $dashboardUrl : 'https://lonewolves.online/my-contracts/';
+      $sendFollowupMessage(implode("\n", [
+        '✅ Identity link established',
+        '',
+        'Capsuleer, your Discord account has been successfully linked to the Lone Wolves Mining logistics network.',
+        '',
+        'Your identity is now recognized by:',
+        '',
+        'Dispatch',
+        'Contract coordination',
+        'Automated hauling operations',
+        '',
+        '🛰 What you can do now',
+        '',
+        'You can immediately:',
+        '',
+        'View your hauling requests and contracts',
+        'Track operational status updates',
+        'Receive dispatch pings when action is required',
+        '',
+        '👉 Access your dashboard:',
+        $successDashboardUrl,
+        '',
+        'From here on, all systems operate under a single, verified identity.',
+        '',
+        'The route is clear. Paperwork is in order.',
+        'You are authorized to undock.',
+        '',
+        'Lone Wolves Mining',
+        'Logistics Command · Hauling Operations',
+      ]), $linkEphemeral);
       break;
     }
 
