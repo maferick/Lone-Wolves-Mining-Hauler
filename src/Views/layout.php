@@ -31,6 +31,10 @@ if ($isLoggedIn) {
 }
 $canRights = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'user.manage');
 $canHallOfFame = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
+$canWiki = $isLoggedIn && (
+  \App\Auth\Auth::can($authCtx, 'haul.request.manage')
+  || \App\Auth\Auth::can($authCtx, 'haul.execute')
+);
 $displayName = (string)($authCtx['display_name'] ?? 'Guest');
 $corpId = (int)($config['corp']['id'] ?? 0);
 $corpLogoUrl = $corpId > 0 ? "https://images.evetech.net/corporations/{$corpId}/logo?size=64" : null;
@@ -122,6 +126,9 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
         <?php endif; ?>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/rates">Rates</a>
         <a class="nav-link" href="<?= ($basePath ?: '') ?>/faq">FAQ</a>
+        <?php if ($canWiki): ?>
+          <a class="nav-link" href="<?= ($basePath ?: '') ?>/wiki/">Wiki</a>
+        <?php endif; ?>
         <?php if ($canHallOfFame): ?>
           <a class="nav-link" href="<?= ($basePath ?: '') ?>/hall-of-fame">Hall of Fame</a>
         <?php endif; ?>

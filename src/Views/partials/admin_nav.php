@@ -58,15 +58,13 @@ $isItemActive = static function (array $item, string $currentPath) use ($isActiv
   return $isActivePath($currentPath, $item['path']);
 };
 $isAdminArea = strpos($requestPath, '/admin') === 0
-  || $isRightsPath($requestPath)
-  || strpos($requestPath, '/wiki') === 0;
+  || $isRightsPath($requestPath);
 $subNavGroups = $dispatcherLimited
   ? [
     [
       'label' => 'Admin',
       'items' => [
         ['label' => 'Users', 'path' => '/admin/users/', 'perm' => null],
-        ['label' => 'Wiki', 'path' => '/wiki/', 'perm' => null, 'roles' => ['admin', 'dispatcher', 'hauler']],
       ],
     ],
   ]
@@ -82,7 +80,6 @@ $subNavGroups = $dispatcherLimited
     [
       'label' => 'Operations',
       'items' => [
-        ['label' => 'Wiki', 'path' => '/wiki/', 'perm' => null, 'roles' => ['admin', 'dispatcher', 'hauler']],
         ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
         ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
         ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
