@@ -42,15 +42,40 @@ final class RouteService
     array $context = []
   ): array
   {
+    $fromId = $this->resolveSystemIdByName($fromSystemName);
+    $toId = $this->resolveSystemIdByName($toSystemName);
+    return $this->findRouteByResolvedIds($fromId, $toId, $profile, $context);
+  }
+
+  public function findRouteByIds(
+    int $fromSystemId,
+    int $toSystemId,
+    string $profile = 'balanced',
+    array $context = []
+  ): array
+  {
+    if ($fromSystemId <= 0 || $toSystemId <= 0) {
+      throw new RouteException('Unknown system id.', [
+        'reason' => 'unknown_system_id',
+        'resolved_ids' => ['pickup' => $fromSystemId, 'destination' => $toSystemId],
+      ]);
+    }
+    return $this->findRouteByResolvedIds($fromSystemId, $toSystemId, $profile, $context);
+  }
+
+  private function findRouteByResolvedIds(
+    int $fromId,
+    int $toId,
+    string $profile,
+    array $context
+  ): array
+  {
     $graph = $this->loadGraph();
     $graphHealth = $graph['health'] ?? [];
     $graphReady = !empty($graphHealth['ready']);
     $allowEsiFallback = array_key_exists('allow_esi_fallback', $context)
       ? (bool)$context['allow_esi_fallback']
       : true;
-
-    $fromId = $this->resolveSystemIdByName($fromSystemName);
-    $toId = $this->resolveSystemIdByName($toSystemName);
 
     $profile = $this->normalizeProfile($profile);
     $dnf = $this->loadDnfRules();

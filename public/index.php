@@ -35,6 +35,7 @@ if ($basePath === '') {
   $knownRoutes = [
     '/operations',
     '/my-contracts',
+    '/profile',
     '/request',
     '/docs',
     '/privacy',
@@ -850,6 +851,16 @@ switch ($path) {
     }
 
     require __DIR__ . '/../src/Views/my_contracts.php';
+    break;
+
+  case '/profile':
+    $appName = $config['app']['name'];
+    $title = $appName . ' • Profile';
+    $basePathForViews = $basePath;
+
+    \App\Auth\Auth::requireLogin($authCtx);
+
+    require __DIR__ . '/../src/Views/profile.php';
     break;
 
   case '/request':

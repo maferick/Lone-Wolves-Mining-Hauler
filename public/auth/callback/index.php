@@ -277,6 +277,12 @@ try {
       );
     }
 
+    $db->execute(
+      "INSERT IGNORE INTO user_hauler_profile (user_id)
+       VALUES (:uid)",
+      ['uid' => $userId]
+    );
+
     if ($storeToken) {
       // Upsert SSO token (owner_type=character)
       $db->execute(

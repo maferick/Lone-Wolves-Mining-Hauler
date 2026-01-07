@@ -4,6 +4,7 @@ declare(strict_types=1);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
+$isHauler = $isLoggedIn && \App\Auth\Auth::hasRole($authCtx, 'hauler');
 $requests = $requests ?? [];
 $requestsAvailable = $requestsAvailable ?? false;
 $queuePositions = $queuePositions ?? [];
@@ -168,31 +169,48 @@ $previousRequests = array_values(array_filter(
     <a class="btn ghost" href="<?= htmlspecialchars(($basePath ?: '') . '/', ENT_QUOTES, 'UTF-8') ?>">Back to dashboard</a>
   </div>
 </section>
-<section class="card" data-discord-link-card="true"
-  data-link-status-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/link-status/', ENT_QUOTES, 'UTF-8') ?>"
-  data-link-code-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/link-code/', ENT_QUOTES, 'UTF-8') ?>"
-  data-unlink-url="<?= htmlspecialchars(($basePath ?: '') . '/api/discord/unlink/', ENT_QUOTES, 'UTF-8') ?>">
-  <div class="card-header">
-    <h2>Discord Account Linking</h2>
-    <p class="muted">Generate a one-time code to connect your portal account to Discord commands.</p>
-  </div>
-  <div class="content">
-    <div class="pill pill-danger" data-discord-link-error style="display:none;"></div>
-    <div data-discord-link-status class="muted">Checking link status…</div>
-    <div data-discord-link-user style="margin-top:8px;"></div>
-    <div data-discord-link-code-block style="display:none; margin-top:12px;">
-      <div><strong>Link code:</strong> <span data-discord-link-code></span></div>
-      <div class="muted" data-discord-link-expires>Expires in 10 minutes.</div>
-      <div class="muted">Run <strong>/link &lt;code&gt;</strong> in Discord to finish linking.</div>
+<?php if ($isHauler): ?>
+  <section class="card js-route-optimization"
+    data-base-path="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>"
+    data-optimization-url="<?= htmlspecialchars(($basePath ?: '') . '/api/hauler/route-optimization/', ENT_QUOTES, 'UTF-8') ?>">
+    <div class="card-header">
+      <h2>Route Optimization</h2>
+      <p class="muted">Heads-up suggestions for nearby loads that fit your remaining capacity.</p>
     </div>
-    <div style="margin-top:12px;">
-      <button class="btn" type="button" data-discord-link-generate>Generate link code</button>
-      <button class="btn ghost" type="button" data-discord-link-unlink style="display:none;">Unlink</button>
+    <div class="content">
+      <div class="muted" data-optimization-status>Checking active haul status…</div>
+      <div data-optimization-summary style="display:none;">
+        <div class="row" style="align-items:center; margin-bottom:10px;">
+          <div>
+            <div class="label">Utilization</div>
+            <div data-optimization-utilization>—</div>
+          </div>
+          <div>
+            <div class="label">Free capacity</div>
+            <div data-optimization-free>—</div>
+          </div>
+        </div>
+      </div>
+      <table class="table" data-optimization-table style="display:none;">
+        <thead>
+          <tr>
+            <th>Request</th>
+            <th>Pickup</th>
+            <th>Delivery</th>
+            <th>Volume</th>
+            <th>Extra jumps</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
-  </div>
-</section>
+  </section>
+<?php endif; ?>
 <script src="<?= ($basePath ?: '') ?>/assets/js/my-contracts.js" defer></script>
-<script src="<?= ($basePath ?: '') ?>/assets/js/discord-linking.js" defer></script>
+<?php if ($isHauler): ?>
+  <script src="<?= ($basePath ?: '') ?>/assets/js/route-optimization.js" defer></script>
+<?php endif; ?>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/layout.php';
