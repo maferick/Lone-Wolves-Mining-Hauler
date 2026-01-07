@@ -1141,6 +1141,7 @@ final class DiscordDeliveryService
   private function queueOnboardingDms(int $corpId, string $guildId, string $token, string $base): array
   {
     $configRow = $this->loadConfigRow($corpId);
+    $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
     $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
     $targetRoles = array_values(array_filter([
       (string)($roleMap['hauling.member'] ?? ''),
@@ -1195,7 +1196,9 @@ final class DiscordDeliveryService
         if ($targetRoles !== []) {
           $roles = $member['roles'] ?? [];
           if (!is_array($roles) || array_intersect($targetRoles, $roles) === []) {
-            continue;
+            if ($rightsSource !== 'discord' || $roles !== []) {
+              continue;
+            }
           }
         }
 
