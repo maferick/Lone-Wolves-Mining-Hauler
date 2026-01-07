@@ -34,7 +34,7 @@ final class DiscordDeliveryService
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= UTC_TIMESTAMP())
         ORDER BY
           CASE
-            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user', 'discord.template.test', 'discord.thread.test', 'discord.thread.test_close', 'discord.thread.delete') THEN 0
+            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.members.onboard', 'discord.bot.test_message', 'discord.roles.sync_user', 'discord.onboarding.dm', 'discord.template.test', 'discord.thread.test', 'discord.thread.test_close', 'discord.thread.delete') THEN 0
             ELSE 1
           END,
           o.created_at ASC
@@ -822,6 +822,7 @@ final class DiscordDeliveryService
       'discord.bot.test_message' => $this->sendBotTestMessage($configRow, $token),
       'discord.template.test' => $this->sendTemplateTestMessage($corpId, $configRow, $payload, $token),
       'discord.roles.sync_user' => $this->syncUserRoles($corpId, $configRow, $payload, $token),
+      'discord.onboarding.dm' => $this->sendOnboardingDm($corpId, $configRow, $payload, $token),
       'discord.thread.create' => $this->createThreadForRequest($corpId, $configRow, $payload, $token),
       'discord.thread.complete' => $this->completeThreadForRequest($corpId, $configRow, $payload, $token),
       'discord.thread.test' => $this->createTestThread($corpId, $configRow, $payload, $token),
@@ -842,6 +843,29 @@ final class DiscordDeliveryService
     $token = (string)($this->config['discord']['bot_token'] ?? '');
     $appId = trim((string)($payload['application_id'] ?? $this->config['discord']['application_id'] ?? ''));
     $guildId = trim((string)($payload['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+
+    if ($eventKey === 'discord.members.onboard') {
+      if ($token === '') {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'bot_token_missing',
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+      if ($guildId === '') {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'guild_id_missing',
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+      return $this->queueOnboardingDms($corpId, $guildId, $token, $base);
+    }
 
     if ($token === '' || $appId === '') {
       return [
@@ -852,8 +876,6 @@ final class DiscordDeliveryService
         'body' => '',
       ];
     }
-
-    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
 
     if ($eventKey === 'discord.bot.permissions_test') {
       return $this->runBotPermissionsTest($corpId, $token, $guildId, $base);
@@ -1071,6 +1093,181 @@ final class DiscordDeliveryService
       'retry_after' => null,
       'body' => '',
     ];
+  }
+
+  private function sendOnboardingDm(int $corpId, array $configRow, array $payload, string $token): array
+  {
+    $discordUserId = trim((string)($payload['discord_user_id'] ?? ''));
+    $message = trim((string)($payload['message'] ?? ''));
+    if ($discordUserId === '' || $message === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'onboarding_payload_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $channelResp = $this->postJson($base . '/users/@me/channels', [
+      'recipient_id' => $discordUserId,
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($channelResp['ok'])) {
+      return $channelResp;
+    }
+
+    $channel = json_decode((string)($channelResp['body'] ?? ''), true);
+    $channelId = is_array($channel) ? trim((string)($channel['id'] ?? '')) : '';
+    if ($channelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'dm_channel_missing',
+        'retry_after' => null,
+        'body' => (string)($channelResp['body'] ?? ''),
+      ];
+    }
+
+    return $this->postJson($base . '/channels/' . $channelId . '/messages', [
+      'content' => $message,
+    ], [
+      'Authorization: Bot ' . $token,
+    ]);
+  }
+
+  private function queueOnboardingDms(int $corpId, string $guildId, string $token, string $base): array
+  {
+    $configRow = $this->loadConfigRow($corpId);
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $targetRoles = array_values(array_filter([
+      (string)($roleMap['hauling.member'] ?? ''),
+      (string)($roleMap['hauling.hauler'] ?? ''),
+    ], static fn($roleId) => $roleId !== ''));
+
+    $linkedIds = $this->fetchLinkedDiscordUserIds($corpId);
+    $linkedLookup = array_fill_keys($linkedIds, true);
+    $message = $this->buildOnboardingMessage();
+
+    $after = '';
+    $limit = 1000;
+    $queued = 0;
+    $scanned = 0;
+
+    do {
+      $endpoint = $base . '/guilds/' . $guildId . '/members?limit=' . $limit;
+      if ($after !== '') {
+        $endpoint .= '&after=' . urlencode($after);
+      }
+
+      $resp = $this->getJson($endpoint, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (empty($resp['ok'])) {
+        return $resp;
+      }
+
+      $members = json_decode((string)($resp['body'] ?? ''), true);
+      if (!is_array($members)) {
+        $members = [];
+      }
+
+      foreach ($members as $member) {
+        if (!is_array($member)) {
+          continue;
+        }
+        $user = is_array($member['user'] ?? null) ? $member['user'] : [];
+        $discordUserId = trim((string)($user['id'] ?? ''));
+        if ($discordUserId === '') {
+          continue;
+        }
+        $after = $discordUserId;
+        $scanned += 1;
+
+        if (!empty($user['bot'])) {
+          continue;
+        }
+        if (isset($linkedLookup[$discordUserId])) {
+          continue;
+        }
+        if ($targetRoles !== []) {
+          $roles = $member['roles'] ?? [];
+          if (!is_array($roles) || array_intersect($targetRoles, $roles) === []) {
+            continue;
+          }
+        }
+
+        $queued += $this->enqueueOnboardingDm($corpId, $discordUserId, $message);
+      }
+    } while (count($members) === $limit);
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => Db::jsonEncode(['queued' => $queued, 'scanned' => $scanned]),
+    ];
+  }
+
+  private function enqueueOnboardingDm(int $corpId, string $discordUserId, string $message): int
+  {
+    $payload = [
+      'discord_user_id' => $discordUserId,
+      'message' => $message,
+    ];
+    $messageHash = md5($message);
+    $idempotencyKey = 'discord:onboarding:dm:' . $corpId . ':' . $discordUserId . ':' . $messageHash;
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.onboarding.dm',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => 'discord:onboarding:dm:' . $corpId . ':' . $discordUserId,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
+  }
+
+  private function buildOnboardingMessage(): string
+  {
+    $baseUrl = rtrim((string)($this->config['app']['base_url'] ?? ''), '/');
+    $basePath = rtrim((string)($this->config['app']['base_path'] ?? ''), '/');
+    $portalLink = $baseUrl !== '' ? $baseUrl . ($basePath !== '' ? $basePath : '') : '';
+    $steps = [
+      $portalLink !== '' ? '1) Visit ' . $portalLink : '1) Visit the hauling portal',
+      '2) Open My Contracts and generate a Discord link code.',
+      '3) Run /link <code> in this server to finish linking.',
+    ];
+
+    return "No linked account found. To link:\n" . implode("\n", $steps);
+  }
+
+  private function fetchLinkedDiscordUserIds(int $corpId): array
+  {
+    $rows = $this->db->select(
+      "SELECT l.discord_user_id
+         FROM discord_user_link l
+         JOIN app_user u ON u.user_id = l.user_id
+        WHERE u.corp_id = :cid",
+      ['cid' => $corpId]
+    );
+    $ids = [];
+    foreach ($rows as $row) {
+      $id = trim((string)($row['discord_user_id'] ?? ''));
+      if ($id !== '') {
+        $ids[] = $id;
+      }
+    }
+    return $ids;
   }
 
   public function syncPortalHaulerFromDiscord(int $corpId, int $userId, string $discordUserId, array $configRow): array
@@ -1723,13 +1920,14 @@ final class DiscordDeliveryService
 
   private function isAdminTask(string $eventKey): bool
   {
-    return in_array($eventKey, ['discord.commands.register', 'discord.bot.permissions_test'], true);
+    return in_array($eventKey, ['discord.commands.register', 'discord.bot.permissions_test', 'discord.members.onboard'], true);
   }
 
   private function isBotTask(string $eventKey): bool
   {
     return in_array($eventKey, [
       'discord.bot.test_message',
+      'discord.onboarding.dm',
       'discord.roles.sync_user',
       'discord.thread.create',
       'discord.thread.complete',

@@ -28,6 +28,8 @@ $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.commands.register' => 'Register slash commands',
   'discord.bot.test_message' => 'Bot test message',
   'discord.roles.sync_user' => 'Role sync',
+  'discord.members.onboard' => 'Discord onboarding scan',
+  'discord.onboarding.dm' => 'Discord onboarding DM',
   'discord.thread.create' => 'Thread create',
   'discord.thread.complete' => 'Thread complete',
 ]);
