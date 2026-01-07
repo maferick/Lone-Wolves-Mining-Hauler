@@ -3,12 +3,12 @@ ALTER TABLE discord_config
   ADD COLUMN thread_auto_archive_minutes INT NOT NULL DEFAULT 1440 AFTER auto_thread_create_on_request;
 
 DROP INDEX IF EXISTS uq_discord_thread_id ON discord_thread;
-DROP INDEX IF EXISTS idx_discord_thread_corp ON discord_thread;
 
 ALTER TABLE discord_thread
   DROP FOREIGN KEY fk_discord_thread_request,
   DROP FOREIGN KEY fk_discord_thread_corp,
   DROP PRIMARY KEY,
+  DROP INDEX idx_discord_thread_corp,
   DROP INDEX uq_discord_thread_request,
   CHANGE COLUMN channel_id ops_channel_id VARCHAR(64) NOT NULL,
   MODIFY COLUMN thread_id VARCHAR(64) NULL,
