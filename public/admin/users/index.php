@@ -8,7 +8,16 @@ use App\Db\Db;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'user.manage');
+$isDispatcher = Auth::hasRole($authCtx, 'dispatcher');
+$isAdmin = Auth::hasRole($authCtx, 'admin');
+$canManageUsers = Auth::can($authCtx, 'user.manage');
+$dispatcherLimited = $isDispatcher && !$isAdmin;
+if (!$canManageUsers && !$isDispatcher) {
+  http_response_code(403);
+  echo "Forbidden";
+  exit;
+}
+$allowedDispatcherRoles = ['requester', 'hauler'];
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
@@ -25,6 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   try {
     if ($userId > 0 && $roleKey !== '' && in_array($action, ['add','remove'], true)) {
+      if ($dispatcherLimited && !in_array($roleKey, $allowedDispatcherRoles, true)) {
+        http_response_code(403);
+        echo "Forbidden";
+        exit;
+      }
       $db->tx(function(Db $db) use ($corpId, $userId, $roleKey, $action, $authCtx) {
         $roleId = (int)$db->scalar("SELECT role_id FROM role WHERE corp_id=:cid AND role_key=:rk", ['cid'=>$corpId,'rk'=>$roleKey]);
         if ($roleId <= 0) throw new RuntimeException("Role not found.");
@@ -48,6 +62,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       $msg = "Updated role assignments.";
     } elseif ($userId > 0 && $action === 'delete') {
+      if ($dispatcherLimited) {
+        http_response_code(403);
+        echo "Forbidden";
+        exit;
+      }
       $db->tx(function(Db $db) use ($corpId, $userId, $authCtx) {
         if ($userId === (int)($authCtx['user_id'] ?? 0)) {
           throw new RuntimeException("You cannot delete your own account.");
@@ -95,15 +114,31 @@ $users = $db->select(
   ['cid'=>$corpId]
 );
 
-$roles = $db->select("SELECT role_key, role_name FROM role WHERE corp_id=:cid ORDER BY role_key", ['cid'=>$corpId]);
+$roles = $dispatcherLimited
+  ? $db->select(
+    "SELECT role_key, role_name
+       FROM role
+      WHERE corp_id=:cid AND role_key IN ('requester','hauler')
+      ORDER BY role_key",
+    ['cid'=>$corpId]
+  )
+  : $db->select("SELECT role_key, role_name FROM role WHERE corp_id=:cid ORDER BY role_key", ['cid'=>$corpId]);
 
-$userRolesRows = $db->select(
-  "SELECT ur.user_id, r.role_key
-     FROM user_role ur
-     JOIN role r ON r.role_id = ur.role_id
-    WHERE r.corp_id = :cid",
-  ['cid'=>$corpId]
-);
+$userRolesRows = $dispatcherLimited
+  ? $db->select(
+    "SELECT ur.user_id, r.role_key
+       FROM user_role ur
+       JOIN role r ON r.role_id = ur.role_id
+      WHERE r.corp_id = :cid AND r.role_key IN ('requester','hauler')",
+    ['cid'=>$corpId]
+  )
+  : $db->select(
+    "SELECT ur.user_id, r.role_key
+       FROM user_role ur
+       JOIN role r ON r.role_id = ur.role_id
+      WHERE r.corp_id = :cid",
+    ['cid'=>$corpId]
+  );
 $userRoles = [];
 foreach ($userRolesRows as $r) {
   $userRoles[(int)$r['user_id']][] = (string)$r['role_key'];
@@ -119,7 +154,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 <section class="card">
   <div class="card-header">
     <h2>User & Role Management</h2>
-    <p class="muted">Promote sub-admins, dispatchers, or haulers with controlled permissions.</p>
+    <p class="muted">Assign Requester or Hauler access with controlled permissions.</p>
   </div>
 
   <div class="content">
@@ -138,7 +173,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <th>User</th>
           <th>Character</th>
           <th>Rights</th>
-          <th>Actions</th>
+          <?php if (!$dispatcherLimited): ?>
+            <th>Actions</th>
+          <?php endif; ?>
         </tr>
       </thead>
       <tbody>
@@ -167,12 +204,14 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 <?php endforeach; ?>
               </div>
             </td>
-            <td>
-              <form method="post">
-                <input type="hidden" name="user_id" value="<?= $uid ?>" />
-                <button class="btn danger" name="action" value="delete" type="submit" onclick="return confirm('Delete this user?')">Delete</button>
-              </form>
-            </td>
+            <?php if (!$dispatcherLimited): ?>
+              <td>
+                <form method="post">
+                  <input type="hidden" name="user_id" value="<?= $uid ?>" />
+                  <button class="btn danger" name="action" value="delete" type="submit" onclick="return confirm('Delete this user?')">Delete</button>
+                </form>
+              </td>
+            <?php endif; ?>
           </tr>
         <?php endforeach; ?>
       </tbody>

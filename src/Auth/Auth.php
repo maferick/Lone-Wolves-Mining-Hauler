@@ -125,6 +125,11 @@ final class Auth
     return in_array($permKey, $ctx['perms'] ?? [], true) || in_array('admin', $ctx['roles'] ?? [], true);
   }
 
+  public static function hasRole(array $ctx, string $roleKey): bool
+  {
+    return in_array($roleKey, $ctx['roles'] ?? [], true);
+  }
+
   public static function requirePerm(array $ctx, string $permKey): void
   {
     if (!self::can($ctx, $permKey)) {

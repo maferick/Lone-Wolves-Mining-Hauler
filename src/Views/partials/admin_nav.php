@@ -5,6 +5,9 @@ use App\Auth\Auth;
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $canRights = !empty($authCtx['user_id']) && Auth::can($authCtx, 'user.manage');
+$isDispatcher = !empty($authCtx['user_id']) && Auth::hasRole($authCtx, 'dispatcher');
+$isAdmin = !empty($authCtx['user_id']) && Auth::hasRole($authCtx, 'admin');
+$dispatcherLimited = $isDispatcher && !$isAdmin;
 $adminPerms = [
   'corp.manage',
   'esi.manage',
@@ -55,41 +58,50 @@ $isItemActive = static function (array $item, string $currentPath) use ($isActiv
   return $isActivePath($currentPath, $item['path']);
 };
 $isAdminArea = strpos($requestPath, '/admin') === 0 || $isRightsPath($requestPath);
-$subNavGroups = [
-  [
-    'label' => 'Platform',
-    'items' => [
-      ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
-      ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
-      ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
+$subNavGroups = $dispatcherLimited
+  ? [
+    [
+      'label' => 'Admin',
+      'items' => [
+        ['label' => 'Users', 'path' => '/admin/users/', 'perm' => null],
+      ],
     ],
-  ],
-  [
-    'label' => 'Operations',
-    'items' => [
-      ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
-      ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
-      ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
-      ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
+  ]
+  : [
+    [
+      'label' => 'Platform',
+      'items' => [
+        ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
+        ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
+        ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
+      ],
     ],
-  ],
-  [
-    'label' => 'Integrations',
-    'items' => [
-      ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
-      ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
-      ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
-      ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+    [
+      'label' => 'Operations',
+      'items' => [
+        ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
+        ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
+        ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
+        ['label' => 'Access', 'path' => '/admin/access/', 'perm' => 'corp.manage'],
+      ],
     ],
-  ],
-  [
-    'label' => 'Maintenance',
-    'items' => [
-      ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
-      ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
+    [
+      'label' => 'Integrations',
+      'items' => [
+        ['label' => 'Discord', 'path' => '/admin/discord/', 'perm' => 'webhook.manage'],
+        ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
+        ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
+        ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+      ],
     ],
-  ],
-];
+    [
+      'label' => 'Maintenance',
+      'items' => [
+        ['label' => 'Cache', 'path' => '/admin/cache/', 'perm' => 'esi.manage'],
+        ['label' => 'Cron', 'path' => '/admin/cron/', 'perm' => 'esi.manage'],
+      ],
+    ],
+  ];
 ?>
 <?php if ($isAdminArea): ?>
   <nav class="admin-subnav" aria-label="Admin sections">
@@ -99,7 +111,9 @@ $subNavGroups = [
         foreach ($group['items'] as $item) {
           $requiresRights = !empty($item['requires_rights']);
           $isAllowed = false;
-          if ($item['perm'] === null) {
+          if ($dispatcherLimited) {
+            $isAllowed = true;
+          } elseif ($item['perm'] === null) {
             $isAllowed = $hasAnyAdmin;
           } elseif ($requiresRights) {
             $isAllowed = $canRights && Auth::can($authCtx, $item['perm']);
