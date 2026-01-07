@@ -14,7 +14,8 @@ final class DiscordEventService
   public function enqueueRequestCreated(int $corpId, int $requestId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
-    return $this->enqueueEvent($corpId, 'request.created', $payload);
+    $dedupeKey = $this->buildParentMessageDedupeKey($requestId);
+    return $this->enqueueEvent($corpId, 'request.created', $payload, $dedupeKey);
   }
 
   public function enqueueRequestStatusChanged(int $corpId, int $requestId, string $status, ?string $previousStatus = null, array $context = []): int
@@ -22,7 +23,8 @@ final class DiscordEventService
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['status'] = $status;
     $payload['previous_status'] = $previousStatus ?? '';
-    $queued = $this->enqueueEvent($corpId, 'request.status_changed', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('request.status_changed', $payload);
+    $queued = $this->enqueueEvent($corpId, 'request.status_changed', $payload, $dedupeKey);
     if ($status === 'completed') {
       $queued += $this->enqueueThreadComplete($corpId, $requestId);
     }
@@ -33,21 +35,24 @@ final class DiscordEventService
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    return $this->enqueueEvent($corpId, 'contract.matched', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('contract.matched', $payload);
+    return $this->enqueueEvent($corpId, 'contract.matched', $payload, $dedupeKey);
   }
 
   public function enqueueContractPickedUp(int $corpId, int $requestId, int $contractId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    return $this->enqueueEvent($corpId, 'contract.picked_up', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('contract.picked_up', $payload);
+    return $this->enqueueEvent($corpId, 'contract.picked_up', $payload, $dedupeKey);
   }
 
   public function enqueueContractCompleted(int $corpId, int $requestId, int $contractId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    $queued = $this->enqueueEvent($corpId, 'contract.completed', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('contract.completed', $payload);
+    $queued = $this->enqueueEvent($corpId, 'contract.completed', $payload, $dedupeKey);
     $queued += $this->enqueueThreadComplete($corpId, $requestId);
     return $queued;
   }
@@ -56,14 +61,16 @@ final class DiscordEventService
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    return $this->enqueueEvent($corpId, 'contract.failed', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('contract.failed', $payload);
+    return $this->enqueueEvent($corpId, 'contract.failed', $payload, $dedupeKey);
   }
 
   public function enqueueContractExpired(int $corpId, int $requestId, int $contractId, array $context = []): int
   {
     $payload = $this->buildRequestPayload($corpId, $requestId, $context);
     $payload['contract_id'] = $contractId;
-    return $this->enqueueEvent($corpId, 'contract.expired', $payload);
+    $dedupeKey = $this->buildThreadMessageDedupeKey('contract.expired', $payload);
+    return $this->enqueueEvent($corpId, 'contract.expired', $payload, $dedupeKey);
   }
 
   public function enqueueAlert(int $corpId, string $message, array $details = []): int
@@ -76,7 +83,8 @@ final class DiscordEventService
       ],
       $details
     );
-    return $this->enqueueEvent($corpId, 'alert.system', $payload, $details['dedupe_key'] ?? null);
+    $dedupeKey = $details['dedupe_key'] ?? $this->buildThreadMessageDedupeKey('alert.system', $payload);
+    return $this->enqueueEvent($corpId, 'alert.system', $payload, $dedupeKey);
   }
 
   public function enqueueTestMessage(int $corpId, string $eventKey, ?int $channelMapId = null): int
@@ -229,6 +237,7 @@ final class DiscordEventService
     }
     $payload['event_key'] = 'discord.thread.create';
     $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.create', $payload);
+    $dedupeKey = $this->buildThreadCreateDedupeKey($requestId);
 
     return $this->db->execute(
       "INSERT IGNORE INTO discord_outbox
@@ -240,7 +249,7 @@ final class DiscordEventService
         'channel_map_id' => null,
         'event_key' => 'discord.thread.create',
         'payload_json' => Db::jsonEncode($payload),
-        'dedupe_key' => null,
+        'dedupe_key' => $dedupeKey,
         'idempotency_key' => $idempotencyKey,
       ]
     );
@@ -394,10 +403,22 @@ final class DiscordEventService
 
       $keySuffix = $dedupeKey
         ?? (string)($payload['request_id'] ?? $payload['request_code'] ?? $payload['contract_id'] ?? $map['channel_map_id']);
-      $mapDedupe = $eventKey . ':' . $keySuffix . ':' . $map['channel_map_id'];
+      $mapDedupe = $dedupeKey ?? $eventKey . ':' . $keySuffix . ':' . $map['channel_map_id'];
       $idempotencyKey = $this->buildIdempotencyKey($corpId, (int)$map['channel_map_id'], $eventKey, $payload);
 
-      if ($dedupeWindow > 0) {
+      if ($dedupeKey !== null) {
+        $exists = $this->db->fetchValue(
+          "SELECT outbox_id FROM discord_outbox
+            WHERE dedupe_key = :dedupe_key
+            LIMIT 1",
+          [
+            'dedupe_key' => $mapDedupe,
+          ]
+        );
+        if ($exists) {
+          continue;
+        }
+      } elseif ($dedupeWindow > 0) {
         $exists = $this->db->fetchValue(
           "SELECT outbox_id FROM discord_outbox
             WHERE dedupe_key = :dedupe_key
@@ -493,6 +514,51 @@ final class DiscordEventService
   private function normalizeStatus(string $status): string
   {
     return strtolower(trim($status));
+  }
+
+  private function buildParentMessageDedupeKey(int $requestId): string
+  {
+    return 'discord:parent:' . $requestId;
+  }
+
+  private function buildThreadCreateDedupeKey(int $requestId): string
+  {
+    return 'discord:thread-create:' . $requestId;
+  }
+
+  private function buildThreadMessageDedupeKey(string $eventKey, array $payload): ?string
+  {
+    $requestId = (int)($payload['request_id'] ?? 0);
+    if ($requestId <= 0) {
+      return null;
+    }
+    $stateVersion = $this->resolveThreadStateVersion($eventKey, $payload);
+    return 'discord:thread:' . $requestId . ':' . $eventKey . ':' . $stateVersion;
+  }
+
+  private function resolveThreadStateVersion(string $eventKey, array $payload): string
+  {
+    $status = (string)($payload['status'] ?? '');
+    if ($eventKey === 'request.created' && $status !== '') {
+      return $this->normalizeStatus($status);
+    }
+    if ($eventKey === 'request.status_changed' && $status !== '') {
+      return $this->normalizeStatus($status);
+    }
+    if (str_starts_with($eventKey, 'contract.')) {
+      $contractId = (int)($payload['contract_id'] ?? 0);
+      if ($contractId > 0) {
+        return (string)$contractId;
+      }
+    }
+    if ($eventKey === 'alert.system') {
+      $message = trim((string)($payload['message'] ?? ''));
+      if ($message !== '') {
+        return sha1($message);
+      }
+    }
+
+    return sha1(Db::jsonEncode($payload));
   }
 
   private function buildSamplePayload(int $corpId, string $eventKey): array

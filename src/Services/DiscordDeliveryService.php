@@ -210,6 +210,7 @@ final class DiscordDeliveryService
     array $payload,
     string $token
   ): array {
+    $isRequestCreated = $eventKey === 'request.created';
     $requestId = (int)($payload['request_id'] ?? 0);
     if ($requestId <= 0) {
       return [
@@ -235,9 +236,19 @@ final class DiscordDeliveryService
 
     $threadRow = $this->loadThreadRow($corpId, $requestId);
     $threadId = $threadRow ? trim((string)($threadRow['thread_id'] ?? '')) : '';
+    $anchorMessageId = $threadRow ? trim((string)($threadRow['anchor_message_id'] ?? '')) : '';
     $message = $this->renderer->render($corpId, $eventKey, $payload);
 
     if ($threadId !== '') {
+      if ($isRequestCreated) {
+        return [
+          'ok' => true,
+          'status' => 200,
+          'error' => null,
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
       $resp = $this->postJson($base . '/channels/' . $threadId . '/messages', $message, [
         'Authorization: Bot ' . $token,
       ]);
@@ -247,6 +258,44 @@ final class DiscordDeliveryService
       }
 
       return $this->recoverThreadDelivery($corpId, $configRow, $eventKey, $payload, $token, $resp, $threadRow);
+    }
+
+    if ($anchorMessageId !== '') {
+      $threadResp = $this->createThreadFromAnchor($base, $opsChannelId, $anchorMessageId, $payload, $configRow, $token);
+      if (empty($threadResp['ok'])) {
+        return $threadResp;
+      }
+
+      $threadId = (string)($threadResp['thread_id'] ?? '');
+      if ($threadId === '') {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'thread_id_missing',
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+
+      $this->storeThreadRecord($corpId, $requestId, $opsChannelId, $anchorMessageId, $threadId, 'active');
+      $this->addRequesterToThread($corpId, $payload, $configRow, $threadId, $token, $base);
+      if ($isRequestCreated) {
+        return [
+          'ok' => true,
+          'status' => 200,
+          'error' => null,
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+
+      $postResp = $this->postJson($base . '/channels/' . $threadId . '/messages', $message, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (!empty($postResp['ok'])) {
+        $this->markThreadActivity($corpId, $requestId, $threadId, 'active');
+      }
+      return $postResp;
     }
 
     $claimed = $threadRow
@@ -262,32 +311,20 @@ final class DiscordDeliveryService
       ];
     }
 
-    $anchor = $this->sendAnchorMessage($corpId, $eventKey, $payload, $opsChannelId, $token, $base, $configRow);
+    $anchor = $this->sendAnchorMessage($corpId, 'request.created', $payload, $opsChannelId, $token, $base, $configRow);
     if (empty($anchor['ok'])) {
       $this->releaseThreadClaim($corpId, $requestId);
       return $anchor;
     }
 
     $messageId = $anchor['message_id'] ?? '';
-    $threadName = $this->buildThreadName($payload);
-    $threadPayload = [
-      'name' => $threadName,
-    ];
-    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
-    if ($autoArchive !== null) {
-      $threadPayload['auto_archive_duration'] = $autoArchive;
-    }
-
-    $threadResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages/' . $messageId . '/threads', $threadPayload, [
-      'Authorization: Bot ' . $token,
-    ]);
+    $threadResp = $this->createThreadFromAnchor($base, $opsChannelId, $messageId, $payload, $configRow, $token);
     if (empty($threadResp['ok'])) {
       $this->releaseThreadClaim($corpId, $requestId);
       return $threadResp;
     }
 
-    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
-    $newThreadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    $newThreadId = (string)($threadResp['thread_id'] ?? '');
     if ($newThreadId === '') {
       $this->releaseThreadClaim($corpId, $requestId);
       return [
@@ -301,14 +338,15 @@ final class DiscordDeliveryService
 
     $this->storeThreadRecord($corpId, $requestId, $opsChannelId, $messageId, $newThreadId, 'active');
     $this->addRequesterToThread($corpId, $payload, $configRow, $newThreadId, $token, $base);
-    if (!empty($configRow['auto_thread_create_on_request'])) {
-      $repeatMessage = $this->renderer->render($corpId, $eventKey, $payload);
-      $repeatResp = $this->postJson($base . '/channels/' . $newThreadId . '/messages', $repeatMessage, [
+
+    if (!$isRequestCreated) {
+      $repeatResp = $this->postJson($base . '/channels/' . $newThreadId . '/messages', $message, [
         'Authorization: Bot ' . $token,
       ]);
       if (!empty($repeatResp['ok'])) {
         $this->markThreadActivity($corpId, $requestId, $newThreadId, 'active');
       }
+      return $repeatResp;
     }
 
     return [
@@ -329,8 +367,10 @@ final class DiscordDeliveryService
     array $resp,
     ?array $threadRow
   ): array {
+    $isRequestCreated = $eventKey === 'request.created';
     $requestId = (int)($payload['request_id'] ?? 0);
     $threadId = $threadRow ? trim((string)($threadRow['thread_id'] ?? '')) : '';
+    $anchorMessageId = $threadRow ? trim((string)($threadRow['anchor_message_id'] ?? '')) : '';
     $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
     $parsed = $this->parseDiscordError($resp);
 
@@ -368,32 +408,23 @@ final class DiscordDeliveryService
       return $resp;
     }
 
-    $anchor = $this->sendAnchorMessage($corpId, $eventKey, $payload, $opsChannelId, $token, $base, $configRow);
-    if (empty($anchor['ok'])) {
-      $this->markThreadState($corpId, $requestId, $threadId, 'missing');
-      return $anchor;
+    $messageId = $anchorMessageId;
+    if ($messageId === '') {
+      $anchor = $this->sendAnchorMessage($corpId, 'request.created', $payload, $opsChannelId, $token, $base, $configRow);
+      if (empty($anchor['ok'])) {
+        $this->markThreadState($corpId, $requestId, $threadId, 'missing');
+        return $anchor;
+      }
+      $messageId = $anchor['message_id'] ?? '';
     }
 
-    $messageId = $anchor['message_id'] ?? '';
-    $threadName = $this->buildThreadName($payload);
-    $threadPayload = [
-      'name' => $threadName,
-    ];
-    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
-    if ($autoArchive !== null) {
-      $threadPayload['auto_archive_duration'] = $autoArchive;
-    }
-
-    $threadResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages/' . $messageId . '/threads', $threadPayload, [
-      'Authorization: Bot ' . $token,
-    ]);
+    $threadResp = $this->createThreadFromAnchor($base, $opsChannelId, $messageId, $payload, $configRow, $token);
     if (empty($threadResp['ok'])) {
       $this->markThreadState($corpId, $requestId, $threadId, 'missing');
       return $threadResp;
     }
 
-    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
-    $newThreadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    $newThreadId = (string)($threadResp['thread_id'] ?? '');
     if ($newThreadId === '') {
       $this->markThreadState($corpId, $requestId, $threadId, 'missing');
       return [
@@ -409,13 +440,24 @@ final class DiscordDeliveryService
     $this->addRequesterToThread($corpId, $payload, $configRow, $newThreadId, $token, $base);
     $this->auditThreadRecovery($corpId, $requestId, $threadId, $newThreadId);
 
-    return [
-      'ok' => true,
-      'status' => 200,
-      'error' => null,
-      'retry_after' => null,
-      'body' => '',
-    ];
+    if ($isRequestCreated) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $message = $this->renderer->render($corpId, $eventKey, $payload);
+    $retry = $this->postJson($base . '/channels/' . $newThreadId . '/messages', $message, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (!empty($retry['ok'])) {
+      $this->markThreadActivity($corpId, $requestId, $newThreadId, 'active');
+    }
+    return $retry;
   }
 
   private function sendAnchorMessage(
@@ -498,7 +540,9 @@ final class DiscordDeliveryService
     $requestCode = trim((string)($payload['request_code'] ?? ''));
     $threadLabel = $requestCode !== '' ? strtoupper($requestCode) : (string)($payload['request_id'] ?? '');
     $prefix = $threadLabel !== '' ? 'HAUL-' . $threadLabel : 'HAUL';
-    $route = trim((string)($payload['route'] ?? ''));
+    $pickup = trim((string)($payload['pickup'] ?? ''));
+    $delivery = trim((string)($payload['delivery'] ?? ''));
+    $route = $pickup !== '' && $delivery !== '' ? $pickup . ' → ' . $delivery : trim((string)($payload['route'] ?? ''));
     if ($route !== '') {
       return $prefix . ' • ' . $route;
     }
@@ -524,6 +568,42 @@ final class DiscordDeliveryService
       ['uid' => (int)$payload['requester_user_id']]
     );
     return $link ? (string)($link['discord_user_id'] ?? '') : '';
+  }
+
+  private function createThreadFromAnchor(
+    string $base,
+    string $opsChannelId,
+    string $anchorMessageId,
+    array $payload,
+    array $configRow,
+    string $token
+  ): array {
+    $threadName = $this->buildThreadName($payload);
+    $threadPayload = [
+      'name' => $threadName,
+    ];
+    $autoArchive = $this->resolveThreadAutoArchiveDuration($configRow);
+    if ($autoArchive !== null) {
+      $threadPayload['auto_archive_duration'] = $autoArchive;
+    }
+
+    $threadResp = $this->postJson($base . '/channels/' . $opsChannelId . '/messages/' . $anchorMessageId . '/threads', $threadPayload, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($threadResp['ok'])) {
+      return $threadResp;
+    }
+
+    $threadData = json_decode((string)($threadResp['body'] ?? ''), true);
+    $threadId = is_array($threadData) ? (string)($threadData['id'] ?? '') : '';
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => $threadResp['body'] ?? '',
+      'thread_id' => $threadId,
+    ];
   }
 
   private function addRequesterToThread(

@@ -67,16 +67,10 @@
 
   <div style="margin-top:16px;">
     <div class="label">Template tests</div>
-    <div class="muted">Send a preview of every template to a delivery target.</div>
+    <div class="muted">Send a preview of every template to the hauling channel.</div>
     <form method="post" style="margin-top:8px;">
       <input type="hidden" name="action" value="send_template_tests" />
       <div class="row" style="align-items:center; gap:10px;">
-        <select class="input" name="template_delivery">
-          <option value="bot">Bot (hauling channel)</option>
-          <option value="discord">Discord webhook</option>
-          <option value="slack">Slack webhook</option>
-        </select>
-        <input class="input" name="template_webhook_url" placeholder="Webhook URL (required for webhook targets)" />
         <button class="btn" type="submit">Send Template Tests</button>
       </div>
     </form>
@@ -94,6 +88,15 @@
         </select>
         <button class="btn ghost" type="submit">Create Test Thread</button>
       </div>
+    </form>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div class="label">Test haul thread flow</div>
+    <div class="muted">Creates a request thread (once) and posts three lifecycle events inside the thread.</div>
+    <form method="post" style="margin-top:8px;">
+      <input type="hidden" name="action" value="test_haul_thread_flow" />
+      <button class="btn ghost" type="submit">Run Haul Thread Flow Test</button>
     </form>
   </div>
 </div>
