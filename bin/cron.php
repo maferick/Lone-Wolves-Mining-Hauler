@@ -94,6 +94,8 @@ $contractsMaxRuntime = max(10, $contractsMaxRuntime);
 $alliancesInterval = $normalizeInterval((int)($_ENV['CRON_ALLIANCES_INTERVAL'] ?? 86400), 86400);
 $npcStructuresInterval = $normalizeInterval((int)($_ENV['CRON_NPC_STRUCTURES_INTERVAL'] ?? 86400), 86400);
 $matchInterval = $normalizeInterval((int)($_ENV['CRON_MATCH_INTERVAL'] ?? 300), 300);
+$discordOnboardIntervalPortal = $normalizeInterval((int)($_ENV['CRON_DISCORD_ONBOARD_PORTAL_INTERVAL'] ?? 3600), 3600);
+$discordOnboardIntervalDiscord = $normalizeInterval((int)($_ENV['CRON_DISCORD_ONBOARD_DISCORD_INTERVAL'] ?? 300), 300);
 $workerLimit = (int)($_ENV['CRON_WORKER_LIMIT'] ?? 3);
 if ($workerLimit <= 0) {
   $workerLimit = 3;
@@ -310,6 +312,22 @@ foreach ($cronRows as $row) {
   $corpPublicStructuresInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_PUBLIC_STRUCTURES_JOB] ?? 0), $publicStructuresInterval);
   $corpContractsInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CRON_CONTRACTS_JOB] ?? 0), $contractsInterval);
   $corpMatchInterval = $normalizeInterval((int)($intervalSettings[JobQueueService::CONTRACT_MATCH_JOB] ?? 0), $matchInterval);
+  $discordOnboardTaskKey = 'discord.members.onboard';
+  $discordConfigRow = $db->one(
+    "SELECT rights_source
+       FROM discord_config
+      WHERE corp_id = :cid
+      LIMIT 1",
+    ['cid' => $corpId]
+  );
+  $rightsSource = (string)($discordConfigRow['rights_source'] ?? 'portal');
+  $discordOnboardFallback = $rightsSource === 'discord'
+    ? $discordOnboardIntervalDiscord
+    : $discordOnboardIntervalPortal;
+  $corpDiscordOnboardInterval = $normalizeInterval(
+    (int)($intervalSettings[$discordOnboardTaskKey] ?? 0),
+    $discordOnboardFallback
+  );
 
   if (!$isTaskEnabled($taskSettings, JobQueueService::CRON_SYNC_JOB)) {
     $log("Cron sync disabled for corp {$corpId}; skipping.");
@@ -432,6 +450,31 @@ foreach ($cronRows as $row) {
       }
     } catch (Throwable $e) {
       $log("Contract match error for corp {$corpId}: {$e->getMessage()}");
+    }
+  }
+
+  if ($discordConfigRow) {
+    if (!$isTaskEnabled($taskSettings, $discordOnboardTaskKey)) {
+      $log("Discord onboarding scan disabled for corp {$corpId}; skipping.");
+    } elseif ($shouldRun($state['discord_members_onboard'] ?? null, $corpDiscordOnboardInterval, $now)) {
+      try {
+        if (!isset($services['discord_events'])) {
+          $log('Discord event service not configured.');
+        } elseif (!isset($services['discord_delivery'])) {
+          $log('Discord delivery service not configured.');
+        } else {
+          $services['discord_events']->enqueueAdminTask(
+            $corpId,
+            'discord.members.onboard',
+            ['run_key' => gmdate('c', $now)]
+          );
+          $state['discord_members_onboard'] = gmdate('c', $now);
+          $updated = true;
+          $log("Discord onboarding scan queued for corp {$corpId}.");
+        }
+      } catch (Throwable $e) {
+        $log("Discord onboarding scan error for corp {$corpId}: {$e->getMessage()}");
+      }
     }
   }
 
