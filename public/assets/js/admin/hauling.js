@@ -130,6 +130,27 @@
     }
   };
 
+  const loadOptimization = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/route-optimization/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const settings = data.settings || {};
+    const enabled = !!settings.enabled;
+    const enabledToggle = document.getElementById('optimization-enabled');
+    const detourInput = document.getElementById('optimization-detour-jumps');
+    const maxInput = document.getElementById('optimization-max-suggestions');
+    const minInput = document.getElementById('optimization-min-free');
+    const note = document.getElementById('optimization-note');
+    if (enabledToggle) enabledToggle.checked = enabled;
+    if (detourInput) detourInput.value = settings.detour_budget_jumps ?? 5;
+    if (maxInput) maxInput.value = settings.max_suggestions ?? 5;
+    if (minInput) minInput.value = settings.min_free_capacity_percent ?? 10;
+    if (note) {
+      note.textContent = enabled
+        ? 'Haulers will receive suggestions when they have spare capacity and detour budget.'
+        : 'Optimization suggestions are currently disabled.';
+    }
+  };
+
   const loadTolerance = async () => {
     const data = await fetchJson(`${basePath}/api/admin/settings/?corp_id=${corpId}`);
     if (data.ok) {
@@ -322,6 +343,24 @@
     loadOperationsDispatch();
   });
 
+  document.getElementById('save-optimization')?.addEventListener('click', async () => {
+    const enabled = document.getElementById('optimization-enabled')?.checked ?? false;
+    const detourBudget = parseInt(document.getElementById('optimization-detour-jumps')?.value || '5', 10);
+    const maxSuggestions = parseInt(document.getElementById('optimization-max-suggestions')?.value || '5', 10);
+    const minFree = parseFloat(document.getElementById('optimization-min-free')?.value || '10');
+    await fetchJson(`${basePath}/api/admin/route-optimization/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        enabled,
+        detour_budget_jumps: Number.isFinite(detourBudget) ? detourBudget : 5,
+        max_suggestions: Number.isFinite(maxSuggestions) ? maxSuggestions : 5,
+        min_free_capacity_percent: Number.isFinite(minFree) ? minFree : 10,
+      }),
+    });
+    loadOptimization();
+  });
+
   document.getElementById('save-tolerance')?.addEventListener('click', async () => {
     const type = document.getElementById('tolerance-type').value;
     const value = parseFloat(document.getElementById('tolerance-value').value || '0');
@@ -446,6 +485,7 @@
   loadContractAttach();
   loadQuoteLocations();
   loadOperationsDispatch();
+  loadOptimization();
   loadTolerance();
   loadSecurityClasses();
   loadSecurityRoutingRules();

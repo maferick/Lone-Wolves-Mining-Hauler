@@ -22,6 +22,7 @@ $constellationOptions = [];
 $regionOptions = [];
 $haulingTabs = [
   ['id' => 'rules', 'label' => 'Rules'],
+  ['id' => 'optimization', 'label' => 'Optimization'],
   ['id' => 'access', 'label' => 'Access'],
   ['id' => 'validation', 'label' => 'Validation'],
   ['id' => 'slas-timers', 'label' => 'SLAs/Timers'],
@@ -86,6 +87,34 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </div>
           <div class="muted" id="tolerance-note" style="margin-top:6px;"></div>
         </div>
+      </div>
+    </section>
+
+    <section class="admin-section" id="optimization" data-section="optimization">
+      <div class="admin-section__title">Optimization</div>
+      <div style="margin-top:20px;">
+        <h3>Route Optimization Suggestions</h3>
+        <div class="muted">Configure detour budget and suggestion thresholds for haulers.</div>
+        <div class="row" style="margin-top:10px; align-items:flex-end; flex-wrap:wrap;">
+          <label class="form-field" style="min-width:200px;">
+            <span class="form-label">Enable optimization</span>
+            <input type="checkbox" id="optimization-enabled" />
+          </label>
+          <label class="form-field" style="min-width:200px;">
+            <span class="form-label">Detour budget (jumps)</span>
+            <input class="input" id="optimization-detour-jumps" type="number" min="0" step="1" />
+          </label>
+          <label class="form-field" style="min-width:200px;">
+            <span class="form-label">Max suggestions</span>
+            <input class="input" id="optimization-max-suggestions" type="number" min="1" step="1" />
+          </label>
+          <label class="form-field" style="min-width:240px;">
+            <span class="form-label">Min free capacity (%)</span>
+            <input class="input" id="optimization-min-free" type="number" min="0" step="0.1" />
+          </label>
+          <button class="btn" type="button" id="save-optimization">Save</button>
+        </div>
+        <div class="muted" id="optimization-note" style="margin-top:6px;"></div>
       </div>
     </section>
 
