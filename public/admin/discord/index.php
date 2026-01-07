@@ -332,7 +332,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'sync_roles_all') {
     if (!empty($services['discord_events'])) {
       $queued = $services['discord_events']->enqueueRoleSyncAll($corpId);
-      $msg = 'Queued role sync for ' . $queued . ' linked users.';
+      if ($queued > 0) {
+        $msg = 'Queued role sync for ' . $queued . ' linked users.';
+      } else {
+        $services['discord_events']->enqueueAdminTask($corpId, 'discord.members.onboard', []);
+        $msg = 'No linked users found. Queued onboarding DMs for Discord members.';
+      }
     }
   } elseif ($action === 'test_interaction') {
     $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
@@ -644,6 +649,8 @@ $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.thread.test' => 'Thread test (create)',
   'discord.thread.test_close' => 'Thread test (close)',
   'discord.roles.sync_user' => 'Role sync',
+  'discord.members.onboard' => 'Discord onboarding scan',
+  'discord.onboarding.dm' => 'Discord onboarding DM',
   'discord.thread.create' => 'Thread create',
   'discord.thread.complete' => 'Thread complete',
 ]);
