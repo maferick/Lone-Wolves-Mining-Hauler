@@ -263,19 +263,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $msg = 'Role mapping saved.';
     }
   } elseif ($action === 'save_channel_topology') {
-    $channelMode = (string)($_POST['channel_mode'] ?? 'threads');
-    if (!in_array($channelMode, ['threads', 'channels'], true)) {
-      $channelMode = 'threads';
-    }
+    $channelMode = !empty($_POST['use_threads']) ? 'threads' : 'channels';
     $haulingChannelId = trim((string)($_POST['hauling_channel_id'] ?? ''));
-    $threadAutoArchive = (int)($_POST['thread_auto_archive_minutes'] ?? 1440);
-    if (!in_array($threadAutoArchive, [60, 1440, 4320, 10080], true)) {
-      $threadAutoArchive = 1440;
-    }
-    $requesterThreadAccess = (string)($_POST['requester_thread_access'] ?? 'read_only');
-    if (!in_array($requesterThreadAccess, ['none', 'read_only', 'full'], true)) {
-      $requesterThreadAccess = 'read_only';
-    }
 
     if ($haulingChannelId !== '' && !$isSnowflake($haulingChannelId)) {
       $errors[] = 'Hauling channel ID must be a numeric snowflake.';
@@ -285,11 +274,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $saveConfig($db, $corpId, [
         'channel_mode' => $channelMode,
         'hauling_channel_id' => $haulingChannelId,
-        'requester_thread_access' => $requesterThreadAccess,
-        'auto_thread_create_on_request' => !empty($_POST['auto_thread_create_on_request']) ? 1 : 0,
-        'thread_auto_archive_minutes' => $threadAutoArchive,
-        'auto_archive_on_complete' => !empty($_POST['auto_archive_on_complete']) ? 1 : 0,
-        'auto_lock_on_complete' => !empty($_POST['auto_lock_on_complete']) ? 1 : 0,
       ], $authCtx);
       $msg = 'Channel topology saved.';
     }
@@ -342,26 +326,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } elseif ($action === 'send_template_tests') {
     if (!empty($services['discord_events'])) {
-      $delivery = strtolower(trim((string)($_POST['template_delivery'] ?? 'bot')));
-      $webhookUrl = trim((string)($_POST['template_webhook_url'] ?? ''));
-      $deliveryProvider = $delivery === 'slack' ? 'slack' : 'discord';
-
-      if (!in_array($delivery, ['bot', 'discord', 'slack'], true)) {
-        $errors[] = 'Template delivery method is invalid.';
-      }
-      if ($delivery === 'bot' && empty($configRow['hauling_channel_id'])) {
+      if (empty($configRow['hauling_channel_id'])) {
         $errors[] = 'Hauling channel ID is required to send bot template tests.';
-      }
-      if (in_array($delivery, ['discord', 'slack'], true) && $webhookUrl === '') {
-        $errors[] = 'Webhook URL is required for webhook template delivery.';
       }
       if ($errors === []) {
         $queued = 0;
         foreach ($allowedEvents as $eventKey) {
           $queued += $services['discord_events']->enqueueTemplateTest($corpId, $eventKey, [
-            'delivery' => $delivery,
-            'webhook_provider' => $deliveryProvider,
-            'webhook_url' => $webhookUrl,
+            'delivery' => 'bot',
           ]);
         }
         $msg = 'Queued ' . $queued . ' template test messages.';
@@ -382,6 +354,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       if ($errors === []) {
         $services['discord_events']->enqueueThreadTest($corpId, $duration);
         $msg = 'Test thread queued. It will auto-close after ' . $duration . ' minute' . ($duration === 1 ? '' : 's') . '.';
+      }
+    }
+  } elseif ($action === 'test_haul_thread_flow') {
+    if (!empty($services['discord_events'])) {
+      $request = $db->one(
+        "SELECT request_id
+           FROM haul_request
+          WHERE corp_id = :cid
+          ORDER BY updated_at DESC, request_id DESC
+          LIMIT 1",
+        ['cid' => $corpId]
+      );
+      if (!$request) {
+        $errors[] = 'No hauling requests found. Create a request first.';
+      } else {
+        $requestId = (int)$request['request_id'];
+        $queued = 0;
+        $queued += $services['discord_events']->enqueueRequestCreated($corpId, $requestId, ['status' => 'requested']);
+        $queued += $services['discord_events']->enqueueRequestStatusChanged($corpId, $requestId, 'in_queue', 'requested');
+        $queued += $services['discord_events']->enqueueRequestStatusChanged($corpId, $requestId, 'in_transit', 'in_queue');
+        $queued += $services['discord_events']->enqueueRequestStatusChanged($corpId, $requestId, 'delivered', 'in_transit');
+        $msg = 'Queued haul thread flow test events (' . $queued . ').';
       }
     }
   } elseif ($action === 'save_template') {
@@ -437,26 +431,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'save_channel_map') {
     $mapId = (int)($_POST['channel_map_id'] ?? 0);
     $eventKey = trim((string)($_POST['event_key'] ?? ''));
-    $mode = (string)($_POST['mode'] ?? 'webhook');
+    $mode = 'bot';
     $channelId = trim((string)($_POST['channel_id'] ?? ''));
-    $webhookUrl = trim((string)($_POST['webhook_url'] ?? ''));
     $isEnabled = !empty($_POST['is_enabled']) ? 1 : 0;
 
     if ($eventKey === '' || !in_array($eventKey, $allowedEvents, true)) {
       $errors[] = 'Channel map event key is invalid.';
     }
-    if (!in_array($mode, ['webhook', 'bot'], true)) {
-      $errors[] = 'Channel map mode is invalid.';
-    }
-    if ($mode === 'bot') {
-      if ($channelId === '') {
-        $errors[] = 'Channel ID is required for bot delivery.';
-      } elseif (!$isSnowflake($channelId)) {
-        $errors[] = 'Channel ID must be a numeric snowflake.';
-      }
-    }
-    if ($mode === 'webhook' && $webhookUrl === '') {
-      $errors[] = 'Webhook URL is required for webhook delivery.';
+    if ($channelId === '') {
+      $errors[] = 'Channel ID is required for bot delivery.';
+    } elseif (!$isSnowflake($channelId)) {
+      $errors[] = 'Channel ID must be a numeric snowflake.';
     }
 
     if ($errors === []) {
@@ -466,7 +451,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               SET event_key = :event_key,
                   mode = :mode,
                   channel_id = :channel_id,
-                  webhook_url = :webhook_url,
                   is_enabled = :is_enabled,
                   updated_at = UTC_TIMESTAMP()
             WHERE channel_map_id = :id AND corp_id = :cid",
@@ -474,7 +458,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'event_key' => $eventKey,
             'mode' => $mode,
             'channel_id' => $channelId !== '' ? $channelId : null,
-            'webhook_url' => $webhookUrl !== '' ? $webhookUrl : null,
             'is_enabled' => $isEnabled,
             'id' => $mapId,
             'cid' => $corpId,
@@ -487,7 +470,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           'event_key' => $eventKey,
           'mode' => $mode,
           'channel_id' => $channelId !== '' ? $channelId : null,
-          'webhook_url' => $webhookUrl !== '' ? $webhookUrl : null,
           'is_enabled' => $isEnabled,
         ]);
         $msg = 'Channel mapping added.';
@@ -619,9 +601,10 @@ if (!empty($services['discord_renderer'])) {
   $templateDefaults = $services['discord_renderer']->defaultTemplates(array_keys($discordEventOptions));
 }
 $channelMaps = $db->select(
-  "SELECT channel_map_id, event_key, mode, channel_id, webhook_url, is_enabled
+  "SELECT channel_map_id, event_key, mode, channel_id, is_enabled
      FROM discord_channel_map
     WHERE corp_id = :cid
+      AND mode = 'bot'
     ORDER BY event_key ASC, channel_map_id ASC",
   ['cid' => $corpId]
 );
@@ -748,55 +731,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <div class="card" style="padding:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_channel_topology" />
-          <div class="label">Delivery mode</div>
+          <div class="label">Haul update routing</div>
           <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-            <input type="radio" name="channel_mode" value="threads" <?= ($configRow['channel_mode'] ?? 'threads') === 'threads' ? 'checked' : '' ?> />
-            <span>Thread per request (ops channel)</span>
-          </label>
-          <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-            <input type="radio" name="channel_mode" value="channels" <?= ($configRow['channel_mode'] ?? 'threads') === 'channels' ? 'checked' : '' ?> />
-            <span>Multiple channels (advanced)</span>
+            <input type="checkbox" name="use_threads" <?= ($configRow['channel_mode'] ?? 'threads') === 'threads' ? 'checked' : '' ?> />
+            <span>Use threads for haul lifecycle updates</span>
           </label>
 
           <div class="row" style="margin-top:12px;">
             <div>
-              <div class="label">Ops Channel ID (thread anchors)</div>
+              <div class="label">Base channel ID for haul posts</div>
               <input class="input" name="hauling_channel_id" value="<?= htmlspecialchars((string)($configRow['hauling_channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
             </div>
-            <div>
-              <div class="label">Thread auto-archive duration</div>
-              <?php $autoArchive = (int)($configRow['thread_auto_archive_minutes'] ?? 1440); ?>
-              <select class="input" name="thread_auto_archive_minutes">
-                <option value="60" <?= $autoArchive === 60 ? 'selected' : '' ?>>1 hour</option>
-                <option value="1440" <?= $autoArchive === 1440 ? 'selected' : '' ?>>1 day</option>
-                <option value="4320" <?= $autoArchive === 4320 ? 'selected' : '' ?>>3 days</option>
-                <option value="10080" <?= $autoArchive === 10080 ? 'selected' : '' ?>>7 days</option>
-              </select>
-            </div>
-            <div>
-              <div class="label">Requester thread access</div>
-              <select class="input" name="requester_thread_access">
-                <?php $access = (string)($configRow['requester_thread_access'] ?? 'read_only'); ?>
-                <option value="none" <?= $access === 'none' ? 'selected' : '' ?>>None</option>
-                <option value="read_only" <?= $access === 'read_only' ? 'selected' : '' ?>>Read-only</option>
-                <option value="full" <?= $access === 'full' ? 'selected' : '' ?>>Full</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="margin-top:12px;">
-            <label style="display:flex; gap:8px; align-items:center;">
-              <input type="checkbox" name="auto_thread_create_on_request" <?= !empty($configRow['auto_thread_create_on_request']) ? 'checked' : '' ?> />
-              <span>Also post the first event inside the thread</span>
-            </label>
-            <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-              <input type="checkbox" name="auto_archive_on_complete" <?= !empty($configRow['auto_archive_on_complete']) ? 'checked' : '' ?> />
-              <span>Auto-archive thread on completion</span>
-            </label>
-            <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
-              <input type="checkbox" name="auto_lock_on_complete" <?= !empty($configRow['auto_lock_on_complete']) ? 'checked' : '' ?> />
-              <span>Auto-lock thread on completion</span>
-            </label>
           </div>
 
           <div style="margin-top:12px;">
@@ -808,7 +753,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
     <section class="admin-section" id="channel-map" data-section="channel-map">
       <div class="admin-section__title">Channel Map</div>
-      <div class="muted">Route events to specific webhook URLs or bot channels.</div>
+      <div class="muted">Route events to specific bot channels.</div>
       <div class="card" style="padding:12px; margin-top:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_channel_map" />
@@ -816,9 +761,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <thead>
               <tr>
                 <th>Event</th>
-                <th>Mode</th>
                 <th>Channel ID</th>
-                <th>Webhook URL</th>
                 <th>Enabled</th>
                 <th>Action</th>
               </tr>
@@ -834,14 +777,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <?php endforeach; ?>
                   </select>
                 </td>
-                <td>
-                  <select class="input" name="mode">
-                    <option value="webhook">Webhook</option>
-                    <option value="bot">Bot</option>
-                  </select>
-                </td>
                 <td><input class="input" name="channel_id" placeholder="123456789012345678" /></td>
-                <td><input class="input" name="webhook_url" placeholder="https://discord.com/api/webhooks/..." /></td>
                 <td style="text-align:center;">
                   <input type="checkbox" name="is_enabled" checked />
                 </td>
@@ -855,9 +791,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <thead>
               <tr>
                 <th>Event</th>
-                <th>Mode</th>
                 <th>Channel ID</th>
-                <th>Webhook URL</th>
                 <th>Enabled</th>
                 <th>Actions</th>
               </tr>
@@ -865,7 +799,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <tbody>
               <?php foreach ($channelMaps as $map): ?>
                 <tr>
-                  <td colspan="6">
+                  <td colspan="4">
                     <form method="post" class="row" style="gap:10px; align-items:center;">
                       <input type="hidden" name="channel_map_id" value="<?= (int)$map['channel_map_id'] ?>" />
                       <select class="input" name="event_key">
@@ -875,12 +809,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                           </option>
                         <?php endforeach; ?>
                       </select>
-                      <select class="input" name="mode">
-                        <option value="webhook" <?= (string)($map['mode'] ?? '') === 'webhook' ? 'selected' : '' ?>>Webhook</option>
-                        <option value="bot" <?= (string)($map['mode'] ?? '') === 'bot' ? 'selected' : '' ?>>Bot</option>
-                      </select>
                       <input class="input" name="channel_id" value="<?= htmlspecialchars((string)($map['channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="123456789012345678" />
-                      <input class="input" name="webhook_url" value="<?= htmlspecialchars((string)($map['webhook_url'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://discord.com/api/webhooks/..." />
                       <label style="display:flex; gap:6px; align-items:center;">
                         <input type="checkbox" name="is_enabled" <?= !empty($map['is_enabled']) ? 'checked' : '' ?> />
                         <span class="muted">Enabled</span>

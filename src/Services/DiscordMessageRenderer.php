@@ -144,7 +144,7 @@ final class DiscordMessageRenderer
   {
     return match ($eventKey) {
       'request.created' => [
-        'title' => '🚚 New hauling request — #{request_code}',
+        'title' => '🚚 New hauling request created — #{request_code}',
         'body' => "**Pickup:** {pickup}\n**Delivery:** {delivery}\n**Volume:** {volume} m³\n**Collateral:** {collateral} ISK\n**Estimated reward:** {reward} ISK\n**Priority:** {priority}\n**Requested by:** {requester}\n\nOpen: {link_request}",
         'footer' => 'Lone Wolves Mining • Hauling Ops',
       ],
