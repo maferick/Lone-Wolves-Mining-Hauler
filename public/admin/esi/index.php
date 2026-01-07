@@ -29,6 +29,10 @@ $courierContracts = [];
 $courierContractsAvailable = false;
 $hasCourierContracts = false;
 $courierListLimit = 200;
+$manualLinkRequests = [];
+$manualLinkRequestsAvailable = false;
+$canManageRequests = Auth::can($authCtx, 'haul.request.manage');
+$contractAttachEnabled = true;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -127,6 +131,7 @@ $tokens = $db->select(
 if ($corpId > 0) {
   $hasCourierContracts = (bool)$db->fetchValue("SHOW TABLES LIKE 'esi_corp_contract'");
   $hasHaulRequest = (bool)$db->fetchValue("SHOW TABLES LIKE 'haul_request'");
+  $hasHaulRequestView = (bool)$db->fetchValue("SHOW FULL TABLES LIKE 'v_haul_request_display'");
 
   if ($hasCourierContracts) {
     if ($hasHaulRequest) {
@@ -139,7 +144,8 @@ if ($corpId > 0) {
              ON r.corp_id = c.corp_id
             AND (r.esi_contract_id = c.contract_id OR r.contract_id = c.contract_id)
           WHERE c.corp_id = :cid
-            AND c.type = 'courier'",
+            AND c.type = 'courier'
+            AND c.status NOT IN ('finished', 'deleted', 'failed')",
         ['cid' => $corpId]
       );
     } else {
@@ -147,7 +153,8 @@ if ($corpId > 0) {
         "SELECT COUNT(*) AS total
            FROM esi_corp_contract c
           WHERE c.corp_id = :cid
-            AND c.type = 'courier'",
+            AND c.type = 'courier'
+            AND c.status NOT IN ('finished', 'deleted', 'failed')",
         ['cid' => $corpId]
       );
     }
@@ -183,11 +190,46 @@ if ($corpId > 0) {
          {$requestJoin}
         WHERE c.corp_id = :cid
           AND c.type = 'courier'
+          AND c.status NOT IN ('finished', 'deleted', 'failed')
         ORDER BY c.date_issued DESC, c.contract_id DESC
         LIMIT {$courierListLimit}",
       ['cid' => $corpId]
     );
     $courierContractsAvailable = !empty($courierContracts);
+  }
+
+  if ($hasHaulRequest) {
+    $attachSettingRow = $db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.attach_enabled' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($attachSettingRow && !empty($attachSettingRow['setting_json'])) {
+      $attachSetting = Db::jsonDecode((string)$attachSettingRow['setting_json'], []);
+      if (is_array($attachSetting) && array_key_exists('enabled', $attachSetting)) {
+        $contractAttachEnabled = (bool)$attachSetting['enabled'];
+      }
+    }
+
+    $manualJoin = $hasHaulRequestView ? 'LEFT JOIN v_haul_request_display v ON v.request_id = r.request_id' : '';
+    $manualFromSelect = $hasHaulRequestView ? 'v.from_name' : "CONCAT(r.from_location_type, ':', r.from_location_id)";
+    $manualToSelect = $hasHaulRequestView ? 'v.to_name' : "CONCAT(r.to_location_type, ':', r.to_location_id)";
+
+    $manualLinkRequests = $db->select(
+      "SELECT r.request_id, r.quote_id, r.status, r.reward_isk, r.volume_m3,
+              {$manualFromSelect} AS from_name,
+              {$manualToSelect} AS to_name
+         FROM haul_request r
+         {$manualJoin}
+        WHERE r.corp_id = :cid
+          AND r.quote_id IS NOT NULL
+          AND (r.contract_id IS NULL OR r.contract_id = 0)
+          AND (r.esi_contract_id IS NULL OR r.esi_contract_id = 0)
+          AND r.status NOT IN ('completed', 'cancelled', 'delivered', 'expired', 'rejected')
+        ORDER BY r.created_at DESC
+        LIMIT 200",
+      ['cid' => $corpId]
+    );
+    $manualLinkRequestsAvailable = !empty($manualLinkRequests);
   }
 }
 
@@ -281,6 +323,12 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <div class="muted" style="margin-bottom:10px;">
               Showing the latest <?= (int)$courierListLimit ?> courier contracts.
             </div>
+            <div
+              class="js-esi-contract-link"
+              data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>"
+              data-attach-enabled="<?= $contractAttachEnabled ? '1' : '0' ?>"
+              data-can-manage="<?= $canManageRequests ? '1' : '0' ?>"
+            >
             <table class="table">
               <thead>
                 <tr>
@@ -321,11 +369,47 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <td><?= number_format((float)($contract['reward_isk'] ?? 0), 2) ?> ISK</td>
                     <td><?= number_format((float)($contract['collateral_isk'] ?? 0), 2) ?> ISK</td>
                     <td><?= htmlspecialchars((string)($contract['date_issued'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                    <td><span class="<?= htmlspecialchars($matchBadge, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($matchLabel, ENT_QUOTES, 'UTF-8') ?></span></td>
+                    <td>
+                      <?php if ($requestId > 0): ?>
+                        <span class="<?= htmlspecialchars($matchBadge, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($matchLabel, ENT_QUOTES, 'UTF-8') ?></span>
+                      <?php elseif (!$canManageRequests): ?>
+                        <span class="muted">No permission</span>
+                      <?php elseif (!$contractAttachEnabled): ?>
+                        <span class="muted">Attachment disabled</span>
+                      <?php elseif (!$manualLinkRequestsAvailable): ?>
+                        <span class="muted">No open requests</span>
+                      <?php else: ?>
+                        <div class="row" style="gap:8px; align-items:center; margin-bottom:4px;">
+                          <select class="input js-contract-select" data-contract-id="<?= htmlspecialchars((string)$contract['contract_id'], ENT_QUOTES, 'UTF-8') ?>">
+                            <option value="">Select request…</option>
+                            <?php foreach ($manualLinkRequests as $req): ?>
+                              <?php
+                                $fromName = (string)($req['from_name'] ?? 'Unknown');
+                                $toName = (string)($req['to_name'] ?? 'Unknown');
+                                $requestLabel = '#' . (string)$req['request_id']
+                                  . ' • '
+                                  . $fromName
+                                  . ' → '
+                                  . $toName
+                                  . ' • '
+                                  . number_format((float)($req['volume_m3'] ?? 0), 0)
+                                  . ' m³';
+                              ?>
+                              <option value="<?= htmlspecialchars((string)($req['quote_id'] ?? 0), ENT_QUOTES, 'UTF-8') ?>">
+                                <?= htmlspecialchars($requestLabel, ENT_QUOTES, 'UTF-8') ?>
+                              </option>
+                            <?php endforeach; ?>
+                          </select>
+                          <button class="btn ghost js-link-contract" type="button" data-contract-id="<?= htmlspecialchars((string)$contract['contract_id'], ENT_QUOTES, 'UTF-8') ?>">Link</button>
+                        </div>
+                        <div class="muted js-link-status" data-contract-id="<?= htmlspecialchars((string)$contract['contract_id'], ENT_QUOTES, 'UTF-8') ?>"></div>
+                      <?php endif; ?>
+                    </td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>
             </table>
+            </div>
           <?php endif; ?>
         <?php endif; ?>
       </div>
@@ -336,6 +420,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     </div>
   </div>
 </section>
+<?php if ($courierContractsAvailable): ?>
+  <script src="<?= ($basePath ?: '') ?>/assets/js/admin/esi.js" defer></script>
+<?php endif; ?>
 <?php
 $body = ob_get_clean();
 require __DIR__ . '/../../../src/Views/layout.php';
