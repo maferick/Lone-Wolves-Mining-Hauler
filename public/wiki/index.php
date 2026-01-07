@@ -10,15 +10,14 @@ use App\Services\WikiService;
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
 
-$allowedRoles = ['admin', 'dispatcher', 'hauler'];
-$roles = $authCtx['roles'] ?? [];
-$hasRoleAccess = array_intersect($allowedRoles, $roles) !== [];
-if (!$hasRoleAccess) {
+$hasWikiAccess = Auth::can($authCtx, 'haul.request.manage')
+  || Auth::can($authCtx, 'haul.execute');
+if (!$hasWikiAccess) {
   http_response_code(403);
   $appName = $config['app']['name'] ?? 'Corp Hauling';
   $title = $appName . ' • Wiki';
   $errorTitle = 'Not allowed';
-  $errorDescription = 'Wiki access is limited to Admin, Dispatcher, or Hauler roles.';
+  $errorDescription = 'Wiki access is limited to hauling admins and operators.';
   $errorMessage = 'You do not have permission to view the wiki.';
   require __DIR__ . '/../../src/Views/error.php';
   exit;
