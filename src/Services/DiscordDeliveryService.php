@@ -669,6 +669,13 @@ final class DiscordDeliveryService
     );
   }
 
+  private function buildIdempotencyKey(int $corpId, ?int $channelMapId, string $eventKey, array $payload): string
+  {
+    $payloadHash = sha1(Db::jsonEncode($payload));
+    $mapKey = $channelMapId !== null ? (string)$channelMapId : '0';
+    return 'discord:' . $corpId . ':' . $mapKey . ':event:' . $eventKey . ':' . $payloadHash;
+  }
+
   private function parseDiscordError(array $resp): array
   {
     $body = (string)($resp['body'] ?? '');
@@ -1174,18 +1181,26 @@ final class DiscordDeliveryService
       'Authorization: Bot ' . $token,
     ]);
 
-    $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.thread.test_close',
-      'payload_json' => Db::jsonEncode([
-        'thread_id' => $threadId,
-      ]),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => gmdate('Y-m-d H:i:s', time() + ($durationMinutes * 60)),
-      'dedupe_key' => null,
-    ]);
+    $payload = [
+      'thread_id' => $threadId,
+    ];
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.test_close', $payload);
+
+    $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, :next_attempt_at, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.thread.test_close',
+        'payload_json' => Db::jsonEncode($payload),
+        'next_attempt_at' => gmdate('Y-m-d H:i:s', time() + ($durationMinutes * 60)),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
 
     return [
       'ok' => true,

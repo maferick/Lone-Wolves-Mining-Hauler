@@ -104,16 +104,22 @@ final class DiscordEventService
       'channel_id' => $channelId,
     ];
 
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.template.test',
-      'payload_json' => Db::jsonEncode($payload),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.template.test', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.template.test',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueThreadTest(int $corpId, int $durationMinutes): int
@@ -123,16 +129,22 @@ final class DiscordEventService
       'duration_minutes' => $durationMinutes,
     ];
 
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.thread.test',
-      'payload_json' => Db::jsonEncode($payload),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.test', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.thread.test',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueAdminTask(int $corpId, string $eventKey, array $payload = []): int
@@ -145,34 +157,47 @@ final class DiscordEventService
       $payload['guild_id'] = $config['guild_id'];
     }
     $payload['event_key'] = $eventKey;
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => $eventKey,
-      'payload_json' => Db::jsonEncode($payload),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, $eventKey, $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => $eventKey,
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueRoleSyncUser(int $corpId, int $userId, string $discordUserId, string $action = 'sync'): int
   {
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.roles.sync_user',
-      'payload_json' => Db::jsonEncode([
-        'user_id' => $userId,
-        'discord_user_id' => $discordUserId,
-        'action' => $action,
-      ]),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $payload = [
+      'user_id' => $userId,
+      'discord_user_id' => $discordUserId,
+      'action' => $action,
+    ];
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.roles.sync_user', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.roles.sync_user',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueRoleSyncAll(int $corpId): int
@@ -203,16 +228,22 @@ final class DiscordEventService
       $payload['requester_user_id'] = (int)$requesterRow['requester_user_id'];
     }
     $payload['event_key'] = 'discord.thread.create';
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.thread.create',
-      'payload_json' => Db::jsonEncode($payload),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.create', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.thread.create',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueThreadComplete(int $corpId, int $requestId): int
@@ -238,30 +269,43 @@ final class DiscordEventService
       'thread_id' => (string)$thread['thread_id'],
       'event_key' => 'discord.thread.complete',
     ];
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.thread.complete',
-      'payload_json' => Db::jsonEncode($payload),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.thread.complete', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.thread.complete',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function enqueueBotTestMessage(int $corpId): int
   {
-    return $this->db->insert('discord_outbox', [
-      'corp_id' => $corpId,
-      'channel_map_id' => null,
-      'event_key' => 'discord.bot.test_message',
-      'payload_json' => Db::jsonEncode(['event_key' => 'discord.bot.test_message']),
-      'status' => 'queued',
-      'attempts' => 0,
-      'next_attempt_at' => null,
-      'dedupe_key' => null,
-    ]);
+    $payload = ['event_key' => 'discord.bot.test_message'];
+    $idempotencyKey = $this->buildIdempotencyKey($corpId, null, 'discord.bot.test_message', $payload);
+
+    return $this->db->execute(
+      "INSERT IGNORE INTO discord_outbox
+        (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
+       VALUES
+        (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
+      [
+        'corp_id' => $corpId,
+        'channel_map_id' => null,
+        'event_key' => 'discord.bot.test_message',
+        'payload_json' => Db::jsonEncode($payload),
+        'dedupe_key' => null,
+        'idempotency_key' => $idempotencyKey,
+      ]
+    );
   }
 
   public function buildSamplePayloadForEvent(int $corpId, string $eventKey): array
@@ -351,6 +395,7 @@ final class DiscordEventService
       $keySuffix = $dedupeKey
         ?? (string)($payload['request_id'] ?? $payload['request_code'] ?? $payload['contract_id'] ?? $map['channel_map_id']);
       $mapDedupe = $eventKey . ':' . $keySuffix . ':' . $map['channel_map_id'];
+      $idempotencyKey = $this->buildIdempotencyKey($corpId, (int)$map['channel_map_id'], $eventKey, $payload);
 
       if ($dedupeWindow > 0) {
         $exists = $this->db->fetchValue(
@@ -368,16 +413,17 @@ final class DiscordEventService
       }
 
       $queued += $this->db->execute(
-        "INSERT INTO discord_outbox
-          (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key)
+        "INSERT IGNORE INTO discord_outbox
+          (corp_id, channel_map_id, event_key, payload_json, status, attempts, next_attempt_at, dedupe_key, idempotency_key)
          VALUES
-          (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key)",
+          (:corp_id, :channel_map_id, :event_key, :payload_json, 'queued', 0, NULL, :dedupe_key, :idempotency_key)",
         [
           'corp_id' => $corpId,
           'channel_map_id' => (int)$map['channel_map_id'],
           'event_key' => $eventKey,
           'payload_json' => Db::jsonEncode($payload),
           'dedupe_key' => $mapDedupe,
+          'idempotency_key' => $idempotencyKey,
         ]
       );
     }
@@ -405,6 +451,48 @@ final class DiscordEventService
           AND is_enabled = 1{$mapClause}",
       $params
     );
+  }
+
+  private function buildIdempotencyKey(int $corpId, ?int $channelMapId, string $eventKey, array $payload): string
+  {
+    $identity = $this->resolveIdempotencyIdentity($eventKey, $payload);
+    $mapKey = $channelMapId !== null ? (string)$channelMapId : '0';
+    return 'discord:' . $corpId . ':' . $mapKey . ':' . $identity;
+  }
+
+  private function resolveIdempotencyIdentity(string $eventKey, array $payload): string
+  {
+    $contractStatus = $this->canonicalContractStatusForEvent($eventKey);
+    $contractId = (int)($payload['contract_id'] ?? 0);
+    if ($contractStatus !== null && $contractId > 0) {
+      return 'contract:' . $contractId . ':' . $contractStatus;
+    }
+
+    $requestId = (int)($payload['request_id'] ?? 0);
+    $requestStatus = (string)($payload['status'] ?? $payload['request_status'] ?? '');
+    if ($requestId > 0 && $requestStatus !== '') {
+      return 'request:' . $requestId . ':' . $this->normalizeStatus($requestStatus);
+    }
+
+    $payloadHash = sha1(Db::jsonEncode($payload));
+    return 'event:' . $eventKey . ':' . $payloadHash;
+  }
+
+  private function canonicalContractStatusForEvent(string $eventKey): ?string
+  {
+    return match ($eventKey) {
+      'contract.matched' => 'matched',
+      'contract.picked_up' => 'picked_up',
+      'contract.completed' => 'completed',
+      'contract.failed' => 'failed',
+      'contract.expired' => 'expired',
+      default => null,
+    };
+  }
+
+  private function normalizeStatus(string $status): string
+  {
+    return strtolower(trim($status));
   }
 
   private function buildSamplePayload(int $corpId, string $eventKey): array
