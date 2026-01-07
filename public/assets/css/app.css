@@ -401,6 +401,81 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   font-size:12px;
   padding:6px 10px;
 }
+.wiki-layout{
+  display:flex;
+  gap:18px;
+  align-items:flex-start;
+}
+.wiki-sidebar{
+  width:260px;
+  position: sticky;
+  top: 12px;
+}
+.wiki-sidebar .card-header h3{
+  margin-bottom:4px;
+}
+.wiki-sidebar-list{
+  list-style:none;
+  padding:0;
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.wiki-sidebar-link{
+  display:block;
+  padding:8px 10px;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration:none;
+  background: rgba(255,255,255,.03);
+  border:1px solid transparent;
+}
+.wiki-sidebar-link:hover{
+  border-color: var(--border);
+  background: rgba(255,255,255,.06);
+}
+.wiki-sidebar-link.is-active{
+  border-color: rgba(255,199,102,.55);
+  background: rgba(255,199,102,.12);
+}
+.wiki-main{
+  flex:1;
+  min-width:0;
+}
+.wiki-toc{
+  margin-bottom:16px;
+  padding:12px;
+  border-radius: 12px;
+  border:1px solid var(--border);
+  background: rgba(0,0,0,.18);
+}
+.wiki-toc-list{
+  list-style:none;
+  padding:0;
+  margin:8px 0 0;
+  display:grid;
+  gap:6px;
+}
+.wiki-toc-item a{
+  color: var(--muted);
+  text-decoration:none;
+}
+.wiki-toc-item a:hover{
+  color: var(--text);
+}
+.wiki-toc-item.is-indent{
+  margin-left:14px;
+}
+@media (max-width: 980px){
+  .wiki-layout{
+    flex-direction:column;
+  }
+  .wiki-sidebar{
+    width:100%;
+    position: static;
+  }
+}
 .admin-tabs .admin-section{
   display:none;
 }

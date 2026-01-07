@@ -57,13 +57,16 @@ $isItemActive = static function (array $item, string $currentPath) use ($isActiv
 
   return $isActivePath($currentPath, $item['path']);
 };
-$isAdminArea = strpos($requestPath, '/admin') === 0 || $isRightsPath($requestPath);
+$isAdminArea = strpos($requestPath, '/admin') === 0
+  || $isRightsPath($requestPath)
+  || strpos($requestPath, '/wiki') === 0;
 $subNavGroups = $dispatcherLimited
   ? [
     [
       'label' => 'Admin',
       'items' => [
         ['label' => 'Users', 'path' => '/admin/users/', 'perm' => null],
+        ['label' => 'Wiki', 'path' => '/wiki/', 'perm' => null, 'roles' => ['admin', 'dispatcher', 'hauler']],
       ],
     ],
   ]
@@ -79,6 +82,7 @@ $subNavGroups = $dispatcherLimited
     [
       'label' => 'Operations',
       'items' => [
+        ['label' => 'Wiki', 'path' => '/wiki/', 'perm' => null, 'roles' => ['admin', 'dispatcher', 'hauler']],
         ['label' => 'Hauling', 'path' => '/admin/hauling/', 'perm' => 'haul.request.manage'],
         ['label' => 'Pricing', 'path' => '/admin/pricing/', 'perm' => 'pricing.manage'],
         ['label' => 'Defaults', 'path' => '/admin/defaults/', 'perm' => 'pricing.manage'],
@@ -110,8 +114,11 @@ $subNavGroups = $dispatcherLimited
         $groupItems = [];
         foreach ($group['items'] as $item) {
           $requiresRights = !empty($item['requires_rights']);
+          $requiredRoles = $item['roles'] ?? [];
           $isAllowed = false;
-          if ($dispatcherLimited) {
+          if ($requiredRoles !== []) {
+            $isAllowed = array_intersect($requiredRoles, $authCtx['roles'] ?? []) !== [];
+          } elseif ($dispatcherLimited) {
             $isAllowed = true;
           } elseif ($item['perm'] === null) {
             $isAllowed = $hasAnyAdmin;
