@@ -31,4 +31,21 @@ $db->execute(
   ['uid' => $userId]
 );
 
+if ($link) {
+  $discordUserId = trim((string)($link['discord_user_id'] ?? ''));
+  $corpId = (int)($authCtx['corp_id'] ?? 0);
+  if ($discordUserId !== '' && $corpId > 0) {
+    $db->execute(
+      "DELETE FROM discord_outbox
+        WHERE corp_id = :cid
+          AND event_key = 'discord.onboarding.dm'
+          AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.discord_user_id')) = :did",
+      [
+        'cid' => $corpId,
+        'did' => $discordUserId,
+      ]
+    );
+  }
+}
+
 api_send_json(['ok' => true]);
