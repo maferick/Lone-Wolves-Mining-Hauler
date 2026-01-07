@@ -163,6 +163,24 @@ if ($db !== null) {
 }
 
 $authCtx = Auth::context($db);
+$dispatcherLimited = Auth::hasRole($authCtx, 'dispatcher') && !Auth::hasRole($authCtx, 'admin');
+if ($dispatcherLimited) {
+  $requestUri = (string)($_SERVER['REQUEST_URI'] ?? '/');
+  $requestPath = (string)(parse_url($requestUri, PHP_URL_PATH) ?? '/');
+  if ($basePath !== '' && strpos($requestPath, $basePath) === 0) {
+    $requestPath = substr($requestPath, strlen($basePath));
+    if ($requestPath === '') {
+      $requestPath = '/';
+    }
+  }
+  $isAdminPath = str_starts_with($requestPath, '/admin') || str_starts_with($requestPath, '/rights');
+  $isAllowedPath = str_starts_with($requestPath, '/admin/users');
+  if ($isAdminPath && !$isAllowedPath) {
+    http_response_code(403);
+    echo "Forbidden";
+    exit;
+  }
+}
 
 $brandingDefaults = [
   'panel_intensity' => 60,

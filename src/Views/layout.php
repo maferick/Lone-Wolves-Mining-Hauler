@@ -17,7 +17,11 @@ $adminPerms = [
   'haul.assign',
 ];
 $canAdmin = false;
+$isDispatcher = false;
+$isAdmin = false;
 if ($isLoggedIn) {
+  $isDispatcher = \App\Auth\Auth::hasRole($authCtx, 'dispatcher');
+  $isAdmin = \App\Auth\Auth::hasRole($authCtx, 'admin');
   foreach ($adminPerms as $permKey) {
     if (\App\Auth\Auth::can($authCtx, $permKey)) {
       $canAdmin = true;
@@ -126,8 +130,8 @@ $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
       <div class="topbar-actions">
         <?php if ($isLoggedIn): ?>
           <span class="topbar-user">Signed in as <?= htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') ?></span>
-          <?php if ($canAdmin): ?>
-            <a class="btn admin" href="<?= ($basePath ?: '') ?>/admin/">Admin</a>
+          <?php if ($canAdmin || $isDispatcher): ?>
+            <a class="btn admin" href="<?= ($basePath ?: '') . (($isDispatcher && !$isAdmin) ? '/admin/users/' : '/admin/') ?>">Admin</a>
           <?php endif; ?>
           <a class="btn ghost" href="<?= ($basePath ?: '') ?>/logout/">Logout</a>
         <?php else: ?>
