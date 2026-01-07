@@ -328,7 +328,7 @@ final class ContractMatchService
       }
     }
 
-    if ($newStatus === 'contract_linked' && $this->discordEvents) {
+    if ($newStatus === 'contract_linked' && $previousStatus !== 'contract_linked' && $this->discordEvents) {
       try {
         $this->discordEvents->enqueueContractMatched(
           (int)($request['corp_id'] ?? 0),
