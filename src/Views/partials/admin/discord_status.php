@@ -5,7 +5,8 @@
   <div class="muted">Public key configured: <?= $publicKeyConfigured ? 'yes' : 'no' ?></div>
   <div class="muted">Guild ID set: <?= !empty($configRow['guild_id']) ? 'yes' : 'no' ?></div>
   <div class="muted">Channel mode: <?= htmlspecialchars((string)($configRow['channel_mode'] ?? 'threads'), ENT_QUOTES, 'UTF-8') ?></div>
-  <div class="muted">Hauling channel ID: <?= !empty($configRow['hauling_channel_id']) ? htmlspecialchars((string)$configRow['hauling_channel_id'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+  <div class="muted">Ops channel ID: <?= !empty($configRow['hauling_channel_id']) ? htmlspecialchars((string)$configRow['hauling_channel_id'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
+  <div class="muted">Thread auto-archive: <?= !empty($configRow['thread_auto_archive_minutes']) ? htmlspecialchars((string)$configRow['thread_auto_archive_minutes'], ENT_QUOTES, 'UTF-8') . ' min' : '—' ?></div>
   <div class="muted">Role mappings: <?= $roleMappingCount ?></div>
   <div class="muted">Last successful bot action: <?= !empty($configRow['last_bot_action_at']) ? htmlspecialchars((string)$configRow['last_bot_action_at'], ENT_QUOTES, 'UTF-8') : '—' ?></div>
   <div class="muted">Last successful delivery: <?= $lastSent !== '' ? htmlspecialchars($lastSent, ENT_QUOTES, 'UTF-8') : '—' ?></div>

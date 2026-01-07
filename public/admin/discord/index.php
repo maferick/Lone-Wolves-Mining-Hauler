@@ -64,7 +64,8 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'channel_mode' => 'threads',
     'hauling_channel_id' => '',
     'requester_thread_access' => 'read_only',
-    'auto_thread_create_on_request' => 1,
+    'auto_thread_create_on_request' => 0,
+    'thread_auto_archive_minutes' => 1440,
     'auto_archive_on_complete' => 1,
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
@@ -152,11 +153,11 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
     "INSERT INTO discord_config
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute,
        dedupe_window_seconds, commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access,
-       auto_thread_create_on_request, auto_archive_on_complete, auto_lock_on_complete, role_map_json, bot_token_configured)
+       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access,
-       :auto_thread_create_on_request, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :bot_token_configured)
+       :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -170,6 +171,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       hauling_channel_id = VALUES(hauling_channel_id),
       requester_thread_access = VALUES(requester_thread_access),
       auto_thread_create_on_request = VALUES(auto_thread_create_on_request),
+      thread_auto_archive_minutes = VALUES(thread_auto_archive_minutes),
       auto_archive_on_complete = VALUES(auto_archive_on_complete),
       auto_lock_on_complete = VALUES(auto_lock_on_complete),
       role_map_json = VALUES(role_map_json),
@@ -188,7 +190,8 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       'channel_mode' => $merged['channel_mode'] ?? 'threads',
       'hauling_channel_id' => $merged['hauling_channel_id'] !== '' ? $merged['hauling_channel_id'] : null,
       'requester_thread_access' => $merged['requester_thread_access'] ?? 'read_only',
-      'auto_thread_create_on_request' => (int)($merged['auto_thread_create_on_request'] ?? 1),
+      'auto_thread_create_on_request' => (int)($merged['auto_thread_create_on_request'] ?? 0),
+      'thread_auto_archive_minutes' => (int)($merged['thread_auto_archive_minutes'] ?? 1440),
       'auto_archive_on_complete' => (int)($merged['auto_archive_on_complete'] ?? 1),
       'auto_lock_on_complete' => (int)($merged['auto_lock_on_complete'] ?? 1),
       'role_map_json' => $merged['role_map_json'],
@@ -265,6 +268,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $channelMode = 'threads';
     }
     $haulingChannelId = trim((string)($_POST['hauling_channel_id'] ?? ''));
+    $threadAutoArchive = (int)($_POST['thread_auto_archive_minutes'] ?? 1440);
+    if (!in_array($threadAutoArchive, [60, 1440, 4320, 10080], true)) {
+      $threadAutoArchive = 1440;
+    }
     $requesterThreadAccess = (string)($_POST['requester_thread_access'] ?? 'read_only');
     if (!in_array($requesterThreadAccess, ['none', 'read_only', 'full'], true)) {
       $requesterThreadAccess = 'read_only';
@@ -280,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'hauling_channel_id' => $haulingChannelId,
         'requester_thread_access' => $requesterThreadAccess,
         'auto_thread_create_on_request' => !empty($_POST['auto_thread_create_on_request']) ? 1 : 0,
+        'thread_auto_archive_minutes' => $threadAutoArchive,
         'auto_archive_on_complete' => !empty($_POST['auto_archive_on_complete']) ? 1 : 0,
         'auto_lock_on_complete' => !empty($_POST['auto_lock_on_complete']) ? 1 : 0,
       ], $authCtx);
@@ -743,7 +751,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div class="label">Delivery mode</div>
           <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
             <input type="radio" name="channel_mode" value="threads" <?= ($configRow['channel_mode'] ?? 'threads') === 'threads' ? 'checked' : '' ?> />
-            <span>Single channel with threads</span>
+            <span>Thread per request (ops channel)</span>
           </label>
           <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
             <input type="radio" name="channel_mode" value="channels" <?= ($configRow['channel_mode'] ?? 'threads') === 'channels' ? 'checked' : '' ?> />
@@ -752,8 +760,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 
           <div class="row" style="margin-top:12px;">
             <div>
-              <div class="label">Hauling Channel ID (threads mode)</div>
+              <div class="label">Ops Channel ID (thread anchors)</div>
               <input class="input" name="hauling_channel_id" value="<?= htmlspecialchars((string)($configRow['hauling_channel_id'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
+            </div>
+            <div>
+              <div class="label">Thread auto-archive duration</div>
+              <?php $autoArchive = (int)($configRow['thread_auto_archive_minutes'] ?? 1440); ?>
+              <select class="input" name="thread_auto_archive_minutes">
+                <option value="60" <?= $autoArchive === 60 ? 'selected' : '' ?>>1 hour</option>
+                <option value="1440" <?= $autoArchive === 1440 ? 'selected' : '' ?>>1 day</option>
+                <option value="4320" <?= $autoArchive === 4320 ? 'selected' : '' ?>>3 days</option>
+                <option value="10080" <?= $autoArchive === 10080 ? 'selected' : '' ?>>7 days</option>
+              </select>
             </div>
             <div>
               <div class="label">Requester thread access</div>
@@ -769,7 +787,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div style="margin-top:12px;">
             <label style="display:flex; gap:8px; align-items:center;">
               <input type="checkbox" name="auto_thread_create_on_request" <?= !empty($configRow['auto_thread_create_on_request']) ? 'checked' : '' ?> />
-              <span>Auto-create thread on request creation</span>
+              <span>Also post the first event inside the thread</span>
             </label>
             <label style="display:flex; gap:8px; align-items:center; margin-top:6px;">
               <input type="checkbox" name="auto_archive_on_complete" <?= !empty($configRow['auto_archive_on_complete']) ? 'checked' : '' ?> />
