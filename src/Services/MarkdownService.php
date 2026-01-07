@@ -204,7 +204,7 @@ final class MarkdownService
       return null;
     }
 
-    if (preg_match('#^(https?://|mailto:|/|#)#i', $trimmed)) {
+    if (preg_match('#^(https?://|mailto:|/|\\#)#i', $trimmed)) {
       return $trimmed;
     }
 
