@@ -21,8 +21,16 @@ $msgTone = 'info';
 $errors = [];
 
 $portalRights = [
-  ['key' => 'hauling.member', 'label' => 'Hauling member', 'description' => 'Base portal access for hauling participants.'],
-  ['key' => 'hauling.hauler', 'label' => 'Hauling hauler', 'description' => 'Ops visibility and hauler execution tools.'],
+  [
+    'key' => 'hauling.member',
+    'label' => 'Hauling member',
+    'description' => 'Base portal access for hauling participants. Leave blank if your Discord server already covers this access.',
+  ],
+  [
+    'key' => 'hauling.hauler',
+    'label' => 'Hauling hauler',
+    'description' => 'Ops visibility and hauler execution tools. This mapping should always be set.',
+  ],
 ];
 $discordEventOptions = [
   'request.created' => 'Request created',
@@ -704,6 +712,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <td><?= htmlspecialchars($right['description'], ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
                     <input class="input" name="role_map[<?= htmlspecialchars($right['key'], ENT_QUOTES, 'UTF-8') ?>]" placeholder="123456789012345678" value="<?= htmlspecialchars($roleValue, ENT_QUOTES, 'UTF-8') ?>" />
+                    <?php if ($right['key'] === 'hauling.member'): ?>
+                      <div class="muted" style="font-size:11px; margin-top:4px;">Optional if your server already grants base hauling access.</div>
+                    <?php elseif ($right['key'] === 'hauling.hauler'): ?>
+                      <div class="muted" style="font-size:11px; margin-top:4px;">Required for hauler execution tools.</div>
+                    <?php endif; ?>
                   </td>
                 </tr>
               <?php endforeach; ?>
