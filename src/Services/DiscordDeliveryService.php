@@ -1242,10 +1242,23 @@ final class DiscordDeliveryService
 
   private function buildOnboardingMessage(): string
   {
-    $baseUrl = rtrim((string)($this->config['app']['base_url'] ?? ''), '/');
-    $basePath = rtrim((string)($this->config['app']['base_path'] ?? ''), '/');
-    $portalRoot = $baseUrl !== '' ? $baseUrl . ($basePath !== '' ? $basePath : '') : '';
-    $portalLink = $portalRoot !== '' ? rtrim($portalRoot, '/') . '/my-contracts/' : 'https://lonewolves.online/my-contracts/';
+    $baseUrl = trim((string)($this->config['app']['base_url'] ?? ''));
+    $portalLink = '';
+    if ($baseUrl !== '') {
+      $parts = parse_url($baseUrl);
+      if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
+        $portalLink = $parts['scheme'] . '://' . $parts['host'];
+        if (isset($parts['port'])) {
+          $portalLink .= ':' . $parts['port'];
+        }
+        $portalLink .= '/';
+      } else {
+        $portalLink = rtrim($baseUrl, '/') . '/';
+      }
+    }
+    if ($portalLink === '') {
+      $portalLink = 'https://lonewolves.online/';
+    }
     $lines = [
       '🔒 Identity verification required',
       '',
@@ -1255,7 +1268,7 @@ final class DiscordDeliveryService
       '🧭 How to link your account',
       '',
       'Open the Lone Wolves Mining portal:',
-      '👉 ' . $portalLink,
+      '👉 https://lonewolves.online/',
       '',
       'Log in and navigate to My Contracts',
       'Generate a Discord link code',

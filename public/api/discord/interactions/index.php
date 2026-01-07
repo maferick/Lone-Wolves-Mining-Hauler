@@ -170,17 +170,25 @@ $parseNumber = static function ($value): float {
   return (float)$value;
 };
 
-$baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
-$basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
-$baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
-$pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
-$createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($pathPrefix ?: '/');
-$portalLinkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-$dashboardUrl = '';
-if ($baseUrl !== '' || $pathPrefix !== '') {
-  $portalRoot = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') : ($pathPrefix ?: '');
-  $dashboardUrl = rtrim($portalRoot, '/') . '/my-contracts/';
+$baseUrl = trim((string)($config['app']['base_url'] ?? ''));
+$portalRoot = '';
+if ($baseUrl !== '') {
+  $parts = parse_url($baseUrl);
+  if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
+    $portalRoot = $parts['scheme'] . '://' . $parts['host'];
+    if (isset($parts['port'])) {
+      $portalRoot .= ':' . $parts['port'];
+    }
+    $portalRoot .= '/';
+  } else {
+    $portalRoot = rtrim($baseUrl, '/') . '/';
+  }
 }
+if ($portalRoot === '') {
+  $portalRoot = 'https://lonewolves.online/';
+}
+$portalLinkLine = $portalRoot !== '' ? "\nPortal: {$portalRoot}" : '';
+$dashboardUrl = $portalRoot;
 $onboardingMessage = implode("\n", [
   '🔒 Identity verification required',
   '',
@@ -190,7 +198,7 @@ $onboardingMessage = implode("\n", [
   '🧭 How to link your account',
   '',
   'Open the Lone Wolves Mining portal:',
-  $dashboardUrl !== '' ? '👉 ' . $dashboardUrl : '👉 https://lonewolves.online/my-contracts/',
+  '👉 https://lonewolves.online/',
   '',
   'Log in and navigate to My Contracts',
   'Generate a Discord link code',
