@@ -48,6 +48,7 @@ if ($basePath === '') {
     '/login',
     '/logout',
     '/rights',
+    '/wiki',
     '/api/ping',
   ];
 
@@ -99,6 +100,25 @@ if (str_starts_with($path, '/assets/')) {
 }
 
 $dbOk = $health['db'] ?? false;
+
+if ($path === '/wiki' || $path === '/wiki/') {
+  require __DIR__ . '/wiki/index.php';
+  exit;
+}
+if (preg_match('#^/wiki/([A-Za-z0-9_-]+)(/)?$#', $path, $matches)) {
+  $_GET['slug'] = $matches[1];
+  require __DIR__ . '/wiki/index.php';
+  exit;
+}
+if (str_starts_with($path, '/wiki')) {
+  http_response_code(404);
+  $appName = $config['app']['name'] ?? 'Corp Hauling';
+  $title = $appName . ' • Wiki';
+  $errorTitle = 'Not found';
+  $errorMessage = 'The requested wiki page could not be found.';
+  require __DIR__ . '/../src/Views/error.php';
+  exit;
+}
 
 switch ($path) {
   case '/':

@@ -94,6 +94,7 @@ if ($basePath === '') {
       '/logout/index.php',
       '/rights/index.php',
       '/terms/index.php',
+      '/wiki/index.php',
       '/health/index.php',
     ];
     $normalizedScript = str_replace('\\', '/', $script);
