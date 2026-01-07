@@ -693,6 +693,7 @@ CREATE TABLE IF NOT EXISTS discord_config (
   auto_archive_on_complete TINYINT(1) NOT NULL DEFAULT 1,
   auto_lock_on_complete TINYINT(1) NOT NULL DEFAULT 1,
   role_map_json         JSON NULL,
+  rights_source         ENUM('portal','discord') NOT NULL DEFAULT 'portal',
   last_bot_action_at    DATETIME NULL,
   bot_permissions_test_json JSON NULL,
   bot_permissions_test_at DATETIME NULL,

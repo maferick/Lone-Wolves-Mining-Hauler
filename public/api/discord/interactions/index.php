@@ -176,7 +176,11 @@ $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
 $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
 $createRequestUrl = $baseUrl !== '' ? $baseUrl . ($pathPrefix ?: '') . '/' : ($pathPrefix ?: '/');
 $portalLinkLine = $createRequestUrl !== '' ? "\nPortal: {$createRequestUrl}" : '';
-$onboardingMessage = 'No linked account found. Generate a link code in the hauling portal, then run /link <code> here.' . $portalLinkLine;
+$onboardingMessage = "No linked account found. To link:\n"
+  . "1) Sign in to the hauling portal to create your account.\n"
+  . "2) Open My Contracts and generate a Discord link code.\n"
+  . "3) Run /link <code> in this channel to finish linking."
+  . $portalLinkLine;
 $deniedMessage = 'Your linked account does not have the required portal rights.' . $portalLinkLine;
 
 $requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, $sendFollowupMessage, $onboardingMessage, $ephemeral): ?int {
@@ -622,6 +626,15 @@ switch ($commandName) {
     if (!empty($result['ok'])) {
       if (!empty($services['discord_events']) && !empty($result['user_id'])) {
         $services['discord_events']->enqueueRoleSyncUser($corpId, (int)$result['user_id'], $discordUserId);
+      }
+      if (($configRow['rights_source'] ?? 'portal') === 'discord' && !empty($services['discord_delivery'])) {
+        try {
+          /** @var \App\Services\DiscordDeliveryService $delivery */
+          $delivery = $services['discord_delivery'];
+          $delivery->syncPortalHaulerFromDiscord($corpId, (int)$result['user_id'], $discordUserId, $configRow);
+        } catch (Throwable $e) {
+          error_log('[discord-link] rights sync failed: ' . $e->getMessage());
+        }
       }
       $sendFollowupMessage('Your Discord account is now linked.' . $portalLinkLine, $linkEphemeral);
       break;
