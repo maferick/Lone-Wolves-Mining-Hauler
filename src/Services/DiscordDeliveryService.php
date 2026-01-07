@@ -34,7 +34,7 @@ final class DiscordDeliveryService
           AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= UTC_TIMESTAMP())
         ORDER BY
           CASE
-            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user', 'discord.template.test', 'discord.thread.test', 'discord.thread.test_close') THEN 0
+            WHEN o.event_key IN ('discord.bot.permissions_test', 'discord.commands.register', 'discord.bot.test_message', 'discord.roles.sync_user', 'discord.template.test', 'discord.thread.test', 'discord.thread.test_close', 'discord.thread.delete') THEN 0
             ELSE 1
           END,
           o.created_at ASC
@@ -826,6 +826,7 @@ final class DiscordDeliveryService
       'discord.thread.complete' => $this->completeThreadForRequest($corpId, $configRow, $payload, $token),
       'discord.thread.test' => $this->createTestThread($corpId, $configRow, $payload, $token),
       'discord.thread.test_close' => $this->closeTestThread($corpId, $payload, $token),
+      'discord.thread.delete' => $this->deleteThreadForRequest($corpId, $payload, $token),
       default => [
         'ok' => false,
         'status' => 0,
@@ -1326,6 +1327,60 @@ final class DiscordDeliveryService
     return $resp;
   }
 
+  private function deleteThreadForRequest(int $corpId, array $payload, string $token): array
+  {
+    $threadId = trim((string)($payload['thread_id'] ?? ''));
+    $opsChannelId = trim((string)($payload['ops_channel_id'] ?? ''));
+    $anchorMessageId = trim((string)($payload['anchor_message_id'] ?? ''));
+    if ($threadId === '' && $anchorMessageId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'thread_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    if ($anchorMessageId !== '' && $opsChannelId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'ops_channel_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $headers = ['Authorization: Bot ' . $token];
+    $threadOk = true;
+    $messageOk = true;
+
+    if ($threadId !== '') {
+      $threadResp = $this->deleteJson($base . '/channels/' . $threadId, $headers);
+      $threadOk = !empty($threadResp['ok']) || (int)($threadResp['status'] ?? 0) === 404;
+      if (!$threadOk) {
+        return $threadResp;
+      }
+    }
+
+    if ($anchorMessageId !== '') {
+      $messageResp = $this->deleteJson($base . '/channels/' . $opsChannelId . '/messages/' . $anchorMessageId, $headers);
+      $messageOk = !empty($messageResp['ok']) || (int)($messageResp['status'] ?? 0) === 404;
+      if (!$messageOk) {
+        return $messageResp;
+      }
+    }
+
+    return [
+      'ok' => $threadOk && $messageOk,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
   private function completeThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
   {
     $threadId = trim((string)($payload['thread_id'] ?? ''));
@@ -1584,6 +1639,7 @@ final class DiscordDeliveryService
       'discord.roles.sync_user',
       'discord.thread.create',
       'discord.thread.complete',
+      'discord.thread.delete',
       'discord.template.test',
       'discord.thread.test',
       'discord.thread.test_close',

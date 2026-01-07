@@ -91,7 +91,7 @@ $previousRequests = array_values(array_filter(
   static fn(array $req): bool => $isPreviousHaul($req)
 ));
 ?>
-<section class="card">
+<section class="card js-my-contracts" data-base-path="<?= htmlspecialchars($basePath, ENT_QUOTES, 'UTF-8') ?>">
   <div class="card-header">
     <h2>My Contracts</h2>
     <p class="muted">Track the status and queue position of your haul requests with <?= htmlspecialchars($corpName, ENT_QUOTES, 'UTF-8') ?>.</p>
@@ -103,7 +103,7 @@ $previousRequests = array_values(array_filter(
       <p class="muted">No haul requests yet. Once you submit a request, it will appear here.</p>
     <?php else: ?>
       <?php
-        $renderTable = static function (array $items) use ($basePath, $buildRouteLabel, $buildStatusLabel, $buildContractLabel, $buildQueuePosition): void {
+        $renderTable = static function (array $items) use ($basePath, $buildRouteLabel, $buildStatusLabel, $buildContractLabel, $buildQueuePosition, $isPreviousHaul): void {
       ?>
         <table class="table">
           <thead>
@@ -141,6 +141,9 @@ $previousRequests = array_values(array_filter(
                     <a class="btn ghost" href="<?= htmlspecialchars($requestLink, ENT_QUOTES, 'UTF-8') ?>">View</a>
                   <?php else: ?>
                     <span class="muted">No link</span>
+                  <?php endif; ?>
+                  <?php if (!$isPreviousHaul($req) && empty($req['esi_contract_id'])): ?>
+                    <button class="btn danger js-delete-request" type="button" data-request-id="<?= htmlspecialchars((string)$requestId, ENT_QUOTES, 'UTF-8') ?>">Delete</button>
                   <?php endif; ?>
                 </td>
               </tr>
@@ -188,6 +191,7 @@ $previousRequests = array_values(array_filter(
     </div>
   </div>
 </section>
+<script src="<?= ($basePath ?: '') ?>/assets/js/my-contracts.js" defer></script>
 <script src="<?= ($basePath ?: '') ?>/assets/js/discord-linking.js" defer></script>
 <?php
 $body = ob_get_clean();
