@@ -2,6 +2,9 @@ ALTER TABLE discord_config
   MODIFY COLUMN auto_thread_create_on_request TINYINT(1) NOT NULL DEFAULT 0,
   ADD COLUMN thread_auto_archive_minutes INT NOT NULL DEFAULT 1440 AFTER auto_thread_create_on_request;
 
+DROP INDEX IF EXISTS uq_discord_thread_id ON discord_thread;
+DROP INDEX IF EXISTS idx_discord_thread_corp ON discord_thread;
+
 ALTER TABLE discord_thread
   DROP FOREIGN KEY fk_discord_thread_request,
   DROP FOREIGN KEY fk_discord_thread_corp,
