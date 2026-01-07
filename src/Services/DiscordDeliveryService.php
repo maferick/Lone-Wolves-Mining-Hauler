@@ -1073,6 +1073,100 @@ final class DiscordDeliveryService
     ];
   }
 
+  public function syncPortalHaulerFromDiscord(int $corpId, int $userId, string $discordUserId, array $configRow): array
+  {
+    $guildId = trim((string)($configRow['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
+    if ($guildId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'guild_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    $token = (string)($this->config['discord']['bot_token'] ?? '');
+    if ($token === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'bot_token_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    if ($discordUserId === '' || $userId <= 0) {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'user_reference_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $haulerRoleId = (string)($roleMap['hauling.hauler'] ?? '');
+    if ($haulerRoleId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'hauler_role_mapping_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($memberResp['ok'])) {
+      return $memberResp;
+    }
+
+    $member = json_decode((string)($memberResp['body'] ?? ''), true);
+    $currentRoles = is_array($member) ? ($member['roles'] ?? []) : [];
+    if (!is_array($currentRoles)) {
+      $currentRoles = [];
+    }
+
+    $hasHaulerRole = in_array($haulerRoleId, $currentRoles, true);
+    $portalHaulerRoleId = (int)$this->db->fetchValue(
+      "SELECT role_id FROM role WHERE corp_id = :cid AND role_key = 'hauler' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($portalHaulerRoleId <= 0) {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'portal_hauler_role_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    if ($hasHaulerRole) {
+      $this->db->execute(
+        "INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)",
+        ['uid' => $userId, 'rid' => $portalHaulerRoleId]
+      );
+    } else {
+      $this->db->execute(
+        "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
+        ['uid' => $userId, 'rid' => $portalHaulerRoleId]
+      );
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
   private function createThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
   {
     if (($configRow['channel_mode'] ?? 'threads') !== 'threads') {

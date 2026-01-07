@@ -32,6 +32,10 @@ $portalRights = [
     'description' => 'Ops visibility and hauler execution tools. This mapping should always be set.',
   ],
 ];
+$rightsSources = [
+  'portal' => 'Portal rights are authoritative (sync portal → Discord roles).',
+  'discord' => 'Discord roles are authoritative (sync Discord → portal hauler rights).',
+];
 $discordEventOptions = [
   'request.created' => 'Request created',
   'request.status_changed' => 'Request status changed',
@@ -77,6 +81,7 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'auto_archive_on_complete' => 1,
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
+    'rights_source' => 'portal',
     'last_bot_action_at' => null,
     'bot_permissions_test_json' => null,
     'bot_permissions_test_at' => null,
@@ -161,11 +166,11 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
     "INSERT INTO discord_config
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute,
        dedupe_window_seconds, commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access,
-       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, bot_token_configured)
+       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, rights_source, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access,
-       :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :bot_token_configured)
+       :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :rights_source, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -183,6 +188,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       auto_archive_on_complete = VALUES(auto_archive_on_complete),
       auto_lock_on_complete = VALUES(auto_lock_on_complete),
       role_map_json = VALUES(role_map_json),
+      rights_source = VALUES(rights_source),
       bot_token_configured = VALUES(bot_token_configured),
       updated_at = UTC_TIMESTAMP()",
     [
@@ -203,6 +209,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       'auto_archive_on_complete' => (int)($merged['auto_archive_on_complete'] ?? 1),
       'auto_lock_on_complete' => (int)($merged['auto_lock_on_complete'] ?? 1),
       'role_map_json' => $merged['role_map_json'],
+      'rights_source' => $merged['rights_source'] ?? 'portal',
       'bot_token_configured' => (int)($merged['bot_token_configured'] ?? 0),
     ]
   );
@@ -249,6 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } elseif ($action === 'save_role_mapping') {
     $roleMap = $_POST['role_map'] ?? [];
+    $rightsSource = trim((string)($_POST['rights_source'] ?? 'portal'));
     $normalized = [];
     if (is_array($roleMap)) {
       foreach ($roleMap as $key => $value) {
@@ -264,9 +272,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
 
+    if (!isset($normalized['hauling.hauler']) || $normalized['hauling.hauler'] === '') {
+      $errors[] = 'Hauling hauler role mapping is required.';
+    }
+    if (!isset($rightsSources[$rightsSource])) {
+      $errors[] = 'Rights source selection is invalid.';
+    }
+
     if ($errors === []) {
       $saveConfig($db, $corpId, [
         'role_map_json' => $normalized !== [] ? Db::jsonEncode($normalized) : null,
+        'rights_source' => $rightsSource,
       ], $authCtx);
       $msg = 'Role mapping saved.';
     }
@@ -693,6 +709,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <div class="card" style="padding:12px;">
         <form method="post">
           <input type="hidden" name="action" value="save_role_mapping" />
+          <div class="label">Rights source</div>
+          <p class="muted" style="margin:4px 0 10px;">Choose whether portal rights drive Discord roles or Discord roles drive portal hauler access.</p>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px;">
+            <?php foreach ($rightsSources as $sourceKey => $sourceLabel): ?>
+              <label style="display:flex; gap:8px; align-items:flex-start;">
+                <input type="radio" name="rights_source" value="<?= htmlspecialchars($sourceKey, ENT_QUOTES, 'UTF-8') ?>" <?= ($configRow['rights_source'] ?? 'portal') === $sourceKey ? 'checked' : '' ?> />
+                <span><?= htmlspecialchars($sourceLabel, ENT_QUOTES, 'UTF-8') ?></span>
+              </label>
+            <?php endforeach; ?>
+          </div>
           <table class="table">
             <thead>
               <tr>
