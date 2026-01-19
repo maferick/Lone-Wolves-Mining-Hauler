@@ -352,6 +352,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = 'No linked users found. Queued onboarding DMs for Discord members.';
       }
     }
+  } elseif ($action === 'run_onboarding_scan') {
+    if (!empty($services['discord_events'])) {
+      $services['discord_events']->enqueueAdminTask($corpId, 'discord.members.onboard', []);
+      $msg = 'Onboarding scan queued.';
+    } else {
+      $errors[] = 'Discord events service unavailable.';
+    }
+  } elseif ($action === 'run_onboarding_scan_dry') {
+    if (!empty($services['discord_events'])) {
+      $services['discord_events']->enqueueAdminTask($corpId, 'discord.members.onboard', [
+        'dry_run' => true,
+      ]);
+      $msg = 'Onboarding scan dry run queued.';
+    } else {
+      $errors[] = 'Discord events service unavailable.';
+    }
   } elseif ($action === 'test_interaction') {
     $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
     if ($baseUrl === '') {
@@ -970,11 +986,23 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         </form>
       </div>
       <div class="card" style="padding:12px; margin-top:12px;">
-        <div>
-          <div class="label">Onboarding scan jobs</div>
-          <div class="muted">
-            <?= count($onboardingScanRows) ?> scan job<?= count($onboardingScanRows) === 1 ? '' : 's' ?> queued.
-            These scans create onboarding DM entries once processed.
+        <div class="row" style="align-items:center; justify-content:space-between;">
+          <div>
+            <div class="label">Onboarding scan jobs</div>
+            <div class="muted">
+              <?= count($onboardingScanRows) ?> scan job<?= count($onboardingScanRows) === 1 ? '' : 's' ?> queued.
+              These scans create onboarding DM entries once processed.
+            </div>
+          </div>
+          <div class="row" style="gap:8px; align-items:center;">
+            <form method="post">
+              <input type="hidden" name="action" value="run_onboarding_scan" />
+              <button class="btn" type="submit">Run onboarding scan</button>
+            </form>
+            <form method="post">
+              <input type="hidden" name="action" value="run_onboarding_scan_dry" />
+              <button class="btn ghost" type="submit">Dry run scan</button>
+            </form>
           </div>
         </div>
         <?php if ($onboardingScanRows === []): ?>
