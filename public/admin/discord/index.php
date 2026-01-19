@@ -876,25 +876,35 @@ foreach ($portalUsers as $user) {
 
 $discordRoleMembers = [];
 $discordRoleStatus = null;
+$discordRoleSnapshotAt = null;
 if ($isAdmin) {
   $haulingRoleId = trim((string)($roleMap['hauling.member'] ?? ''));
   $guildId = trim((string)($configRow['guild_id'] ?? $config['discord']['guild_id'] ?? ''));
   if ($haulingRoleId === '') {
     $discordRoleStatus = 'Set a hauling.member role mapping to pull Discord membership.';
-  } elseif (empty($config['discord']['bot_token'])) {
-    $discordRoleStatus = 'Configure a bot token to load Discord members.';
-  } elseif ($guildId === '') {
-    $discordRoleStatus = 'Set a Discord guild ID to load role membership.';
   } elseif (empty($services['discord_delivery'])) {
     $discordRoleStatus = 'Discord delivery service unavailable.';
   } else {
     /** @var \App\Services\DiscordDeliveryService $delivery */
     $delivery = $services['discord_delivery'];
-    $roleResponse = $delivery->fetchRoleMembers($corpId, $haulingRoleId);
-    if (!empty($roleResponse['ok'])) {
-      $discordRoleMembers = $roleResponse['members'] ?? [];
+    $snapshotResponse = $delivery->fetchRoleMemberSnapshot($corpId, $haulingRoleId);
+    if (!empty($snapshotResponse['ok'])) {
+      $discordRoleSnapshotAt = trim((string)($snapshotResponse['scanned_at'] ?? ''));
+      $snapshotMembers = $snapshotResponse['members'] ?? [];
+      if (!is_array($snapshotMembers)) {
+        $snapshotMembers = [];
+      }
+      $discordRoleMembers = array_values(array_filter(
+        $snapshotMembers,
+        static fn($member): bool => is_array($member)
+          && in_array($haulingRoleId, (array)($member['roles'] ?? []), true)
+      ));
+    } elseif (empty($config['discord']['bot_token'])) {
+      $discordRoleStatus = 'Configure a bot token to run a full scan and capture Discord members.';
+    } elseif ($guildId === '') {
+      $discordRoleStatus = 'Set a Discord guild ID to run a full scan and capture role membership.';
     } else {
-      $discordRoleStatus = 'Unable to load Discord members (' . ((string)($roleResponse['error'] ?? 'unknown_error')) . ').';
+      $discordRoleStatus = 'No cached Discord members yet. Run a full onboarding scan to create the snapshot.';
     }
   }
 }
@@ -991,7 +1001,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <div class="label">Onboarding scan jobs</div>
             <div class="muted">
               <?= count($onboardingScanRows) ?> scan job<?= count($onboardingScanRows) === 1 ? '' : 's' ?> queued.
-              These scans create onboarding DM entries once processed.
+              These scans create onboarding DM entries once processed. Dry runs use the latest cached Discord member snapshot.
             </div>
           </div>
           <div class="row" style="gap:8px; align-items:center;">
@@ -1387,6 +1397,9 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div class="muted" style="margin-top:6px;">
             Full Discord members list for the hauling.member role. Linked portal users are shown when available.
           </div>
+          <?php if ($discordRoleSnapshotAt): ?>
+            <div class="muted" style="margin-top:4px;">Snapshot taken: <?= htmlspecialchars($discordRoleSnapshotAt, ENT_QUOTES, 'UTF-8') ?>.</div>
+          <?php endif; ?>
           <?php if ($discordRoleStatus): ?>
             <div class="muted" style="margin-top:12px;"><?= htmlspecialchars($discordRoleStatus, ENT_QUOTES, 'UTF-8') ?></div>
           <?php elseif ($discordRoleMembers === []): ?>
