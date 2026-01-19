@@ -791,6 +791,17 @@ CREATE TABLE IF NOT EXISTS discord_outbox (
   CONSTRAINT fk_discord_outbox_channel FOREIGN KEY (channel_map_id) REFERENCES discord_channel_map(channel_map_id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS discord_member_snapshot (
+  snapshot_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  corp_id BIGINT UNSIGNED NOT NULL,
+  role_id VARCHAR(64) NOT NULL,
+  member_json LONGTEXT NOT NULL,
+  scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (snapshot_id),
+  KEY idx_discord_member_snapshot_role (corp_id, role_id, scanned_at),
+  CONSTRAINT fk_discord_member_snapshot_corp FOREIGN KEY (corp_id) REFERENCES corp(corp_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS discord_user_link (
   user_id         BIGINT UNSIGNED NOT NULL,
   discord_user_id VARCHAR(64) NOT NULL,

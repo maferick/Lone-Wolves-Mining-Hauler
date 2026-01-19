@@ -203,6 +203,52 @@ final class DiscordDeliveryService
     ];
   }
 
+  public function fetchRoleMemberSnapshot(int $corpId, string $roleId): array
+  {
+    $roleId = trim($roleId);
+    if ($roleId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'role_missing',
+        'members' => [],
+        'scanned_at' => null,
+      ];
+    }
+
+    $row = $this->db->one(
+      "SELECT member_json, scanned_at
+         FROM discord_member_snapshot
+        WHERE corp_id = :cid
+          AND role_id = :role_id
+        ORDER BY scanned_at DESC
+        LIMIT 1",
+      ['cid' => $corpId, 'role_id' => $roleId]
+    );
+    if (!$row) {
+      return [
+        'ok' => false,
+        'status' => 404,
+        'error' => 'snapshot_missing',
+        'members' => [],
+        'scanned_at' => null,
+      ];
+    }
+
+    $members = Db::jsonDecode((string)($row['member_json'] ?? ''), []);
+    if (!is_array($members)) {
+      $members = [];
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'members' => $members,
+      'scanned_at' => (string)($row['scanned_at'] ?? ''),
+    ];
+  }
+
   private function sendWebhookMessage(int $corpId, array $row, array $payload): array
   {
     $webhookUrl = trim((string)($row['webhook_url'] ?? ''));
@@ -1288,10 +1334,58 @@ final class DiscordDeliveryService
     $linkedLookup = array_fill_keys($linkedIds, true);
     $message = $this->buildOnboardingMessage();
 
-    $after = '';
-    $limit = 1000;
     $queued = 0;
     $scanned = 0;
+
+    if ($dryRun) {
+      $snapshot = $this->fetchRoleMemberSnapshot($corpId, $targetRoleId);
+      if (empty($snapshot['ok'])) {
+        return [
+          'ok' => true,
+          'status' => 200,
+          'error' => null,
+          'retry_after' => null,
+          'body' => Db::jsonEncode([
+            'queued' => 0,
+            'scanned' => 0,
+            'dry_run' => true,
+            'snapshot_missing' => true,
+          ]),
+        ];
+      }
+
+      $members = $snapshot['members'] ?? [];
+      if (!is_array($members)) {
+        $members = [];
+      }
+      foreach ($members as $member) {
+        if (!is_array($member)) {
+          continue;
+        }
+        $scanned += 1;
+        if (!$this->shouldQueueOnboarding($member, $linkedLookup, $onboardingEnabled, $bypassLookup, $targetRoles, $rightsSource)) {
+          continue;
+        }
+        $queued += 1;
+      }
+
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => Db::jsonEncode([
+          'queued' => $queued,
+          'scanned' => $scanned,
+          'dry_run' => true,
+          'snapshot_at' => $snapshot['scanned_at'] ?? null,
+        ]),
+      ];
+    }
+
+    $after = '';
+    $limit = 1000;
+    $snapshotMembers = [];
 
     do {
       $endpoint = $base . '/guilds/' . $guildId . '/members?limit=' . $limit;
@@ -1315,39 +1409,24 @@ final class DiscordDeliveryService
         if (!is_array($member)) {
           continue;
         }
-        $user = is_array($member['user'] ?? null) ? $member['user'] : [];
-        $discordUserId = trim((string)($user['id'] ?? ''));
-        if ($discordUserId === '') {
+        $snapshotMember = $this->normalizeSnapshotMember($member);
+        if ($snapshotMember === null) {
           continue;
         }
+        $discordUserId = trim((string)$snapshotMember['discord_user_id']);
         $after = $discordUserId;
         $scanned += 1;
+        $snapshotMembers[] = $snapshotMember;
 
-        if (!empty($user['bot'])) {
+        if (!$this->shouldQueueOnboarding($snapshotMember, $linkedLookup, $onboardingEnabled, $bypassLookup, $targetRoles, $rightsSource)) {
           continue;
-        }
-        if (isset($linkedLookup[$discordUserId])) {
-          continue;
-        }
-        if (!$onboardingEnabled && !isset($bypassLookup[$discordUserId])) {
-          continue;
-        }
-        if ($targetRoles !== []) {
-          $roles = $member['roles'] ?? [];
-          if (!is_array($roles) || array_intersect($targetRoles, $roles) === []) {
-            if ($rightsSource !== 'discord' || $roles !== []) {
-              continue;
-            }
-          }
         }
 
-        if ($dryRun) {
-          $queued += 1;
-        } else {
-          $queued += $this->enqueueOnboardingDm($corpId, $discordUserId, $message);
-        }
+        $queued += $this->enqueueOnboardingDm($corpId, $discordUserId, $message);
       }
     } while (count($members) === $limit);
+
+    $this->storeRoleMemberSnapshot($corpId, $targetRoleId, $snapshotMembers);
 
     return [
       'ok' => true,
@@ -1379,6 +1458,89 @@ final class DiscordDeliveryService
         'payload_json' => Db::jsonEncode($payload),
         'dedupe_key' => 'discord:onboarding:dm:' . $corpId . ':' . $discordUserId,
         'idempotency_key' => $idempotencyKey,
+      ]
+    );
+  }
+
+  private function normalizeSnapshotMember(array $member): ?array
+  {
+    $user = is_array($member['user'] ?? null) ? $member['user'] : [];
+    $discordUserId = trim((string)($user['id'] ?? ''));
+    if ($discordUserId === '') {
+      return null;
+    }
+
+    $roles = $member['roles'] ?? [];
+    if (!is_array($roles)) {
+      $roles = [];
+    }
+
+    return [
+      'discord_user_id' => $discordUserId,
+      'roles' => array_values($roles),
+      'is_bot' => !empty($user['bot']),
+      'username' => (string)($user['username'] ?? ''),
+      'global_name' => (string)($user['global_name'] ?? ''),
+      'discriminator' => (string)($user['discriminator'] ?? ''),
+      'nickname' => (string)($member['nick'] ?? ''),
+      'joined_at' => (string)($member['joined_at'] ?? ''),
+    ];
+  }
+
+  private function shouldQueueOnboarding(
+    array $member,
+    array $linkedLookup,
+    bool $onboardingEnabled,
+    array $bypassLookup,
+    array $targetRoles,
+    string $rightsSource
+  ): bool {
+    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+    if ($discordUserId === '') {
+      return false;
+    }
+    if (!empty($member['is_bot'])) {
+      return false;
+    }
+    if (isset($linkedLookup[$discordUserId])) {
+      return false;
+    }
+    if (!$onboardingEnabled && !isset($bypassLookup[$discordUserId])) {
+      return false;
+    }
+    if ($targetRoles !== []) {
+      $roles = $member['roles'] ?? [];
+      if (!is_array($roles)) {
+        $roles = [];
+      }
+      if (array_intersect($targetRoles, $roles) === []) {
+        if ($rightsSource !== 'discord' || $roles !== []) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private function storeRoleMemberSnapshot(int $corpId, string $roleId, array $members): void
+  {
+    $roleId = trim($roleId);
+    if ($roleId === '') {
+      return;
+    }
+
+    $this->db->execute(
+      "DELETE FROM discord_member_snapshot WHERE corp_id = :cid AND role_id = :role_id",
+      ['cid' => $corpId, 'role_id' => $roleId]
+    );
+    $this->db->execute(
+      "INSERT INTO discord_member_snapshot (corp_id, role_id, member_json, scanned_at)
+       VALUES (:cid, :role_id, :member_json, UTC_TIMESTAMP())",
+      [
+        'cid' => $corpId,
+        'role_id' => $roleId,
+        'member_json' => Db::jsonEncode($members),
       ]
     );
   }
