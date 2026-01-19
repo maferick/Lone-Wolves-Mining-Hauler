@@ -126,7 +126,7 @@ final class DiscordDeliveryService
       ];
     }
 
-    if (!$this->checkRateLimit((int)($row['channel_map_id'] ?? 0), $corpId)) {
+    if (!$this->checkRateLimit($corpId, (int)($row['channel_map_id'] ?? 0))) {
       return [
         'ok' => false,
         'status' => 429,
@@ -142,7 +142,7 @@ final class DiscordDeliveryService
 
   private function sendBotMessage(int $corpId, array $row, array $payload): array
   {
-    if (!$this->checkRateLimit((int)($row['channel_map_id'] ?? 0), $corpId)) {
+    if (!$this->checkRateLimit($corpId, (int)($row['channel_map_id'] ?? 0))) {
       return [
         'ok' => false,
         'status' => 429,
@@ -1030,6 +1030,20 @@ final class DiscordDeliveryService
 
     $managedRoles = array_values($roleMap);
     $action = (string)($payload['action'] ?? 'sync');
+    $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
+    if ($rightsSource === 'discord') {
+      if ($action === 'unlink') {
+        $this->removePortalHaulerRole($corpId, $userId);
+        return [
+          'ok' => true,
+          'status' => 200,
+          'error' => null,
+          'retry_after' => null,
+          'body' => '',
+        ];
+      }
+      return $this->syncPortalHaulerFromDiscord($corpId, $userId, $discordUserId, $configRow);
+    }
     $desiredRoles = [];
     if ($action !== 'unlink') {
       $permRows = $this->db->select(
@@ -1109,6 +1123,16 @@ final class DiscordDeliveryService
       ];
     }
 
+    if (!$this->checkRateLimit($corpId, null)) {
+      return [
+        'ok' => false,
+        'status' => 429,
+        'error' => 'rate_limited_local',
+        'retry_after' => 60,
+        'body' => '',
+      ];
+    }
+
     $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
     $channelResp = $this->postJson($base . '/users/@me/channels', [
       'recipient_id' => $discordUserId,
@@ -1143,10 +1167,17 @@ final class DiscordDeliveryService
     $configRow = $this->loadConfigRow($corpId);
     $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
     $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
-    $targetRoles = array_values(array_filter([
-      (string)($roleMap['hauling.member'] ?? ''),
-      (string)($roleMap['hauling.hauler'] ?? ''),
-    ], static fn($roleId) => $roleId !== ''));
+    $targetRoleId = (string)($roleMap['hauling.member'] ?? '');
+    if ($targetRoleId === '') {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => Db::jsonEncode(['queued' => 0, 'scanned' => 0]),
+      ];
+    }
+    $targetRoles = [$targetRoleId];
 
     $linkedIds = $this->fetchLinkedDiscordUserIds($corpId);
     $linkedLookup = array_fill_keys($linkedIds, true);
@@ -1840,11 +1871,9 @@ final class DiscordDeliveryService
     );
   }
 
-  private function checkRateLimit(int $channelMapId, int $corpId): bool
+  private function checkRateLimit(int $corpId, ?int $channelMapId): bool
   {
-    if ($channelMapId <= 0) {
-      return true;
-    }
+    $channelMapId = $channelMapId ?? 0;
     $row = $this->db->one(
       "SELECT rate_limit_per_minute
          FROM discord_config
@@ -1856,15 +1885,43 @@ final class DiscordDeliveryService
     if ($limit <= 0) {
       return true;
     }
+    if ($channelMapId > 0) {
+      $count = (int)($this->db->fetchValue(
+        "SELECT COUNT(*)
+           FROM discord_outbox
+          WHERE channel_map_id = :channel_map_id
+            AND status = 'sent'
+            AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)",
+        ['channel_map_id' => $channelMapId]
+      ) ?? 0);
+      return $count < $limit;
+    }
+
     $count = (int)($this->db->fetchValue(
       "SELECT COUNT(*)
          FROM discord_outbox
-        WHERE channel_map_id = :channel_map_id
+        WHERE corp_id = :cid
           AND status = 'sent'
           AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE)",
-      ['channel_map_id' => $channelMapId]
+      ['cid' => $corpId]
     ) ?? 0);
     return $count < $limit;
+  }
+
+  private function removePortalHaulerRole(int $corpId, int $userId): void
+  {
+    $portalHaulerRoleId = (int)$this->db->fetchValue(
+      "SELECT role_id FROM role WHERE corp_id = :cid AND role_key = 'hauler' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($portalHaulerRoleId <= 0) {
+      return;
+    }
+
+    $this->db->execute(
+      "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
+      ['uid' => $userId, 'rid' => $portalHaulerRoleId]
+    );
   }
 
   private function postJson(string $url, array $payload, array $headers = []): array
