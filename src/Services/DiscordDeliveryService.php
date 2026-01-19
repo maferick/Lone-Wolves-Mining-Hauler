@@ -954,7 +954,8 @@ final class DiscordDeliveryService
           'body' => '',
         ];
       }
-      return $this->queueOnboardingDms($corpId, $guildId, $token, $base);
+      $dryRun = !empty($payload['dry_run']);
+      return $this->queueOnboardingDms($corpId, $guildId, $token, $base, $dryRun);
     }
 
     if ($token === '' || $appId === '') {
@@ -1263,7 +1264,7 @@ final class DiscordDeliveryService
     ]);
   }
 
-  private function queueOnboardingDms(int $corpId, string $guildId, string $token, string $base): array
+  private function queueOnboardingDms(int $corpId, string $guildId, string $token, string $base, bool $dryRun = false): array
   {
     $configRow = $this->loadConfigRow($corpId);
     $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
@@ -1340,7 +1341,11 @@ final class DiscordDeliveryService
           }
         }
 
-        $queued += $this->enqueueOnboardingDm($corpId, $discordUserId, $message);
+        if ($dryRun) {
+          $queued += 1;
+        } else {
+          $queued += $this->enqueueOnboardingDm($corpId, $discordUserId, $message);
+        }
       }
     } while (count($members) === $limit);
 
@@ -1349,7 +1354,7 @@ final class DiscordDeliveryService
       'status' => 200,
       'error' => null,
       'retry_after' => null,
-      'body' => Db::jsonEncode(['queued' => $queued, 'scanned' => $scanned]),
+      'body' => Db::jsonEncode(['queued' => $queued, 'scanned' => $scanned, 'dry_run' => $dryRun]),
     ];
   }
 
