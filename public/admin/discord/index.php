@@ -394,6 +394,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ], $authCtx);
       $msg = 'Onboarding DM bypass list saved.';
     }
+  } elseif ($action === 'remove_onboarding_dm') {
+    $outboxId = (int)($_POST['outbox_id'] ?? 0);
+    if ($outboxId <= 0) {
+      $errors[] = 'Outbox entry id is missing.';
+    }
+    if ($errors === []) {
+      $cleared = $db->execute(
+        "DELETE FROM discord_outbox
+          WHERE corp_id = :cid
+            AND event_key = 'discord.onboarding.dm'
+            AND outbox_id = :oid",
+        ['cid' => $corpId, 'oid' => $outboxId]
+      );
+      $msg = $cleared > 0 ? 'Onboarding DM entry removed.' : 'Onboarding DM entry not found.';
+    }
+  } elseif ($action === 'remove_onboarding_dm_all') {
+    $cleared = $db->execute(
+      "DELETE FROM discord_outbox
+        WHERE corp_id = :cid
+          AND event_key = 'discord.onboarding.dm'
+          AND status IN ('queued','failed','sending')",
+      ['cid' => $corpId]
+    );
+    $msg = 'Removed ' . $cleared . ' pending onboarding DM entr' . ($cleared === 1 ? 'y' : 'ies') . '.';
   } elseif ($action === 'send_template_tests') {
     if (!empty($services['discord_events'])) {
       if (empty($configRow['hauling_channel_id'])) {
@@ -708,6 +732,94 @@ $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.thread.complete' => 'Thread complete',
 ]);
 
+$onboardingOutboxRows = $db->select(
+  "SELECT outbox_id, status, attempts, next_attempt_at, created_at, payload_json,
+          JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.discord_user_id')) AS discord_user_id
+     FROM discord_outbox
+    WHERE corp_id = :cid
+      AND event_key = 'discord.onboarding.dm'
+      AND status IN ('queued','failed','sending')
+    ORDER BY outbox_id DESC
+    LIMIT 200",
+  ['cid' => $corpId]
+);
+$onboardingDiscordIds = [];
+foreach ($onboardingOutboxRows as $row) {
+  $discordUserId = trim((string)($row['discord_user_id'] ?? ''));
+  if ($discordUserId !== '') {
+    $onboardingDiscordIds[] = $discordUserId;
+  }
+}
+$onboardingDiscordIds = array_values(array_unique($onboardingDiscordIds));
+$linkedUserByDiscord = [];
+$linkedUserIds = [];
+if ($onboardingDiscordIds !== []) {
+  $idPlaceholders = implode(',', array_fill(0, count($onboardingDiscordIds), '?'));
+  $linkRows = $db->select(
+    "SELECT l.discord_user_id, l.user_id
+       FROM discord_user_link l
+       JOIN app_user u ON u.user_id = l.user_id
+      WHERE u.corp_id = ?
+        AND l.discord_user_id IN ($idPlaceholders)",
+    array_merge([$corpId], $onboardingDiscordIds)
+  );
+  foreach ($linkRows as $linkRow) {
+    $discordId = trim((string)($linkRow['discord_user_id'] ?? ''));
+    $userId = (int)($linkRow['user_id'] ?? 0);
+    if ($discordId === '' || $userId <= 0) {
+      continue;
+    }
+    $linkedUserByDiscord[$discordId] = $userId;
+    $linkedUserIds[] = $userId;
+  }
+}
+$haulingMemberUsers = [];
+if ($linkedUserIds !== []) {
+  $userPlaceholders = implode(',', array_fill(0, count($linkedUserIds), '?'));
+  $memberRows = $db->select(
+    "SELECT DISTINCT ur.user_id
+       FROM user_role ur
+       JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
+       JOIN permission p ON p.perm_id = rp.perm_id
+      WHERE p.perm_key = 'hauling.member'
+        AND ur.user_id IN ($userPlaceholders)",
+    $linkedUserIds
+  );
+  foreach ($memberRows as $memberRow) {
+    $userId = (int)($memberRow['user_id'] ?? 0);
+    if ($userId > 0) {
+      $haulingMemberUsers[$userId] = true;
+    }
+  }
+}
+$onboardingDmRows = [];
+$onboardingLinkedIds = [];
+$onboardingNonMemberIds = [];
+foreach ($onboardingOutboxRows as $row) {
+  $discordUserId = trim((string)($row['discord_user_id'] ?? ''));
+  $linkedUserId = $discordUserId !== '' ? ($linkedUserByDiscord[$discordUserId] ?? null) : null;
+  if ($linkedUserId !== null) {
+    if (!isset($haulingMemberUsers[$linkedUserId])) {
+      $onboardingNonMemberIds[] = (int)$row['outbox_id'];
+    } else {
+      $onboardingLinkedIds[] = (int)$row['outbox_id'];
+    }
+    continue;
+  }
+  $onboardingDmRows[] = $row;
+}
+$onboardingCleanupIds = array_values(array_unique(array_merge($onboardingLinkedIds, $onboardingNonMemberIds)));
+if ($onboardingCleanupIds !== []) {
+  $cleanupPlaceholders = implode(',', array_fill(0, count($onboardingCleanupIds), '?'));
+  $db->execute(
+    "DELETE FROM discord_outbox
+      WHERE corp_id = ?
+        AND event_key = 'discord.onboarding.dm'
+        AND outbox_id IN ($cleanupPlaceholders)",
+    array_merge([$corpId], $onboardingCleanupIds)
+  );
+}
+
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
@@ -793,6 +905,56 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <button class="btn" type="submit">Save Bypass List</button>
           </div>
         </form>
+      </div>
+      <div class="card" style="padding:12px; margin-top:12px;">
+        <div class="row" style="align-items:center; justify-content:space-between;">
+          <div>
+            <div class="label">Pending onboarding DMs</div>
+            <div class="muted"><?= count($onboardingDmRows) ?> queued candidate<?= count($onboardingDmRows) === 1 ? '' : 's' ?>.</div>
+          </div>
+          <form method="post">
+            <input type="hidden" name="action" value="remove_onboarding_dm_all" />
+            <button class="btn ghost" type="submit" <?= $onboardingDmRows === [] ? 'disabled' : '' ?>>Remove all</button>
+          </form>
+        </div>
+        <?php if ($onboardingDmRows === []): ?>
+          <div class="muted" style="margin-top:12px;">No pending onboarding DMs found.</div>
+        <?php else: ?>
+          <table class="table" style="margin-top:12px;">
+            <thead>
+              <tr>
+                <th>Discord User ID</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Next attempt</th>
+                <th>Queued</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($onboardingDmRows as $row): ?>
+                <?php $discordUserId = trim((string)($row['discord_user_id'] ?? '')); ?>
+                <tr>
+                  <td><code><?= htmlspecialchars($discordUserId !== '' ? $discordUserId : 'Unknown', ENT_QUOTES, 'UTF-8') ?></code></td>
+                  <td><?= htmlspecialchars((string)($row['status'] ?? 'queued'), ENT_QUOTES, 'UTF-8') ?></td>
+                  <td><?= (int)($row['attempts'] ?? 0) ?></td>
+                  <td><?= htmlspecialchars((string)($row['next_attempt_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                  <td><?= htmlspecialchars((string)($row['created_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                  <td>
+                    <form method="post">
+                      <input type="hidden" name="action" value="remove_onboarding_dm" />
+                      <input type="hidden" name="outbox_id" value="<?= (int)($row['outbox_id'] ?? 0) ?>" />
+                      <button class="btn ghost" type="submit">Remove</button>
+                    </form>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
+        <div class="muted" style="margin-top:10px;">
+          Linked users (or users missing the hauling.member right) are automatically removed from this list.
+        </div>
       </div>
     </section>
 
