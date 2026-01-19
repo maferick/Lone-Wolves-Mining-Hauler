@@ -732,6 +732,17 @@ $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.thread.complete' => 'Thread complete',
 ]);
 
+$onboardingScanRows = $db->select(
+  "SELECT outbox_id, status, attempts, next_attempt_at, created_at
+     FROM discord_outbox
+    WHERE corp_id = :cid
+      AND event_key = 'discord.members.onboard'
+      AND status IN ('queued','failed','sending')
+    ORDER BY outbox_id DESC
+    LIMIT 200",
+  ['cid' => $corpId]
+);
+
 $onboardingOutboxRows = $db->select(
   "SELECT outbox_id, status, attempts, next_attempt_at, created_at, payload_json,
           JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.discord_user_id')) AS discord_user_id
@@ -905,6 +916,41 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <button class="btn" type="submit">Save Bypass List</button>
           </div>
         </form>
+      </div>
+      <div class="card" style="padding:12px; margin-top:12px;">
+        <div>
+          <div class="label">Onboarding scan jobs</div>
+          <div class="muted">
+            <?= count($onboardingScanRows) ?> scan job<?= count($onboardingScanRows) === 1 ? '' : 's' ?> queued.
+            These scans create onboarding DM entries once processed.
+          </div>
+        </div>
+        <?php if ($onboardingScanRows === []): ?>
+          <div class="muted" style="margin-top:12px;">No pending onboarding scans found.</div>
+        <?php else: ?>
+          <table class="table" style="margin-top:12px;">
+            <thead>
+              <tr>
+                <th>Outbox ID</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Next attempt</th>
+                <th>Queued</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($onboardingScanRows as $row): ?>
+                <tr>
+                  <td><?= (int)($row['outbox_id'] ?? 0) ?></td>
+                  <td><?= htmlspecialchars((string)($row['status'] ?? 'queued'), ENT_QUOTES, 'UTF-8') ?></td>
+                  <td><?= (int)($row['attempts'] ?? 0) ?></td>
+                  <td><?= htmlspecialchars((string)($row['next_attempt_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                  <td><?= htmlspecialchars((string)($row['created_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
       </div>
       <div class="card" style="padding:12px; margin-top:12px;">
         <div class="row" style="align-items:center; justify-content:space-between;">
