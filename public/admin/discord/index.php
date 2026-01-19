@@ -849,6 +849,40 @@ if ($isAdmin) {
   );
 }
 
+$linkedPortalByDiscord = [];
+foreach ($portalUsers as $user) {
+  $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
+  if ($discordUserId === '') {
+    continue;
+  }
+  $linkedPortalByDiscord[$discordUserId] = $user;
+}
+
+$discordRoleMembers = [];
+$discordRoleStatus = null;
+if ($isAdmin) {
+  $haulingRoleId = trim((string)($roleMap['hauling.member'] ?? ''));
+  $guildId = trim((string)($configRow['guild_id'] ?? $config['discord']['guild_id'] ?? ''));
+  if ($haulingRoleId === '') {
+    $discordRoleStatus = 'Set a hauling.member role mapping to pull Discord membership.';
+  } elseif (empty($config['discord']['bot_token'])) {
+    $discordRoleStatus = 'Configure a bot token to load Discord members.';
+  } elseif ($guildId === '') {
+    $discordRoleStatus = 'Set a Discord guild ID to load role membership.';
+  } elseif (empty($services['discord_delivery'])) {
+    $discordRoleStatus = 'Discord delivery service unavailable.';
+  } else {
+    /** @var \App\Services\DiscordDeliveryService $delivery */
+    $delivery = $services['discord_delivery'];
+    $roleResponse = $delivery->fetchRoleMembers($corpId, $haulingRoleId);
+    if (!empty($roleResponse['ok'])) {
+      $discordRoleMembers = $roleResponse['members'] ?? [];
+    } else {
+      $discordRoleStatus = 'Unable to load Discord members (' . ((string)($roleResponse['error'] ?? 'unknown_error')) . ').';
+    }
+  }
+}
+
 ob_start();
 require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 ?>
@@ -1257,6 +1291,10 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             </div>
           </div>
           <div class="card" style="padding:12px;">
+            <div class="label">Discord hauling members</div>
+            <div style="font-size:20px; font-weight:600;"><?= count($discordRoleMembers) ?></div>
+          </div>
+          <div class="card" style="padding:12px;">
             <div class="label">Onboarding scans queued</div>
             <div style="font-size:20px; font-weight:600;"><?= count($onboardingScanRows) ?></div>
           </div>
@@ -1271,17 +1309,18 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           <div class="muted" style="margin-top:6px;">
             Users are marked "Processed" when linked and no onboarding DM is queued. Run a scan to refresh Discord membership coverage.
           </div>
+          <div class="muted" style="margin-top:4px;">Tip: click a column header to sort.</div>
           <?php if ($portalUsers === []): ?>
             <div class="muted" style="margin-top:12px;">No portal users found.</div>
           <?php else: ?>
-            <table class="table" style="margin-top:12px;">
+            <table class="table" data-sortable-table style="margin-top:12px;">
               <thead>
                 <tr>
-                  <th>User</th>
-                  <th>Portal status</th>
-                  <th>Discord link</th>
-                  <th>Discord last seen</th>
-                  <th>Onboarding status</th>
+                  <th data-sort-type="string">User</th>
+                  <th data-sort-type="string">Portal status</th>
+                  <th data-sort-type="string">Discord link</th>
+                  <th data-sort-type="date">Discord last seen</th>
+                  <th data-sort-type="string">Onboarding status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1292,6 +1331,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $discordLabel = $discordUsername !== '' ? $discordUsername : ($discordUserId !== '' ? $discordUserId : 'Not linked');
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
                     $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Processed');
+                    $lastSeenAt = trim((string)($user['last_seen_at'] ?? ''));
+                    $lastSeenSort = $lastSeenAt !== '' ? (int)strtotime($lastSeenAt) : 0;
                   ?>
                   <tr>
                     <td>
@@ -1302,8 +1343,69 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     </td>
                     <td><?= htmlspecialchars((string)($user['status'] ?? 'active'), ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($discordLabel, ENT_QUOTES, 'UTF-8') ?></td>
-                    <td><?= htmlspecialchars((string)($user['last_seen_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td data-sort-value="<?= $lastSeenSort ?>">
+                      <?= htmlspecialchars($lastSeenAt !== '' ? $lastSeenAt : '—', ENT_QUOTES, 'UTF-8') ?>
+                    </td>
                     <td><?= htmlspecialchars($onboardingStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        </div>
+
+        <div class="card" style="padding:12px; margin-top:12px;">
+          <div class="label">Discord hauling.member roster</div>
+          <div class="muted" style="margin-top:6px;">
+            Full Discord members list for the hauling.member role. Linked portal users are shown when available.
+          </div>
+          <?php if ($discordRoleStatus): ?>
+            <div class="muted" style="margin-top:12px;"><?= htmlspecialchars($discordRoleStatus, ENT_QUOTES, 'UTF-8') ?></div>
+          <?php elseif ($discordRoleMembers === []): ?>
+            <div class="muted" style="margin-top:12px;">No Discord members found with the hauling.member role.</div>
+          <?php else: ?>
+            <table class="table" data-sortable-table style="margin-top:12px;">
+              <thead>
+                <tr>
+                  <th data-sort-type="string">Discord user</th>
+                  <th data-sort-type="string">Discord ID</th>
+                  <th data-sort-type="string">Linked portal user</th>
+                  <th data-sort-type="string">Portal status</th>
+                  <th data-sort-type="date">Joined at</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($discordRoleMembers as $member): ?>
+                  <?php
+                    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+                    $nickname = trim((string)($member['nickname'] ?? ''));
+                    $globalName = trim((string)($member['global_name'] ?? ''));
+                    $username = trim((string)($member['username'] ?? ''));
+                    $discriminator = trim((string)($member['discriminator'] ?? ''));
+                    $displayName = $nickname !== '' ? $nickname : ($globalName !== '' ? $globalName : $username);
+                    $handle = $username;
+                    if ($handle !== '' && $discriminator !== '' && $discriminator !== '0') {
+                      $handle .= '#' . $discriminator;
+                    }
+                    $linkedPortal = $discordUserId !== '' ? ($linkedPortalByDiscord[$discordUserId] ?? null) : null;
+                    $linkedLabel = $linkedPortal ? (string)($linkedPortal['display_name'] ?? '') : 'Not linked';
+                    $linkedStatus = $linkedPortal ? (string)($linkedPortal['status'] ?? 'active') : '—';
+                    $joinedAt = trim((string)($member['joined_at'] ?? ''));
+                    $joinedSort = $joinedAt !== '' ? (int)strtotime($joinedAt) : 0;
+                  ?>
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;"><?= htmlspecialchars($displayName !== '' ? $displayName : $discordUserId, ENT_QUOTES, 'UTF-8') ?></div>
+                      <?php if ($handle !== '' && $handle !== $displayName): ?>
+                        <div class="muted" style="font-size:12px;"><?= htmlspecialchars($handle, ENT_QUOTES, 'UTF-8') ?></div>
+                      <?php endif; ?>
+                    </td>
+                    <td><code><?= htmlspecialchars($discordUserId !== '' ? $discordUserId : 'Unknown', ENT_QUOTES, 'UTF-8') ?></code></td>
+                    <td><?= htmlspecialchars($linkedLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($linkedStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td data-sort-value="<?= $joinedSort ?>">
+                      <?= htmlspecialchars($joinedAt !== '' ? $joinedAt : '—', ENT_QUOTES, 'UTF-8') ?>
+                    </td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>
@@ -1334,6 +1436,61 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     panel.style.display = isHidden ? 'table-row' : 'none';
     button.textContent = isHidden ? 'Help ▾' : 'Help ▸';
     button.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+  });
+
+  const parseSortValue = (value, type) => {
+    if (type === 'number') {
+      const numeric = Number.parseFloat(value);
+      return Number.isNaN(numeric) ? 0 : numeric;
+    }
+    if (type === 'date') {
+      const trimmed = value.toString().trim();
+      if (trimmed === '') {
+        return 0;
+      }
+      if (/^\d+$/.test(trimmed)) {
+        return Number.parseInt(trimmed, 10) * 1000;
+      }
+      const parsed = Date.parse(trimmed);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return value.toString().toLowerCase();
+  };
+
+  document.querySelectorAll('[data-sortable-table]').forEach((table) => {
+    const tbody = table.querySelector('tbody');
+    if (!tbody) {
+      return;
+    }
+    const headers = Array.from(table.querySelectorAll('th[data-sort-type]'));
+    headers.forEach((header, index) => {
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', () => {
+        const current = header.getAttribute('aria-sort');
+        const next = current === 'ascending' ? 'descending' : 'ascending';
+        headers.forEach((item) => item.removeAttribute('aria-sort'));
+        header.setAttribute('aria-sort', next);
+        const type = header.getAttribute('data-sort-type') || 'string';
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((rowA, rowB) => {
+          const cellA = rowA.children[index];
+          const cellB = rowB.children[index];
+          const rawA = cellA?.getAttribute('data-sort-value') ?? cellA?.textContent ?? '';
+          const rawB = cellB?.getAttribute('data-sort-value') ?? cellB?.textContent ?? '';
+          const valueA = parseSortValue(rawA, type);
+          const valueB = parseSortValue(rawB, type);
+          if (type === 'string') {
+            const result = valueA.localeCompare(valueB);
+            return next === 'ascending' ? result : -result;
+          }
+          if (valueA === valueB) {
+            return 0;
+          }
+          return next === 'ascending' ? (valueA > valueB ? 1 : -1) : (valueA < valueB ? 1 : -1);
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+      });
+    });
   });
 </script>
 <?php

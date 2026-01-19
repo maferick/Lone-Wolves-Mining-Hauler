@@ -113,6 +113,96 @@ final class DiscordDeliveryService
     return $results;
   }
 
+  public function fetchRoleMembers(int $corpId, string $roleId): array
+  {
+    $roleId = trim($roleId);
+    if ($roleId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'role_missing',
+        'members' => [],
+      ];
+    }
+
+    $token = (string)($this->config['discord']['bot_token'] ?? '');
+    $configRow = $this->loadConfigRow($corpId);
+    $guildId = trim((string)($configRow['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
+    if ($token === '' || $guildId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'discord_credentials_missing',
+        'members' => [],
+      ];
+    }
+
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $members = [];
+    $after = '';
+    $limit = 1000;
+
+    do {
+      $endpoint = $base . '/guilds/' . $guildId . '/members?limit=' . $limit;
+      if ($after !== '') {
+        $endpoint .= '&after=' . urlencode($after);
+      }
+
+      $resp = $this->getJson($endpoint, [
+        'Authorization: Bot ' . $token,
+      ]);
+      if (empty($resp['ok'])) {
+        return [
+          'ok' => false,
+          'status' => (int)($resp['status'] ?? 0),
+          'error' => (string)($resp['error'] ?? 'discord_request_failed'),
+          'members' => [],
+        ];
+      }
+
+      $batch = json_decode((string)($resp['body'] ?? ''), true);
+      if (!is_array($batch)) {
+        $batch = [];
+      }
+
+      foreach ($batch as $member) {
+        if (!is_array($member)) {
+          continue;
+        }
+        $user = is_array($member['user'] ?? null) ? $member['user'] : [];
+        $discordUserId = trim((string)($user['id'] ?? ''));
+        if ($discordUserId === '') {
+          continue;
+        }
+        $after = $discordUserId;
+
+        if (!empty($user['bot'])) {
+          continue;
+        }
+        $roles = is_array($member['roles'] ?? null) ? $member['roles'] : [];
+        if (!in_array($roleId, $roles, true)) {
+          continue;
+        }
+
+        $members[] = [
+          'discord_user_id' => $discordUserId,
+          'username' => (string)($user['username'] ?? ''),
+          'global_name' => (string)($user['global_name'] ?? ''),
+          'discriminator' => (string)($user['discriminator'] ?? ''),
+          'nickname' => (string)($member['nick'] ?? ''),
+          'joined_at' => (string)($member['joined_at'] ?? ''),
+        ];
+      }
+    } while (count($batch) === $limit);
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'members' => $members,
+    ];
+  }
+
   private function sendWebhookMessage(int $corpId, array $row, array $payload): array
   {
     $webhookUrl = trim((string)($row['webhook_url'] ?? ''));
