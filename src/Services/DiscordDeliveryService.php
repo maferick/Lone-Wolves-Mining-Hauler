@@ -1123,6 +1123,17 @@ final class DiscordDeliveryService
       ];
     }
 
+    $bypassList = $this->normalizeOnboardingBypass($configRow['onboarding_dm_bypass_json'] ?? null);
+    if (empty($configRow['onboarding_dm_enabled']) && !in_array($discordUserId, $bypassList, true)) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => 'onboarding_dm_disabled',
+      ];
+    }
+
     if (!$this->checkRateLimit($corpId, null)) {
       return [
         'ok' => false,
@@ -1167,6 +1178,9 @@ final class DiscordDeliveryService
     $configRow = $this->loadConfigRow($corpId);
     $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
     $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $onboardingEnabled = !empty($configRow['onboarding_dm_enabled']);
+    $bypassList = $this->normalizeOnboardingBypass($configRow['onboarding_dm_bypass_json'] ?? null);
+    $bypassLookup = $bypassList !== [] ? array_fill_keys($bypassList, true) : [];
     $targetRoleId = (string)($roleMap['hauling.member'] ?? '');
     if ($targetRoleId === '') {
       return [
@@ -1222,6 +1236,9 @@ final class DiscordDeliveryService
           continue;
         }
         if (isset($linkedLookup[$discordUserId])) {
+          continue;
+        }
+        if (!$onboardingEnabled && !isset($bypassLookup[$discordUserId])) {
           continue;
         }
         if ($targetRoles !== []) {
@@ -2415,6 +2432,26 @@ final class DiscordDeliveryService
       }
     }
     return $normalized;
+  }
+
+  private function normalizeOnboardingBypass($bypassJson): array
+  {
+    if (is_string($bypassJson)) {
+      $decoded = json_decode($bypassJson, true);
+      $bypassJson = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($bypassJson)) {
+      return [];
+    }
+
+    $normalized = [];
+    foreach ($bypassJson as $value) {
+      $userId = trim((string)$value);
+      if ($this->isValidSnowflake($userId)) {
+        $normalized[] = $userId;
+      }
+    }
+    return array_values(array_unique($normalized));
   }
 
   private function isValidSnowflake(string $value): bool

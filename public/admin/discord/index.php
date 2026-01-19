@@ -49,6 +49,7 @@ $discordEventOptions = [
 ];
 $discordTabs = [
   ['id' => 'bot-settings', 'label' => 'Bot Settings'],
+  ['id' => 'onboarding-dm', 'label' => 'Onboarding DMs'],
   ['id' => 'role-mapping', 'label' => 'Role Mapping'],
   ['id' => 'channel-topology', 'label' => 'Channel Topology'],
   ['id' => 'channel-map', 'label' => 'Channel Map'],
@@ -82,6 +83,8 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
     'rights_source' => 'portal',
+    'onboarding_dm_enabled' => 1,
+    'onboarding_dm_bypass_json' => null,
     'last_bot_action_at' => null,
     'bot_permissions_test_json' => null,
     'bot_permissions_test_at' => null,
@@ -166,11 +169,13 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
     "INSERT INTO discord_config
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute,
        dedupe_window_seconds, commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access,
-       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, rights_source, bot_token_configured)
+      auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, rights_source,
+      onboarding_dm_enabled, onboarding_dm_bypass_json, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access,
-       :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :rights_source, :bot_token_configured)
+       :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :rights_source,
+       :onboarding_dm_enabled, :onboarding_dm_bypass_json, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -189,6 +194,8 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       auto_lock_on_complete = VALUES(auto_lock_on_complete),
       role_map_json = VALUES(role_map_json),
       rights_source = VALUES(rights_source),
+      onboarding_dm_enabled = VALUES(onboarding_dm_enabled),
+      onboarding_dm_bypass_json = VALUES(onboarding_dm_bypass_json),
       bot_token_configured = VALUES(bot_token_configured),
       updated_at = UTC_TIMESTAMP()",
     [
@@ -210,6 +217,8 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       'auto_lock_on_complete' => (int)($merged['auto_lock_on_complete'] ?? 1),
       'role_map_json' => $merged['role_map_json'],
       'rights_source' => $merged['rights_source'] ?? 'portal',
+      'onboarding_dm_enabled' => (int)($merged['onboarding_dm_enabled'] ?? 1),
+      'onboarding_dm_bypass_json' => $merged['onboarding_dm_bypass_json'],
       'bot_token_configured' => (int)($merged['bot_token_configured'] ?? 0),
     ]
   );
@@ -352,6 +361,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       } else {
         $msg = 'Interaction endpoint responded successfully.';
       }
+    }
+  } elseif ($action === 'toggle_onboarding_dm') {
+    $isEnabled = !empty($configRow['onboarding_dm_enabled']);
+    $saveConfig($db, $corpId, [
+      'onboarding_dm_enabled' => $isEnabled ? 0 : 1,
+    ], $authCtx);
+    $msg = $isEnabled ? 'Onboarding DMs disabled.' : 'Onboarding DMs enabled.';
+  } elseif ($action === 'save_onboarding_bypass') {
+    $rawBypass = trim((string)($_POST['onboarding_dm_bypass'] ?? ''));
+    $tokens = $rawBypass === '' ? [] : preg_split('/[\s,]+/', $rawBypass);
+    $bypassIds = [];
+    $invalidIds = [];
+    foreach ($tokens as $token) {
+      $token = trim((string)$token);
+      if ($token === '') {
+        continue;
+      }
+      if (!$isSnowflake($token)) {
+        $invalidIds[] = $token;
+        continue;
+      }
+      $bypassIds[] = $token;
+    }
+    $bypassIds = array_values(array_unique($bypassIds));
+    if ($invalidIds !== []) {
+      $errors[] = 'Bypass IDs must be numeric snowflakes. Invalid entries: ' . implode(', ', $invalidIds) . '.';
+    }
+    if ($errors === []) {
+      $saveConfig($db, $corpId, [
+        'onboarding_dm_bypass_json' => $bypassIds !== [] ? Db::jsonEncode($bypassIds) : null,
+      ], $authCtx);
+      $msg = 'Onboarding DM bypass list saved.';
     }
   } elseif ($action === 'send_template_tests') {
     if (!empty($services['discord_events'])) {
@@ -641,6 +682,18 @@ $channelMaps = $db->select(
 $botTokenConfigured = !empty($config['discord']['bot_token']);
 $publicKeyConfigured = !empty($configRow['public_key']) || !empty($config['discord']['public_key']);
 $roleMappingCount = count(array_filter($roleMap, static fn($value) => is_string($value) && trim($value) !== ''));
+$onboardingDmEnabled = !empty($configRow['onboarding_dm_enabled']);
+$onboardingBypassList = [];
+if (!empty($configRow['onboarding_dm_bypass_json'])) {
+  try {
+    $decoded = Db::jsonDecode((string)$configRow['onboarding_dm_bypass_json'], []);
+    if (is_array($decoded)) {
+      $onboardingBypassList = array_values(array_filter($decoded, 'is_string'));
+    }
+  } catch (Throwable $e) {
+    $onboardingBypassList = [];
+  }
+}
 $outboxEventLabels = array_merge($discordEventOptions, [
   'discord.bot.permissions_test' => 'Bot permissions test',
   'discord.commands.register' => 'Register slash commands',
@@ -708,6 +761,38 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <button class="btn ghost" type="submit">Test Bot Permissions</button>
           </form>
         </div>
+      </div>
+    </section>
+
+    <section class="admin-section" id="onboarding-dm" data-section="onboarding-dm">
+      <div class="admin-section__title">Onboarding Direct Messages</div>
+      <div class="card" style="padding:12px;">
+        <div class="row" style="align-items:center; gap:12px;">
+          <div>
+            <div class="label">Onboarding DM status</div>
+            <div class="muted"><?= $onboardingDmEnabled ? 'Enabled' : 'Disabled' ?></div>
+          </div>
+          <form method="post">
+            <input type="hidden" name="action" value="toggle_onboarding_dm" />
+            <button class="btn <?= $onboardingDmEnabled ? 'ghost' : '' ?>" type="submit">
+              <?= $onboardingDmEnabled ? 'Disable onboarding DMs' : 'Enable onboarding DMs' ?>
+            </button>
+          </form>
+        </div>
+        <div class="muted" style="margin-top:10px;">
+          When disabled, onboarding DMs will not send unless the Discord user ID is listed in the bypass list below.
+        </div>
+      </div>
+      <div class="card" style="padding:12px; margin-top:12px;">
+        <form method="post">
+          <input type="hidden" name="action" value="save_onboarding_bypass" />
+          <div class="label">Bypass list (Discord user IDs)</div>
+          <textarea class="input" name="onboarding_dm_bypass" rows="4" placeholder="123456789012345678&#10;234567890123456789"><?= htmlspecialchars(implode("\n", $onboardingBypassList), ENT_QUOTES, 'UTF-8') ?></textarea>
+          <div class="muted" style="margin-top:8px;">Enter one Discord user ID per line (or comma-separated) to allow onboarding DMs even when disabled.</div>
+          <div style="margin-top:10px;">
+            <button class="btn" type="submit">Save Bypass List</button>
+          </div>
+        </form>
       </div>
     </section>
 
