@@ -15,6 +15,7 @@ $corpId = (int)($authCtx['corp_id'] ?? 0);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Discord';
+$isAdmin = Auth::hasRole($authCtx, 'admin');
 
 $msg = null;
 $msgTone = 'info';
@@ -57,6 +58,9 @@ $discordTabs = [
   ['id' => 'outbox', 'label' => 'Outbox'],
   ['id' => 'tests-status', 'label' => 'Tests & Status'],
 ];
+if ($isAdmin) {
+  $discordTabs[] = ['id' => 'metaverse', 'label' => 'Metaverse'];
+}
 
 $loadConfig = static function (Db $db, int $corpId): array {
   $row = $db->one(
@@ -762,6 +766,7 @@ foreach ($onboardingOutboxRows as $row) {
   }
 }
 $onboardingDiscordIds = array_values(array_unique($onboardingDiscordIds));
+$pendingOnboardingByDiscord = array_fill_keys($onboardingDiscordIds, true);
 $linkedUserByDiscord = [];
 $linkedUserIds = [];
 if ($onboardingDiscordIds !== []) {
@@ -828,6 +833,19 @@ if ($onboardingCleanupIds !== []) {
         AND event_key = 'discord.onboarding.dm'
         AND outbox_id IN ($cleanupPlaceholders)",
     array_merge([$corpId], $onboardingCleanupIds)
+  );
+}
+
+$portalUsers = [];
+if ($isAdmin) {
+  $portalUsers = $db->select(
+    "SELECT u.user_id, u.display_name, u.email, u.status, u.last_login_at, u.created_at,
+            l.discord_user_id, l.discord_username, l.linked_at, l.last_seen_at
+       FROM app_user u
+       LEFT JOIN discord_user_link l ON l.user_id = u.user_id
+      WHERE u.corp_id = :cid
+      ORDER BY u.display_name ASC, u.user_id ASC",
+    ['cid' => $corpId]
   );
 }
 
@@ -1222,6 +1240,78 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <section class="admin-section" id="tests-status" data-section="tests-status" data-live-section data-live-interval="20" data-live-url="<?= ($basePath ?: '') ?>/admin/discord/partials/status.php">
       <?php require __DIR__ . '/../../../src/Views/partials/admin/discord_status.php'; ?>
     </section>
+
+    <?php if ($isAdmin): ?>
+      <section class="admin-section" id="metaverse" data-section="metaverse">
+        <div class="admin-section__title">Discord Metaverse (Admin only)</div>
+        <div class="muted">Portal user coverage for Discord linking and onboarding processing.</div>
+        <div class="row" style="margin-top:12px; gap:12px;">
+          <div class="card" style="padding:12px;">
+            <div class="label">Portal users</div>
+            <div style="font-size:20px; font-weight:600;"><?= count($portalUsers) ?></div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="label">Linked Discord users</div>
+            <div style="font-size:20px; font-weight:600;">
+              <?= count(array_filter($portalUsers, static fn(array $user): bool => trim((string)($user['discord_user_id'] ?? '')) !== '')) ?>
+            </div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="label">Onboarding scans queued</div>
+            <div style="font-size:20px; font-weight:600;"><?= count($onboardingScanRows) ?></div>
+          </div>
+          <div class="card" style="padding:12px;">
+            <div class="label">Pending onboarding DMs</div>
+            <div style="font-size:20px; font-weight:600;"><?= count($onboardingDmRows) ?></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:12px; margin-top:12px;">
+          <div class="label">Portal → Discord status map</div>
+          <div class="muted" style="margin-top:6px;">
+            Users are marked "Processed" when linked and no onboarding DM is queued. Run a scan to refresh Discord membership coverage.
+          </div>
+          <?php if ($portalUsers === []): ?>
+            <div class="muted" style="margin-top:12px;">No portal users found.</div>
+          <?php else: ?>
+            <table class="table" style="margin-top:12px;">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Portal status</th>
+                  <th>Discord link</th>
+                  <th>Discord last seen</th>
+                  <th>Onboarding status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($portalUsers as $user): ?>
+                  <?php
+                    $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
+                    $discordUsername = trim((string)($user['discord_username'] ?? ''));
+                    $discordLabel = $discordUsername !== '' ? $discordUsername : ($discordUserId !== '' ? $discordUserId : 'Not linked');
+                    $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
+                    $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Processed');
+                  ?>
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;"><?= htmlspecialchars((string)($user['display_name'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
+                      <div class="muted" style="font-size:12px;">
+                        <?= htmlspecialchars((string)($user['email'] ?? 'No email'), ENT_QUOTES, 'UTF-8') ?>
+                      </div>
+                    </td>
+                    <td><?= htmlspecialchars((string)($user['status'] ?? 'active'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($discordLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars((string)($user['last_seen_at'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($onboardingStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        </div>
+      </section>
+    <?php endif; ?>
   </div>
 </section>
 <script src="<?= ($basePath ?: '') ?>/assets/js/admin/admin-tabs.js" defer></script>
