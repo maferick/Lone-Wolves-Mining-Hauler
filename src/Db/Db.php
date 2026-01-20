@@ -6,6 +6,17 @@ namespace App\Db;
 use PDO;
 
 final class Db {
+  private static array $cacheMetrics = [
+    'cache_get_total' => 0,
+    'cache_get_hit_redis' => 0,
+    'cache_get_hit_db' => 0,
+    'cache_set_total' => 0,
+    'cache_set_redis_fail' => 0,
+    'cache_get_db_time_total_ms' => 0.0,
+    'cache_get_db_time_count' => 0,
+    'log_registered' => false,
+  ];
+
   /**
    * Factory: build Db from config array (src/Config/config.php).
    */
@@ -28,6 +39,7 @@ final class Db {
       \PDO::ATTR_EMULATE_PREPARES => false,
     ]);
 
+    self::registerCacheMetricsLogger();
     return new self($pdo);
   }
 
@@ -207,6 +219,8 @@ final class Db {
 
   public function esiCacheGet(?int $corpId, string $cacheKeyBin): array
   {
+    self::$cacheMetrics['cache_get_total']++;
+    $start = microtime(true);
     $row = $this->one(
       "SELECT response_json, etag, expires_at, status_code
          FROM esi_cache
@@ -217,11 +231,15 @@ final class Db {
         'cache_key' => $cacheKeyBin,
       ]
     );
+    $elapsedMs = (microtime(true) - $start) * 1000;
+    self::$cacheMetrics['cache_get_db_time_total_ms'] += $elapsedMs;
+    self::$cacheMetrics['cache_get_db_time_count']++;
 
     if (!$row) {
       return ['hit' => false, 'json' => null, 'etag' => null];
     }
 
+    self::$cacheMetrics['cache_get_hit_db']++;
     return [
       'hit' => true,
       'json' => $row['response_json'],
@@ -245,6 +263,7 @@ final class Db {
     string $responseJson,
     ?string $errorText = null
   ): void {
+    self::$cacheMetrics['cache_set_total']++;
     $expiresAt = gmdate('Y-m-d H:i:s', time() + max(30, $ttlSeconds));
     $fetchedAt = gmdate('Y-m-d H:i:s');
     $responseSha = hash('sha256', $responseJson, true);
@@ -284,6 +303,35 @@ final class Db {
         'error_text' => $errorText,
       ]
     );
+  }
+
+  private static function registerCacheMetricsLogger(): void
+  {
+    if (self::$cacheMetrics['log_registered']) {
+      return;
+    }
+
+    self::$cacheMetrics['log_registered'] = true;
+    register_shutdown_function(static function (): void {
+      $metrics = self::$cacheMetrics;
+      $totalGets = (int)$metrics['cache_get_total'];
+      $totalSets = (int)$metrics['cache_set_total'];
+      if ($totalGets === 0 && $totalSets === 0) {
+        return;
+      }
+
+      $count = (int)$metrics['cache_get_db_time_count'];
+      $avgMs = $count > 0 ? $metrics['cache_get_db_time_total_ms'] / $count : 0.0;
+      $payload = [
+        'cache_get_total' => $totalGets,
+        'cache_get_hit_redis' => (int)$metrics['cache_get_hit_redis'],
+        'cache_get_hit_db' => (int)$metrics['cache_get_hit_db'],
+        'cache_set_total' => $totalSets,
+        'cache_set_redis_fail' => (int)$metrics['cache_set_redis_fail'],
+        'cache_get_db_time_avg_ms' => round($avgMs, 3),
+      ];
+      error_log('[cache-metrics] ' . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    });
   }
 
   public static function esiCacheKey(string $method, string $url, ?array $query, ?array $body): string
