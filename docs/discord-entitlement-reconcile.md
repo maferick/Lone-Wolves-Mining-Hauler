@@ -42,7 +42,7 @@ To prevent admin lockouts caused by stale reconcile logic, the cron job performs
 - `app_user.status = 'active'`
 - `app_user.session_revoked_at = NULL`
 
-Only admins (including break-glass allowlisted admins) are remediated. Admins in `status='disabled'` are **not** reactivated. Each remediation writes an `audit_log` entry with action `entitlement.admin_selfheal`, including the previous status, previous session revocation timestamp, the remediation timestamp, and `source='cron'`.
+Only admins (including break-glass allowlisted admins) are remediated. Admin Self-Heal also applies to subadmins (admin-class). Admins in `status='disabled'` are **not** reactivated. Each remediation writes an `audit_log` entry with action `entitlement.admin_selfheal`, including the previous status, previous session revocation timestamp, the remediation timestamp, and `source='cron'`.
 
 ### Monitoring
 - SQL:

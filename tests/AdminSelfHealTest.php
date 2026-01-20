@@ -52,15 +52,20 @@ $pdo->exec(
 );
 
 $pdo->exec("INSERT INTO role (role_id, corp_id, role_key) VALUES (10, 1, 'admin')");
+$pdo->exec("INSERT INTO role (role_id, corp_id, role_key) VALUES (20, 1, 'subadmin')");
 $pdo->exec("INSERT INTO app_user (user_id, corp_id, status, session_revoked_at, email) VALUES (1, 1, 'suspended', '2024-01-01 00:00:00', 'admin@example.com')");
 $pdo->exec("INSERT INTO app_user (user_id, corp_id, status, session_revoked_at, email) VALUES (2, 1, 'disabled', '2024-01-01 00:00:00', 'disabled-admin@example.com')");
 $pdo->exec("INSERT INTO app_user (user_id, corp_id, status, session_revoked_at, email) VALUES (3, 1, 'suspended', '2024-01-01 00:00:00', 'user@example.com')");
+$pdo->exec("INSERT INTO app_user (user_id, corp_id, status, session_revoked_at, email) VALUES (4, 1, 'disabled', '2024-01-01 00:00:00', 'disabled-subadmin@example.com')");
+$pdo->exec("INSERT INTO app_user (user_id, corp_id, status, session_revoked_at, email) VALUES (5, 1, 'suspended', '2024-01-01 00:00:00', 'subadmin@example.com')");
 $pdo->exec('INSERT INTO user_role (user_id, role_id) VALUES (1, 10)');
 $pdo->exec('INSERT INTO user_role (user_id, role_id) VALUES (2, 10)');
+$pdo->exec('INSERT INTO user_role (user_id, role_id) VALUES (4, 20)');
+$pdo->exec('INSERT INTO user_role (user_id, role_id) VALUES (5, 20)');
 
 $remediated = $authz->selfHealAdminAccess('cron');
-if ($remediated !== 1) {
-  throw new RuntimeException('Expected exactly one admin to be remediated.');
+if ($remediated !== 2) {
+  throw new RuntimeException('Expected exactly two admin-class users to be remediated.');
 }
 
 $admin = $db->one('SELECT status, session_revoked_at FROM app_user WHERE user_id = 1');
@@ -82,6 +87,22 @@ if (($disabledAdmin['session_revoked_at'] ?? '') === '') {
 $nonAdmin = $db->one('SELECT status FROM app_user WHERE user_id = 3');
 if (($nonAdmin['status'] ?? '') !== 'suspended') {
   throw new RuntimeException('Expected non-admin suspended user to remain suspended.');
+}
+
+$disabledSubadmin = $db->one('SELECT status, session_revoked_at FROM app_user WHERE user_id = 4');
+if (($disabledSubadmin['status'] ?? '') !== 'disabled') {
+  throw new RuntimeException('Expected disabled subadmin to remain disabled.');
+}
+if (($disabledSubadmin['session_revoked_at'] ?? '') === '') {
+  throw new RuntimeException('Expected disabled subadmin session_revoked_at to remain set.');
+}
+
+$subadmin = $db->one('SELECT status, session_revoked_at FROM app_user WHERE user_id = 5');
+if (($subadmin['status'] ?? '') !== 'active') {
+  throw new RuntimeException('Expected suspended subadmin to be reactivated.');
+}
+if (!empty($subadmin['session_revoked_at'])) {
+  throw new RuntimeException('Expected suspended subadmin session_revoked_at to be cleared.');
 }
 
 echo "Admin self-heal tests passed.\n";

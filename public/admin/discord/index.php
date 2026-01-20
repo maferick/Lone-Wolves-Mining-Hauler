@@ -1518,13 +1518,23 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $discordHaulerRightStatus = $discordUserId === '' ? '—' : (isset($discordHaulerMembersById[$discordUserId]) ? 'Yes' : 'No');
                     $linkState = $discordUserId === '' ? 'Not linked' : 'Linked';
                     $inScope = $authz ? $authz->isUserInScope($user, $accessConfig) : false;
-                    $userIsAdmin = $authz ? $authz->userIsAdmin((int)($user['user_id'] ?? 0), $user) : false;
+                    $userId = (int)($user['user_id'] ?? 0);
+                    $userIsAdmin = $authz ? $authz->userIsAdmin($userId, $user) : false;
+                    $userIsSubadmin = $authz ? $authz->userIsSubadmin($userId) : false;
                     $isActive = (string)($user['status'] ?? '') === 'active';
                     $accessGranted = $isActive && ($userIsAdmin || ($inScope && $discordMemberEntitled));
                     if ($userIsAdmin) {
                       $accessLabel = $isActive
                         ? ($discordMemberEntitled ? 'Admin (entitled)' : 'Admin (bypass)')
                         : 'Admin (disabled)';
+                    } elseif ($userIsSubadmin) {
+                      if (!$isActive) {
+                        $accessLabel = 'Subadmin (disabled)';
+                      } elseif (!$discordMemberEntitled) {
+                        $accessLabel = 'Subadmin (self-heal)';
+                      } else {
+                        $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
+                      }
                     } else {
                       $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
                     }
