@@ -34,8 +34,12 @@ $portalRights = [
   ],
 ];
 $rightsSources = [
-  'portal' => 'Portal rights are authoritative (sync portal → Discord roles).',
-  'discord' => 'Discord roles are authoritative (sync Discord → portal hauler rights).',
+  'portal' => 'Portal is authoritative (sync portal → Discord).',
+  'discord' => 'Discord is authoritative (sync Discord → portal).',
+];
+$rightsSourceFields = [
+  'hauling.member' => 'rights_source_member',
+  'hauling.hauler' => 'rights_source_hauler',
 ];
 $discordEventOptions = [
   'request.created' => 'Request created',
@@ -87,6 +91,8 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'auto_lock_on_complete' => 1,
     'role_map_json' => null,
     'rights_source' => 'portal',
+    'rights_source_member' => 'portal',
+    'rights_source_hauler' => 'portal',
     'onboarding_dm_enabled' => 1,
     'onboarding_dm_bypass_json' => null,
     'last_bot_action_at' => null,
@@ -174,12 +180,12 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute,
        dedupe_window_seconds, commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access,
       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, rights_source,
-      onboarding_dm_enabled, onboarding_dm_bypass_json, bot_token_configured)
+      rights_source_member, rights_source_hauler, onboarding_dm_enabled, onboarding_dm_bypass_json, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access,
        :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :rights_source,
-       :onboarding_dm_enabled, :onboarding_dm_bypass_json, :bot_token_configured)
+       :rights_source_member, :rights_source_hauler, :onboarding_dm_enabled, :onboarding_dm_bypass_json, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -198,6 +204,8 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       auto_lock_on_complete = VALUES(auto_lock_on_complete),
       role_map_json = VALUES(role_map_json),
       rights_source = VALUES(rights_source),
+      rights_source_member = VALUES(rights_source_member),
+      rights_source_hauler = VALUES(rights_source_hauler),
       onboarding_dm_enabled = VALUES(onboarding_dm_enabled),
       onboarding_dm_bypass_json = VALUES(onboarding_dm_bypass_json),
       bot_token_configured = VALUES(bot_token_configured),
@@ -221,6 +229,8 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       'auto_lock_on_complete' => (int)($merged['auto_lock_on_complete'] ?? 1),
       'role_map_json' => $merged['role_map_json'],
       'rights_source' => $merged['rights_source'] ?? 'portal',
+      'rights_source_member' => $merged['rights_source_member'] ?? 'portal',
+      'rights_source_hauler' => $merged['rights_source_hauler'] ?? 'portal',
       'onboarding_dm_enabled' => (int)($merged['onboarding_dm_enabled'] ?? 1),
       'onboarding_dm_bypass_json' => $merged['onboarding_dm_bypass_json'],
       'bot_token_configured' => (int)($merged['bot_token_configured'] ?? 0),
@@ -269,8 +279,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   } elseif ($action === 'save_role_mapping') {
     $roleMap = $_POST['role_map'] ?? [];
-    $rightsSource = trim((string)($_POST['rights_source'] ?? 'portal'));
+    $rightsSourceInput = $_POST['rights_source'] ?? [];
     $normalized = [];
+    $normalizedRightsSources = [];
     if (is_array($roleMap)) {
       foreach ($roleMap as $key => $value) {
         $roleId = trim((string)$value);
@@ -285,17 +296,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
     }
 
+    foreach ($portalRights as $right) {
+      $rightKey = (string)($right['key'] ?? '');
+      if ($rightKey === '') {
+        continue;
+      }
+      $legacySource = (string)($configRow['rights_source'] ?? 'portal');
+      $storedSource = (string)($configRow[$rightsSourceFields[$rightKey] ?? ''] ?? '');
+      $selected = $storedSource !== '' ? $storedSource : $legacySource;
+      if (is_array($rightsSourceInput) && isset($rightsSourceInput[$rightKey])) {
+        $selected = trim((string)$rightsSourceInput[$rightKey]);
+      }
+      if (!isset($rightsSources[$selected])) {
+        $errors[] = 'Rights source selection is invalid.';
+        break;
+      }
+      $normalizedRightsSources[$rightKey] = $selected;
+    }
+
     if (!isset($normalized['hauling.hauler']) || $normalized['hauling.hauler'] === '') {
       $errors[] = 'Hauling hauler role mapping is required.';
-    }
-    if (!isset($rightsSources[$rightsSource])) {
-      $errors[] = 'Rights source selection is invalid.';
     }
 
     if ($errors === []) {
       $saveConfig($db, $corpId, [
         'role_map_json' => $normalized !== [] ? Db::jsonEncode($normalized) : null,
-        'rights_source' => $rightsSource,
+        'rights_source' => $normalizedRightsSources['hauling.hauler'] ?? 'portal',
+        'rights_source_member' => $normalizedRightsSources['hauling.member'] ?? 'portal',
+        'rights_source_hauler' => $normalizedRightsSources['hauling.hauler'] ?? 'portal',
       ], $authCtx);
       $msg = 'Role mapping saved.';
     }
@@ -616,6 +644,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $configRow = $loadConfig($db, $corpId);
+$legacyRightsSource = (string)($configRow['rights_source'] ?? 'portal');
+if (empty($configRow['rights_source_member'])) {
+  $configRow['rights_source_member'] = $legacyRightsSource;
+}
+if (empty($configRow['rights_source_hauler'])) {
+  $configRow['rights_source_hauler'] = $legacyRightsSource;
+}
 $roleMap = [];
 if (!empty($configRow['role_map_json'])) {
   try {
@@ -627,6 +662,10 @@ if (!empty($configRow['role_map_json'])) {
     $roleMap = [];
   }
 }
+$rightsSourceByRight = [
+  'hauling.member' => (string)($configRow['rights_source_member'] ?? $legacyRightsSource),
+  'hauling.hauler' => (string)($configRow['rights_source_hauler'] ?? $legacyRightsSource),
+];
 
 $pendingCount = (int)($db->fetchValue(
   "SELECT COUNT(*) FROM discord_outbox WHERE corp_id = :cid AND status IN ('queued','failed','sending')",
@@ -1157,37 +1196,43 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <form method="post">
           <input type="hidden" name="action" value="save_role_mapping" />
           <div class="label">Rights source</div>
-          <p class="muted" style="margin:4px 0 10px;">Choose whether portal rights drive Discord roles or Discord roles drive portal hauler access.</p>
-          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px;">
-            <?php foreach ($rightsSources as $sourceKey => $sourceLabel): ?>
-              <label style="display:flex; gap:8px; align-items:flex-start;">
-                <input type="radio" name="rights_source" value="<?= htmlspecialchars($sourceKey, ENT_QUOTES, 'UTF-8') ?>" <?= ($configRow['rights_source'] ?? 'portal') === $sourceKey ? 'checked' : '' ?> />
-                <span><?= htmlspecialchars($sourceLabel, ENT_QUOTES, 'UTF-8') ?></span>
-              </label>
-            <?php endforeach; ?>
-          </div>
+          <p class="muted" style="margin:4px 0 10px;">Choose whether each portal right is mastered in the portal or in Discord.</p>
           <table class="table">
             <thead>
               <tr>
                 <th>Portal right</th>
                 <th>Description</th>
+                <th>Rights source</th>
                 <th>Discord Role ID</th>
               </tr>
             </thead>
             <tbody>
               <?php foreach ($portalRights as $right): ?>
-                <?php $roleValue = (string)($roleMap[$right['key']] ?? ''); ?>
+                <?php
+                  $rightKey = (string)($right['key'] ?? '');
+                  $roleValue = (string)($roleMap[$rightKey] ?? '');
+                  $selectedSource = (string)($rightsSourceByRight[$rightKey] ?? $legacyRightsSource);
+                ?>
                 <tr>
                   <td>
                     <strong><?= htmlspecialchars($right['label'], ENT_QUOTES, 'UTF-8') ?></strong>
-                    <div class="muted" style="font-size:12px;"><?= htmlspecialchars($right['key'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <div class="muted" style="font-size:12px;"><?= htmlspecialchars($rightKey, ENT_QUOTES, 'UTF-8') ?></div>
                   </td>
                   <td><?= htmlspecialchars($right['description'], ENT_QUOTES, 'UTF-8') ?></td>
                   <td>
-                    <input class="input" name="role_map[<?= htmlspecialchars($right['key'], ENT_QUOTES, 'UTF-8') ?>]" placeholder="123456789012345678" value="<?= htmlspecialchars($roleValue, ENT_QUOTES, 'UTF-8') ?>" />
-                    <?php if ($right['key'] === 'hauling.member'): ?>
+                    <select class="input" name="rights_source[<?= htmlspecialchars($rightKey, ENT_QUOTES, 'UTF-8') ?>]">
+                      <?php foreach ($rightsSources as $sourceKey => $sourceLabel): ?>
+                        <option value="<?= htmlspecialchars($sourceKey, ENT_QUOTES, 'UTF-8') ?>" <?= $selectedSource === $sourceKey ? 'selected' : '' ?>>
+                          <?= htmlspecialchars($sourceLabel, ENT_QUOTES, 'UTF-8') ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </td>
+                  <td>
+                    <input class="input" name="role_map[<?= htmlspecialchars($rightKey, ENT_QUOTES, 'UTF-8') ?>]" placeholder="123456789012345678" value="<?= htmlspecialchars($roleValue, ENT_QUOTES, 'UTF-8') ?>" />
+                    <?php if ($rightKey === 'hauling.member'): ?>
                       <div class="muted" style="font-size:11px; margin-top:4px;">Optional if your server already grants base hauling access.</div>
-                    <?php elseif ($right['key'] === 'hauling.hauler'): ?>
+                    <?php elseif ($rightKey === 'hauling.hauler'): ?>
                       <div class="muted" style="font-size:11px; margin-top:4px;">Required for hauler execution tools.</div>
                     <?php endif; ?>
                   </td>
@@ -1480,6 +1525,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <th data-sort-type="string">Linked portal user</th>
                   <th data-sort-type="string">Portal status</th>
                   <th data-sort-type="date">Joined at</th>
+                  <th data-sort-type="string">Roles</th>
                 </tr>
               </thead>
               <tbody>
@@ -1500,6 +1546,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $linkedStatus = $linkedPortal ? (string)($linkedPortal['status'] ?? 'active') : '—';
                     $joinedAt = trim((string)($member['joined_at'] ?? ''));
                     $joinedSort = $joinedAt !== '' ? (int)strtotime($joinedAt) : 0;
+                    $roles = $member['roles'] ?? [];
+                    if (!is_array($roles)) {
+                      $roles = [];
+                    }
+                    $rolesLabel = $roles !== [] ? implode(', ', $roles) : '—';
                   ?>
                   <tr>
                     <td>
@@ -1514,6 +1565,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <td data-sort-value="<?= $joinedSort ?>">
                       <?= htmlspecialchars($joinedAt !== '' ? $joinedAt : '—', ENT_QUOTES, 'UTF-8') ?>
                     </td>
+                    <td><?= htmlspecialchars($rolesLabel, ENT_QUOTES, 'UTF-8') ?></td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>
@@ -1542,6 +1594,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <th data-sort-type="string">Linked portal user</th>
                   <th data-sort-type="string">Portal status</th>
                   <th data-sort-type="date">Joined at</th>
+                  <th data-sort-type="string">Roles</th>
                 </tr>
               </thead>
               <tbody>
@@ -1562,6 +1615,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $linkedStatus = $linkedPortal ? (string)($linkedPortal['status'] ?? 'active') : '—';
                     $joinedAt = trim((string)($member['joined_at'] ?? ''));
                     $joinedSort = $joinedAt !== '' ? (int)strtotime($joinedAt) : 0;
+                    $roles = $member['roles'] ?? [];
+                    if (!is_array($roles)) {
+                      $roles = [];
+                    }
+                    $rolesLabel = $roles !== [] ? implode(', ', $roles) : '—';
                   ?>
                   <tr>
                     <td>
@@ -1576,6 +1634,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <td data-sort-value="<?= $joinedSort ?>">
                       <?= htmlspecialchars($joinedAt !== '' ? $joinedAt : '—', ENT_QUOTES, 'UTF-8') ?>
                     </td>
+                    <td><?= htmlspecialchars($rolesLabel, ENT_QUOTES, 'UTF-8') ?></td>
                   </tr>
                 <?php endforeach; ?>
               </tbody>

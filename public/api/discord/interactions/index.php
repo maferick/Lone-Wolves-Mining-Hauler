@@ -666,11 +666,21 @@ switch ($commandName) {
       if (!empty($services['discord_events']) && !empty($result['user_id'])) {
         $services['discord_events']->enqueueRoleSyncUser($corpId, (int)$result['user_id'], $discordUserId);
       }
-      if (($configRow['rights_source'] ?? 'portal') === 'discord' && !empty($services['discord_delivery'])) {
+      $rightsSourceLegacy = (string)($configRow['rights_source'] ?? 'portal');
+      $rightsSourceMember = (string)($configRow['rights_source_member'] ?? $rightsSourceLegacy);
+      $rightsSourceHauler = (string)($configRow['rights_source_hauler'] ?? $rightsSourceLegacy);
+      $portalPermsToSync = [];
+      if ($rightsSourceMember === 'discord') {
+        $portalPermsToSync[] = 'hauling.member';
+      }
+      if ($rightsSourceHauler === 'discord') {
+        $portalPermsToSync[] = 'hauling.hauler';
+      }
+      if ($portalPermsToSync !== [] && !empty($services['discord_delivery'])) {
         try {
           /** @var \App\Services\DiscordDeliveryService $delivery */
           $delivery = $services['discord_delivery'];
-          $delivery->syncPortalHaulerFromDiscord($corpId, (int)$result['user_id'], $discordUserId, $configRow);
+          $delivery->syncPortalRightsFromDiscord($corpId, (int)$result['user_id'], $discordUserId, $configRow, $portalPermsToSync);
         } catch (Throwable $e) {
           error_log('[discord-link] rights sync failed: ' . $e->getMessage());
         }

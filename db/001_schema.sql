@@ -708,6 +708,8 @@ CREATE TABLE IF NOT EXISTS discord_config (
   auto_lock_on_complete TINYINT(1) NOT NULL DEFAULT 1,
   role_map_json         JSON NULL,
   rights_source         ENUM('portal','discord') NOT NULL DEFAULT 'portal',
+  rights_source_member  ENUM('portal','discord') NOT NULL DEFAULT 'portal',
+  rights_source_hauler  ENUM('portal','discord') NOT NULL DEFAULT 'portal',
   onboarding_dm_enabled TINYINT(1) NOT NULL DEFAULT 1,
   onboarding_dm_bypass_json JSON NULL,
   last_bot_action_at    DATETIME NULL,
