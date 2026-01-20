@@ -8,6 +8,7 @@ use App\Db\Db;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
+Auth::requireAdmin($authCtx);
 $isDispatcher = Auth::hasRole($authCtx, 'dispatcher');
 $isAdmin = Auth::hasRole($authCtx, 'admin');
 $canManageUsers = Auth::can($authCtx, 'user.manage');

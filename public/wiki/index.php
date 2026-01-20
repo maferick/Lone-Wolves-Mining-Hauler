@@ -9,6 +9,7 @@ use App\Services\WikiService;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
+Auth::requireEntitled($authCtx);
 
 $hasWikiAccess = Auth::can($authCtx, 'haul.request.manage')
   || Auth::can($authCtx, 'haul.execute');

@@ -10,7 +10,7 @@ use App\Services\DiscordOutboxErrorHelp;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'webhook.manage');
+Auth::requireAdmin($authCtx);
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
@@ -1518,8 +1518,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $discordHaulerRightStatus = $discordUserId === '' ? '—' : (isset($discordHaulerMembersById[$discordUserId]) ? 'Yes' : 'No');
                     $linkState = $discordUserId === '' ? 'Not linked' : 'Linked';
                     $inScope = $authz ? $authz->isUserInScope($user, $accessConfig) : false;
-                    $accessGranted = $inScope && $discordMemberEntitled && (string)($user['status'] ?? '') === 'active';
-                    $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
+                    $userIsAdmin = $authz ? $authz->userIsAdmin((int)($user['user_id'] ?? 0), $user) : false;
+                    $isActive = (string)($user['status'] ?? '') === 'active';
+                    $accessGranted = $isActive && ($userIsAdmin || ($inScope && $discordMemberEntitled));
+                    if ($userIsAdmin) {
+                      $accessLabel = $isActive
+                        ? ($discordMemberEntitled ? 'Admin (entitled)' : 'Admin (bypass)')
+                        : 'Admin (disabled)';
+                    } else {
+                      $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
+                    }
                     $compliance = AuthzService::classifyCompliance($inScope, $discordMemberEntitled);
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
                     $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Scan processed');

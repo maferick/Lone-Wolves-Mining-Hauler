@@ -8,7 +8,7 @@ use App\Db\Db;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'corp.manage');
+Auth::requireAdmin($authCtx);
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 if ($corpId <= 0) { http_response_code(400); echo "No corp context"; exit; }

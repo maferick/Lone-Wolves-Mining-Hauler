@@ -9,7 +9,7 @@ use App\Services\JobQueueService;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'esi.manage');
+Auth::requireAdmin($authCtx);
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 

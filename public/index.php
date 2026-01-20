@@ -128,6 +128,8 @@ switch ($path) {
     $appName = $config['app']['name'];
     $title = $appName . ' • Dashboard';
     $basePathForViews = $basePath; // pass-through
+    \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
     $contractStats = [
       'total' => 0,
       'outstanding' => 0,
@@ -361,6 +363,8 @@ switch ($path) {
     $appName = $config['app']['name'];
     $title = $appName . ' • Operations';
     $basePathForViews = $basePath;
+    \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
     $queueStats = [
       'outstanding' => 0,
       'in_progress' => 0,
@@ -517,6 +521,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
     \App\Auth\Auth::requirePerm($authCtx, 'haul.request.read');
 
     $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
@@ -767,6 +772,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
 
     $userId = (int)($authCtx['user_id'] ?? 0);
     $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
@@ -859,6 +865,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
 
     require __DIR__ . '/../src/Views/profile.php';
     break;
@@ -869,6 +876,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
+    \App\Auth\Auth::requireEntitled($authCtx);
     $requestKey = trim((string)($_GET['request_key'] ?? ''));
     $error = null;
     $request = null;

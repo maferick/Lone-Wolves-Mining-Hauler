@@ -31,7 +31,7 @@ $start = isset($_GET['start']);
 if ($start) {
   if ($mode === 'esi') {
     Auth::requireLogin($authCtx);
-    Auth::requirePerm($authCtx, 'esi.manage');
+    Auth::requireAdmin($authCtx);
   }
 
   $scopes = $mode === 'esi' ? ($config['sso']['scopes'] ?? ['esi-contracts.read_corporation_contracts.v1']) : [];

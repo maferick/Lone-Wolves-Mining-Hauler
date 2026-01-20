@@ -8,7 +8,7 @@ use App\Db\Db;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'user.manage');
+Auth::requireAdmin($authCtx);
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');

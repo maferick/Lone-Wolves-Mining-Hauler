@@ -9,6 +9,7 @@ $title = $appName . ' • My Contracts';
 $basePathForViews = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 
 \App\Auth\Auth::requireLogin($authCtx);
+\App\Auth\Auth::requireEntitled($authCtx);
 
 $userId = (int)($authCtx['user_id'] ?? 0);
 $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));

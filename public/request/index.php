@@ -11,6 +11,7 @@ $title = $appName . ' • Contract Instructions';
 $basePathForViews = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 
 \App\Auth\Auth::requireLogin($authCtx);
+\App\Auth\Auth::requireEntitled($authCtx);
 $requestKey = trim((string)($_GET['request_key'] ?? ''));
 $error = null;
 $request = null;
