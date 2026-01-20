@@ -1165,21 +1165,43 @@ final class DiscordDeliveryService
       ];
     }
 
-    $managedRoles = array_values($roleMap);
     $action = (string)($payload['action'] ?? 'sync');
-    $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
-    if ($rightsSource === 'discord') {
-      if ($action === 'unlink') {
-        $this->removePortalHaulerRole($corpId, $userId);
-        return [
-          'ok' => true,
-          'status' => 200,
-          'error' => null,
-          'retry_after' => null,
-          'body' => '',
-        ];
+    $rightsSourceByPerm = [
+      'hauling.member' => $this->resolveRightsSource($configRow, 'hauling.member'),
+      'hauling.hauler' => $this->resolveRightsSource($configRow, 'hauling.hauler'),
+    ];
+    $portalManagedPerms = array_keys(array_filter(
+      $rightsSourceByPerm,
+      static fn(string $source): bool => $source !== 'discord'
+    ));
+    $discordManagedPerms = array_keys(array_filter(
+      $rightsSourceByPerm,
+      static fn(string $source): bool => $source === 'discord'
+    ));
+
+    if ($action === 'unlink' && $discordManagedPerms !== []) {
+      $this->removePortalRights($corpId, $userId, $discordManagedPerms);
+    } elseif ($action !== 'unlink' && $discordManagedPerms !== []) {
+      $syncResp = $this->syncPortalRightsFromDiscord($corpId, $userId, $discordUserId, $configRow, $discordManagedPerms);
+      if (empty($syncResp['ok'])) {
+        return $syncResp;
       }
-      return $this->syncPortalHaulerFromDiscord($corpId, $userId, $discordUserId, $configRow);
+    }
+
+    $managedRoles = [];
+    foreach ($roleMap as $permKey => $roleId) {
+      if (in_array($permKey, $portalManagedPerms, true)) {
+        $managedRoles[] = $roleId;
+      }
+    }
+    if ($managedRoles === []) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => '',
+      ];
     }
     $desiredRoles = [];
     if ($action !== 'unlink') {
@@ -1195,6 +1217,9 @@ final class DiscordDeliveryService
       );
       $permKeys = array_map(static fn($row) => (string)($row['perm_key'] ?? ''), $permRows);
       foreach ($roleMap as $permKey => $roleId) {
+        if (!in_array($permKey, $portalManagedPerms, true)) {
+          continue;
+        }
         if (in_array($permKey, $permKeys, true)) {
           $desiredRoles[] = $roleId;
         }
@@ -1313,7 +1338,7 @@ final class DiscordDeliveryService
   private function queueOnboardingDms(int $corpId, string $guildId, string $token, string $base, bool $dryRun = false): array
   {
     $configRow = $this->loadConfigRow($corpId);
-    $rightsSource = (string)($configRow['rights_source'] ?? 'portal');
+    $rightsSource = $this->resolveRightsSource($configRow, 'hauling.member');
     $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
     $onboardingEnabled = !empty($configRow['onboarding_dm_enabled']);
     $bypassList = $this->normalizeOnboardingBypass($configRow['onboarding_dm_bypass_json'] ?? null);
@@ -1487,6 +1512,200 @@ final class DiscordDeliveryService
     ];
   }
 
+  private function resolveRightsSource(array $configRow, string $permKey): string
+  {
+    $legacy = (string)($configRow['rights_source'] ?? 'portal');
+    $field = match ($permKey) {
+      'hauling.member' => 'rights_source_member',
+      'hauling.hauler' => 'rights_source_hauler',
+      default => '',
+    };
+    $value = $field !== '' ? (string)($configRow[$field] ?? '') : '';
+    $normalized = $value !== '' ? $value : $legacy;
+    return in_array($normalized, ['portal', 'discord'], true) ? $normalized : 'portal';
+  }
+
+  private function resolvePortalRoleIdForPermission(int $corpId, string $permKey): int
+  {
+    $preferredRoleKey = match ($permKey) {
+      'hauling.hauler' => 'hauler',
+      default => '',
+    };
+    if ($preferredRoleKey !== '') {
+      $preferredId = (int)$this->db->fetchValue(
+        "SELECT role_id FROM role WHERE corp_id = :cid AND role_key = :role_key LIMIT 1",
+        ['cid' => $corpId, 'role_key' => $preferredRoleKey]
+      );
+      if ($preferredId > 0) {
+        return $preferredId;
+      }
+    }
+
+    return (int)$this->db->fetchValue(
+      "SELECT r.role_id
+         FROM role r
+         JOIN role_permission rp ON rp.role_id = r.role_id AND rp.allow = 1
+         JOIN permission p ON p.perm_id = rp.perm_id
+        WHERE r.corp_id = :cid
+          AND r.role_key <> 'admin'
+          AND p.perm_key = :perm_key
+        ORDER BY r.is_system DESC, r.role_id ASC
+        LIMIT 1",
+      ['cid' => $corpId, 'perm_key' => $permKey]
+    );
+  }
+
+  private function removePortalRights(int $corpId, int $userId, array $permKeys): void
+  {
+    foreach ($permKeys as $permKey) {
+      $roleId = $this->resolvePortalRoleIdForPermission($corpId, (string)$permKey);
+      if ($roleId <= 0) {
+        continue;
+      }
+      $this->db->execute(
+        "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
+        ['uid' => $userId, 'rid' => $roleId]
+      );
+    }
+  }
+
+  private function fetchDiscordMemberRoles(string $guildId, string $discordUserId, string $token): array
+  {
+    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
+    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId, [
+      'Authorization: Bot ' . $token,
+    ]);
+    if (empty($memberResp['ok'])) {
+      return $memberResp;
+    }
+
+    $member = json_decode((string)($memberResp['body'] ?? ''), true);
+    $currentRoles = is_array($member) ? ($member['roles'] ?? []) : [];
+    if (!is_array($currentRoles)) {
+      $currentRoles = [];
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+      'roles' => $currentRoles,
+    ];
+  }
+
+  public function syncPortalRightsFromDiscord(
+    int $corpId,
+    int $userId,
+    string $discordUserId,
+    array $configRow,
+    array $permKeys = []
+  ): array {
+    $guildId = trim((string)($configRow['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
+    if ($guildId === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'guild_id_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    $token = (string)($this->config['discord']['bot_token'] ?? '');
+    if ($token === '') {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'bot_token_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+    if ($discordUserId === '' || $userId <= 0) {
+      return [
+        'ok' => false,
+        'status' => 0,
+        'error' => 'user_reference_missing',
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $targetPermKeys = $permKeys !== [] ? $permKeys : ['hauling.member', 'hauling.hauler'];
+    $roleMapByPerm = [];
+    foreach ($targetPermKeys as $permKey) {
+      $permKey = (string)$permKey;
+      $discordRoleId = trim((string)($roleMap[$permKey] ?? ''));
+      if ($discordRoleId === '') {
+        if ($permKey === 'hauling.hauler') {
+          return [
+            'ok' => false,
+            'status' => 0,
+            'error' => 'hauler_role_mapping_missing',
+            'retry_after' => null,
+            'body' => '',
+          ];
+        }
+        continue;
+      }
+      $roleMapByPerm[$permKey] = $discordRoleId;
+    }
+
+    if ($roleMapByPerm === []) {
+      return [
+        'ok' => true,
+        'status' => 200,
+        'error' => null,
+        'retry_after' => null,
+        'body' => '',
+      ];
+    }
+
+    $memberResp = $this->fetchDiscordMemberRoles($guildId, $discordUserId, $token);
+    if (empty($memberResp['ok'])) {
+      return $memberResp;
+    }
+    $currentRoles = $memberResp['roles'] ?? [];
+    if (!is_array($currentRoles)) {
+      $currentRoles = [];
+    }
+
+    foreach ($roleMapByPerm as $permKey => $discordRoleId) {
+      $portalRoleId = $this->resolvePortalRoleIdForPermission($corpId, $permKey);
+      if ($portalRoleId <= 0) {
+        return [
+          'ok' => false,
+          'status' => 0,
+          'error' => 'portal_role_missing',
+          'retry_after' => null,
+          'body' => $permKey,
+        ];
+      }
+      $hasDiscordRole = in_array($discordRoleId, $currentRoles, true);
+      if ($hasDiscordRole) {
+        $this->db->execute(
+          "INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)",
+          ['uid' => $userId, 'rid' => $portalRoleId]
+        );
+      } else {
+        $this->db->execute(
+          "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
+          ['uid' => $userId, 'rid' => $portalRoleId]
+        );
+      }
+    }
+
+    return [
+      'ok' => true,
+      'status' => 200,
+      'error' => null,
+      'retry_after' => null,
+      'body' => '',
+    ];
+  }
+
   private function shouldQueueOnboarding(
     array $member,
     array $linkedLookup,
@@ -1620,96 +1839,7 @@ final class DiscordDeliveryService
 
   public function syncPortalHaulerFromDiscord(int $corpId, int $userId, string $discordUserId, array $configRow): array
   {
-    $guildId = trim((string)($configRow['guild_id'] ?? $this->config['discord']['guild_id'] ?? ''));
-    if ($guildId === '') {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'guild_id_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-    $token = (string)($this->config['discord']['bot_token'] ?? '');
-    if ($token === '') {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'bot_token_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-    if ($discordUserId === '' || $userId <= 0) {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'user_reference_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-
-    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
-    $haulerRoleId = (string)($roleMap['hauling.hauler'] ?? '');
-    if ($haulerRoleId === '') {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'hauler_role_mapping_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-
-    $base = rtrim((string)($this->config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
-    $memberResp = $this->getJson($base . '/guilds/' . $guildId . '/members/' . $discordUserId, [
-      'Authorization: Bot ' . $token,
-    ]);
-    if (empty($memberResp['ok'])) {
-      return $memberResp;
-    }
-
-    $member = json_decode((string)($memberResp['body'] ?? ''), true);
-    $currentRoles = is_array($member) ? ($member['roles'] ?? []) : [];
-    if (!is_array($currentRoles)) {
-      $currentRoles = [];
-    }
-
-    $hasHaulerRole = in_array($haulerRoleId, $currentRoles, true);
-    $portalHaulerRoleId = (int)$this->db->fetchValue(
-      "SELECT role_id FROM role WHERE corp_id = :cid AND role_key = 'hauler' LIMIT 1",
-      ['cid' => $corpId]
-    );
-    if ($portalHaulerRoleId <= 0) {
-      return [
-        'ok' => false,
-        'status' => 0,
-        'error' => 'portal_hauler_role_missing',
-        'retry_after' => null,
-        'body' => '',
-      ];
-    }
-
-    if ($hasHaulerRole) {
-      $this->db->execute(
-        "INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)",
-        ['uid' => $userId, 'rid' => $portalHaulerRoleId]
-      );
-    } else {
-      $this->db->execute(
-        "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
-        ['uid' => $userId, 'rid' => $portalHaulerRoleId]
-      );
-    }
-
-    return [
-      'ok' => true,
-      'status' => 200,
-      'error' => null,
-      'retry_after' => null,
-      'body' => '',
-    ];
+    return $this->syncPortalRightsFromDiscord($corpId, $userId, $discordUserId, $configRow, ['hauling.hauler']);
   }
 
   private function createThreadForRequest(int $corpId, array $configRow, array $payload, string $token): array
@@ -2180,22 +2310,6 @@ final class DiscordDeliveryService
       ['cid' => $corpId]
     ) ?? 0);
     return $count < $limit;
-  }
-
-  private function removePortalHaulerRole(int $corpId, int $userId): void
-  {
-    $portalHaulerRoleId = (int)$this->db->fetchValue(
-      "SELECT role_id FROM role WHERE corp_id = :cid AND role_key = 'hauler' LIMIT 1",
-      ['cid' => $corpId]
-    );
-    if ($portalHaulerRoleId <= 0) {
-      return;
-    }
-
-    $this->db->execute(
-      "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
-      ['uid' => $userId, 'rid' => $portalHaulerRoleId]
-    );
   }
 
   private function postJson(string $url, array $payload, array $headers = []): array
