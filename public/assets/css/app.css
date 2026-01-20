@@ -698,3 +698,19 @@ code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libera
   overflow:auto;
   padding-right:4px;
 }
+
+body.is-admin .main{
+  max-width:none;
+  width:100%;
+  margin:0;
+  padding:22px clamp(16px, 3vw, 40px);
+}
+
+body.is-admin .main .card{
+  max-width:none;
+  width:100%;
+}
+
+body.is-admin.brand-bg::before{
+  opacity:0.2;
+}
