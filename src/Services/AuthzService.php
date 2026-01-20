@@ -287,6 +287,122 @@ final class AuthzService
     ];
   }
 
+  public function getAdminUserIds(): array
+  {
+    $rows = $this->db->select(
+      "SELECT DISTINCT ur.user_id
+         FROM user_role ur
+         JOIN role r ON r.role_id = ur.role_id
+        WHERE r.role_key = :role_key",
+      ['role_key' => 'admin']
+    );
+    $userIds = array_map('intval', array_column($rows, 'user_id'));
+    $userIds = array_values(array_filter($userIds, static fn(int $id): bool => $id > 0));
+
+    $breakglassIds = $this->getBreakglassUserIds();
+    if ($breakglassIds !== []) {
+      $userIds = array_merge($userIds, $breakglassIds);
+    }
+
+    $breakglassEmails = $this->getBreakglassEmails();
+    if ($breakglassEmails !== []) {
+      $placeholders = [];
+      $params = [];
+      foreach ($breakglassEmails as $index => $email) {
+        $key = 'email_' . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $email;
+      }
+      $emailRows = $this->db->select(
+        "SELECT user_id
+           FROM app_user
+          WHERE LOWER(email) IN (" . implode(', ', $placeholders) . ")",
+        $params
+      );
+      $emailUserIds = array_map('intval', array_column($emailRows, 'user_id'));
+      $userIds = array_merge($userIds, $emailUserIds);
+    }
+
+    $userIds = array_values(array_unique($userIds));
+    sort($userIds);
+    return $userIds;
+  }
+
+  public function selfHealAdminAccess(string $source = 'cron'): int
+  {
+    $adminUserIds = $this->getAdminUserIds();
+    if ($adminUserIds === []) {
+      return 0;
+    }
+
+    $remediated = 0;
+    foreach ($adminUserIds as $userId) {
+      $userId = (int)$userId;
+      if ($userId <= 0) {
+        continue;
+      }
+      $user = $this->db->one(
+        "SELECT user_id, corp_id, status, session_revoked_at, email
+           FROM app_user
+          WHERE user_id = :uid
+          LIMIT 1",
+        ['uid' => $userId]
+      );
+      if (!$user) {
+        continue;
+      }
+      $status = (string)($user['status'] ?? '');
+      if ($status !== 'suspended') {
+        continue;
+      }
+      if (!$this->userIsAdmin($userId, $user)) {
+        continue;
+      }
+
+      $previousStatus = $status;
+      $previousSessionRevokedAt = $user['session_revoked_at'] ?? null;
+      $updated = $this->db->execute(
+        "UPDATE app_user
+            SET status = 'active',
+                session_revoked_at = NULL
+          WHERE user_id = :uid
+            AND status = 'suspended'",
+        ['uid' => $userId]
+      );
+      if ($updated <= 0) {
+        continue;
+      }
+
+      $timestamp = gmdate('c');
+      $this->db->audit(
+        isset($user['corp_id']) ? (int)$user['corp_id'] : null,
+        null,
+        null,
+        'entitlement.admin_selfheal',
+        'app_user',
+        (string)$userId,
+        [
+          'status' => $previousStatus,
+          'session_revoked_at' => $previousSessionRevokedAt,
+        ],
+        [
+          'status' => 'active',
+          'session_revoked_at' => null,
+          'user_id' => $userId,
+          'previous_status' => $previousStatus,
+          'previous_session_revoked_at' => $previousSessionRevokedAt,
+          'timestamp' => $timestamp,
+          'source' => $source,
+        ],
+        null,
+        null
+      );
+      $remediated++;
+    }
+
+    return $remediated;
+  }
+
   private function parseEnvList(string $value): array
   {
     $value = trim($value);

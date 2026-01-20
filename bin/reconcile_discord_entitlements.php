@@ -21,6 +21,11 @@ $authz = new AuthzService($db);
 $accessConfig = $authz->loadAccessConfig();
 $snapshotMaxAge = AuthzService::snapshotMaxAgeSeconds();
 
+$selfHealCount = $authz->selfHealAdminAccess('cron');
+if ($selfHealCount > 0) {
+  $log("Admin self-heal restored {$selfHealCount} suspended admin(s).");
+}
+
 $corpRows = $db->select("SELECT DISTINCT corp_id FROM app_user");
 if ($corpRows === []) {
   $log('No portal users found; nothing to reconcile.');
