@@ -10,6 +10,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
 require_once __DIR__ . '/../../bootstrap.php';
 
 use App\Db\Db;
+use App\Services\AuthzService;
 
 $signature = $_SERVER['HTTP_X_SIGNATURE_ED25519'] ?? '';
 $timestamp = $_SERVER['HTTP_X_SIGNATURE_TIMESTAMP'] ?? '';
@@ -244,6 +245,10 @@ $requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, 
 };
 
 $userHasRight = static function (int $userId, string $permKey) use ($db): bool {
+  $authz = new AuthzService($db);
+  if (!$authz->isEntitledUserId($userId)) {
+    return false;
+  }
   $row = $db->one(
     "SELECT 1
        FROM user_role ur

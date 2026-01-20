@@ -265,9 +265,12 @@ try {
       $userId = (int)$existing['user_id'];
       $db->execute(
         "UPDATE app_user
-            SET character_name=:cn, display_name=:dn, last_login_at=UTC_TIMESTAMP(), status='active'
+            SET character_name=:cn,
+                display_name=:dn,
+                last_login_at=UTC_TIMESTAMP(),
+                status = CASE WHEN status = 'suspended' THEN status ELSE 'active' END
           WHERE user_id=:uid",
-        ['cn'=>$characterName,'dn'=>$characterName,'uid'=>$userId]
+        ['cn' => $characterName, 'dn' => $characterName, 'uid' => $userId]
       );
     } else {
       $userId = (int)$db->insert(
@@ -365,7 +368,7 @@ try {
     );
 
     // Persist user_id to session (outside tx is fine, but safe here too)
-    $_SESSION['user_id'] = $userId;
+    Auth::login($userId);
   });
 
   // Redirect to admin for admins; otherwise return to dashboard.
