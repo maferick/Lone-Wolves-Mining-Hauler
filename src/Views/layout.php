@@ -85,6 +85,12 @@ $backgroundAllPages = !empty($branding['background_all_pages']);
 if ($backgroundAllPages) {
   $bodyClass = trim($bodyClass . ' brand-bg');
 }
+$requestUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+$adminPathPrefix = ($basePath !== '' ? $basePath : '') . '/admin/';
+$isAdminRoute = str_starts_with($requestUri, $adminPathPrefix);
+if ($isAdminRoute) {
+  $bodyClass = trim($bodyClass . ' is-admin');
+}
 $bodyTransparencyAttr = $transparencyEnabled ? '' : ' data-transparency="off"';
 ?><!doctype html>
 <html lang="en">
