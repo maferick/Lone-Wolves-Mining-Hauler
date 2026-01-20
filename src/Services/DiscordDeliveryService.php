@@ -1452,7 +1452,7 @@ final class DiscordDeliveryService
         $snapshotMembers[] = $snapshotMember;
 
         if ($autoLinkEnabled) {
-          $linkedUserId = $this->autoLinkUserByUsername($corpId, $snapshotMember, $linkedLookup);
+          $linkedUserId = $this->autoLinkUserByDisplayName($corpId, $snapshotMember, $linkedLookup);
           if ($linkedUserId !== null) {
             $linkedLookup[$discordUserId] = true;
             if ($portalPermsToSync !== []) {
@@ -1865,7 +1865,7 @@ final class DiscordDeliveryService
     return true;
   }
 
-  private function autoLinkUserByUsername(int $corpId, array $member, array $linkedLookup): ?int
+  private function autoLinkUserByDisplayName(int $corpId, array $member, array $linkedLookup): ?int
   {
     $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
     if ($discordUserId === '' || isset($linkedLookup[$discordUserId])) {
@@ -1874,9 +1874,22 @@ final class DiscordDeliveryService
     if (!empty($member['is_bot'])) {
       return null;
     }
-    $username = trim((string)($member['username'] ?? ''));
-    if ($username === '') {
+    $candidates = [
+      trim((string)($member['nickname'] ?? '')),
+      trim((string)($member['global_name'] ?? '')),
+      trim((string)($member['username'] ?? '')),
+    ];
+    $candidates = array_values(array_unique(array_filter($candidates, static fn(string $value): bool => $value !== '')));
+    if ($candidates === []) {
       return null;
+    }
+
+    $placeholders = [];
+    $params = ['cid' => $corpId];
+    foreach ($candidates as $index => $candidate) {
+      $key = 'name' . $index;
+      $placeholders[] = ':' . $key;
+      $params[$key] = $candidate;
     }
 
     $matches = $this->db->select(
@@ -1884,14 +1897,11 @@ final class DiscordDeliveryService
          FROM app_user u
          LEFT JOIN discord_user_link l ON l.user_id = u.user_id
         WHERE u.corp_id = :cid
-          AND u.display_name = :name
+          AND u.display_name IN (" . implode(',', $placeholders) . ")
           AND u.status = 'active'
           AND l.discord_user_id IS NULL
         LIMIT 2",
-      [
-        'cid' => $corpId,
-        'name' => $username,
-      ]
+      $params
     );
     if (count($matches) !== 1) {
       return null;
@@ -1909,7 +1919,7 @@ final class DiscordDeliveryService
       return null;
     }
 
-    $discordUsername = $username;
+    $discordUsername = trim((string)($member['username'] ?? ''));
     $discriminator = trim((string)($member['discriminator'] ?? ''));
     if ($discordUsername !== '' && $discriminator !== '' && $discriminator !== '0') {
       $discordUsername .= '#' . $discriminator;
