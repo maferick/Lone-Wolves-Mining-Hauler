@@ -1102,7 +1102,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </form>
         </div>
         <div class="muted" style="margin-top:10px;">
-          When enabled, Discord members whose usernames exactly match a portal display name will be linked automatically.
+          When enabled, Discord members whose display name (server nickname, global name, or username) exactly matches a portal display name will be linked automatically.
         </div>
       </div>
       <div class="card" style="padding:12px; margin-top:12px;">
