@@ -57,5 +57,19 @@ Changes are logged to `audit_log` and active sessions are invalidated via `sessi
    - Reassign portal roles
    - Ask the user to log in again (sessions were revoked)
 
+## Break-glass admin access recovery
+If admin access is lost due to role misconfiguration or entitlement drift, a temporary break-glass allowlist can restore admin access without deleting users.
+
+1. Set **one** of the following environment variables (comma or whitespace separated):
+   - `ADMIN_BREAKGLASS_USER_IDS` (portal `app_user.user_id` values)
+   - `ADMIN_BREAKGLASS_EMAILS` (portal `app_user.email` values)
+2. Restart the web process or reload env configuration.
+3. Log in as the allowlisted user to regain admin access.
+
+**Notes**
+- Break-glass bypass is **off by default**.
+- The allowlist only grants admin access; entitlement status is still evaluated for hauling/member routes.
+- Remove the environment variable once access is recovered.
+
 ## Scheduling
 This job is safe to run on a cron cadence (e.g., every 5–15 minutes) after the Discord scan schedule you prefer.

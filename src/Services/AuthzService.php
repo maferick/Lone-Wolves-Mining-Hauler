@@ -9,6 +9,8 @@ final class AuthzService
 {
   private Db $db;
   public const SNAPSHOT_DEFAULT_MAX_AGE_SECONDS = 21600;
+  private ?array $breakglassUserIds = null;
+  private ?array $breakglassEmails = null;
 
   public function __construct(Db $db)
   {
@@ -185,20 +187,22 @@ final class AuthzService
 
   public function isEntitledByUserRow(array $user): bool
   {
+    return $this->isEntitled($user);
+  }
+
+  public function isEntitled(array $user, ?array $accessConfig = null): bool
+  {
     $status = (string)($user['status'] ?? 'active');
     if ($status !== 'active') {
       return false;
     }
-    $accessConfig = $this->loadAccessConfig();
+    $accessConfig = $accessConfig ?? $this->loadAccessConfig();
     if (!$this->isUserInScope($user, $accessConfig)) {
       return false;
     }
     $corpId = (int)($user['corp_id'] ?? 0);
     if ($corpId <= 0) {
       return false;
-    }
-    if ($this->userHasRole((int)($user['user_id'] ?? 0), 'admin')) {
-      return true;
     }
     $discordUserId = $this->fetchDiscordUserId((int)($user['user_id'] ?? 0));
     $roleId = $this->getDiscordRoleId($corpId, 'hauling.member');
@@ -218,7 +222,138 @@ final class AuthzService
     if (!$user) {
       return false;
     }
-    return $this->isEntitledByUserRow($user);
+    return $this->isEntitled($user);
+  }
+
+  public function userIsAdmin(int $userId, ?array $userRow = null): bool
+  {
+    if ($userId <= 0) {
+      return false;
+    }
+
+    $email = '';
+    if (is_array($userRow) && isset($userRow['email'])) {
+      $email = trim((string)$userRow['email']);
+    }
+
+    if ($this->isBreakglassAdmin($userId, $email)) {
+      return true;
+    }
+
+    if ($email === '' && $this->getBreakglassEmails() !== []) {
+      $email = $this->fetchUserEmail($userId);
+      if ($this->isBreakglassAdmin($userId, $email)) {
+        return true;
+      }
+    }
+
+    return $this->userHasRole($userId, 'admin');
+  }
+
+  public function computeAccessState(array $user): array
+  {
+    $accessConfig = $this->loadAccessConfig();
+    $inScope = $this->isUserInScope($user, $accessConfig);
+    $isEntitled = $this->isEntitled($user, $accessConfig);
+    $userId = (int)($user['user_id'] ?? 0);
+    $email = trim((string)($user['email'] ?? ''));
+    $isAdmin = $this->isBreakglassAdmin($userId, $email) || $this->userHasRole($userId, 'admin');
+
+    return [
+      'is_admin' => $isAdmin,
+      'is_entitled' => $isEntitled,
+      'compliance' => self::classifyCompliance($inScope, $isEntitled),
+    ];
+  }
+
+  public function computeReconcileDecision(array $user, bool $isAdmin, bool $entitled): array
+  {
+    $previousStatus = (string)($user['status'] ?? 'active');
+    $sessionRevokedAt = (string)($user['session_revoked_at'] ?? '');
+
+    $desiredStatus = $previousStatus;
+    if ($entitled) {
+      $desiredStatus = 'active';
+    } elseif (!$isAdmin) {
+      $desiredStatus = 'suspended';
+    } elseif ($previousStatus !== 'disabled') {
+      $desiredStatus = 'active';
+    }
+
+    return [
+      'desired_status' => $desiredStatus,
+      'status_changed' => $desiredStatus !== $previousStatus,
+      'should_revoke_session' => !$entitled && !$isAdmin && $sessionRevokedAt === '',
+    ];
+  }
+
+  private function parseEnvList(string $value): array
+  {
+    $value = trim($value);
+    if ($value === '') {
+      return [];
+    }
+    $parts = preg_split('/[,\s]+/', $value) ?: [];
+    $cleaned = [];
+    foreach ($parts as $part) {
+      $part = trim((string)$part);
+      if ($part !== '') {
+        $cleaned[] = $part;
+      }
+    }
+    return array_values(array_unique($cleaned));
+  }
+
+  private function getBreakglassUserIds(): array
+  {
+    if ($this->breakglassUserIds !== null) {
+      return $this->breakglassUserIds;
+    }
+    $raw = (string)($_ENV['ADMIN_BREAKGLASS_USER_IDS'] ?? '');
+    $ids = array_map('intval', $this->parseEnvList($raw));
+    $ids = array_values(array_filter($ids, static fn(int $id): bool => $id > 0));
+    $this->breakglassUserIds = $ids;
+    return $this->breakglassUserIds;
+  }
+
+  private function getBreakglassEmails(): array
+  {
+    if ($this->breakglassEmails !== null) {
+      return $this->breakglassEmails;
+    }
+    $raw = (string)($_ENV['ADMIN_BREAKGLASS_EMAILS'] ?? '');
+    $emails = array_map(
+      static fn(string $email): string => strtolower($email),
+      $this->parseEnvList($raw)
+    );
+    $this->breakglassEmails = $emails;
+    return $this->breakglassEmails;
+  }
+
+  private function isBreakglassAdmin(int $userId, string $email): bool
+  {
+    if ($userId > 0 && in_array($userId, $this->getBreakglassUserIds(), true)) {
+      return true;
+    }
+    if ($email !== '' && in_array(strtolower($email), $this->getBreakglassEmails(), true)) {
+      return true;
+    }
+    return false;
+  }
+
+  private function fetchUserEmail(int $userId): string
+  {
+    if ($userId <= 0) {
+      return '';
+    }
+    $row = $this->db->one(
+      "SELECT email
+         FROM app_user
+        WHERE user_id = :uid
+        LIMIT 1",
+      ['uid' => $userId]
+    );
+    return $row ? trim((string)($row['email'] ?? '')) : '';
   }
 
   private function userHasRole(int $userId, string $roleKey): bool

@@ -8,15 +8,7 @@ use App\Services\WikiService;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-if (!Auth::hasRole($authCtx, 'admin')) {
-  http_response_code(403);
-  $appName = $config['app']['name'] ?? 'Corp Hauling';
-  $title = $appName . ' • Wiki Check';
-  $errorTitle = 'Not allowed';
-  $errorMessage = 'You do not have permission to view this diagnostic page.';
-  require __DIR__ . '/../../../src/Views/error.php';
-  exit;
-}
+Auth::requireAdmin($authCtx);
 
 $wikiDir = __DIR__ . '/../../../docs/wiki';
 $wikiPages = WikiService::loadPages($wikiDir);

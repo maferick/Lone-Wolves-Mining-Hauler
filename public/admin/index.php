@@ -7,6 +7,7 @@ use App\Auth\Auth;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
+Auth::requireAdmin($authCtx);
 $adminPerms = [
   'corp.manage',
   'esi.manage',

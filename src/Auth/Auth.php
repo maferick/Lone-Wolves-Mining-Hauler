@@ -39,46 +39,38 @@ final class Auth
 
   public static function context(?Db $db): array
   {
+    $guestContext = [
+      'user_id' => null,
+      'corp_id' => null,
+      'character_id' => null,
+      'character_name' => null,
+      'display_name' => 'Guest',
+      'roles' => [],
+      'perms' => [],
+      'is_authenticated' => false,
+      'is_admin' => false,
+      'is_entitled' => false,
+      'compliance' => null,
+    ];
     $uid = self::userId();
     if ($db === null) {
       // DB unavailable: keep the app up, but treat as guest.
-      return [
-        'user_id' => null,
-        'corp_id' => null,
-        'character_id' => null,
-        'display_name' => 'Guest',
-        'roles' => [],
-        'perms' => [],
-      ];
+      return $guestContext;
     }
 
     if (!$uid) {
-      return [
-        'user_id' => null,
-        'corp_id' => null,
-        'character_id' => null,
-        'display_name' => 'Guest',
-        'roles' => [],
-        'perms' => [],
-      ];
+      return $guestContext;
     }
 
     $u = $db->one(
-      "SELECT user_id, corp_id, character_id, character_name, display_name, status, session_revoked_at
+      "SELECT user_id, corp_id, character_id, character_name, display_name, email, status, session_revoked_at
          FROM app_user WHERE user_id = :id LIMIT 1",
       ['id' => $uid]
     );
 
     if (!$u || ($u['status'] ?? '') !== 'active') {
       self::logout();
-      return [
-        'user_id' => null,
-        'corp_id' => null,
-        'character_id' => null,
-        'display_name' => 'Guest',
-        'roles' => [],
-        'perms' => [],
-      ];
+      return $guestContext;
     }
 
     $loggedInAt = $_SESSION['logged_in_at'] ?? null;
@@ -87,30 +79,13 @@ final class Auth
       if ($revokedAt !== false) {
         if ($loggedInAt === null || (int)$loggedInAt < $revokedAt) {
           self::logout();
-          return [
-            'user_id' => null,
-            'corp_id' => null,
-            'character_id' => null,
-            'display_name' => 'Guest',
-            'roles' => [],
-            'perms' => [],
-          ];
+          return $guestContext;
         }
       }
     }
 
     $authz = new \App\Services\AuthzService($db);
-    if (!$authz->isEntitledByUserRow($u)) {
-      self::logout();
-      return [
-        'user_id' => null,
-        'corp_id' => null,
-        'character_id' => null,
-        'display_name' => 'Guest',
-        'roles' => [],
-        'perms' => [],
-      ];
-    }
+    $accessState = $authz->computeAccessState($u);
 
     $roles = $db->select(
       "SELECT r.role_key
@@ -139,6 +114,10 @@ final class Auth
       'display_name' => $u['display_name'] ?? null,
       'roles' => $roleKeys,
       'perms' => $permKeys,
+      'is_authenticated' => true,
+      'is_admin' => (bool)($accessState['is_admin'] ?? false),
+      'is_entitled' => (bool)($accessState['is_entitled'] ?? false),
+      'compliance' => $accessState['compliance'] ?? null,
     ];
   }
 
@@ -153,17 +132,40 @@ final class Auth
 
   public static function can(array $ctx, string $permKey): bool
   {
-    return in_array($permKey, $ctx['perms'] ?? [], true) || in_array('admin', $ctx['roles'] ?? [], true);
+    return !empty($ctx['is_admin'])
+      || in_array($permKey, $ctx['perms'] ?? [], true)
+      || in_array('admin', $ctx['roles'] ?? [], true);
   }
 
   public static function hasRole(array $ctx, string $roleKey): bool
   {
+    if ($roleKey === 'admin' && !empty($ctx['is_admin'])) {
+      return true;
+    }
     return in_array($roleKey, $ctx['roles'] ?? [], true);
   }
 
   public static function requirePerm(array $ctx, string $permKey): void
   {
     if (!self::can($ctx, $permKey)) {
+      http_response_code(403);
+      echo "Forbidden";
+      exit;
+    }
+  }
+
+  public static function requireAdmin(array $ctx): void
+  {
+    if (empty($ctx['is_admin'])) {
+      http_response_code(403);
+      echo "Forbidden";
+      exit;
+    }
+  }
+
+  public static function requireEntitled(array $ctx): void
+  {
+    if (empty($ctx['is_entitled'])) {
       http_response_code(403);
       echo "Forbidden";
       exit;

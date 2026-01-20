@@ -40,7 +40,7 @@ foreach ($corpRows as $corpRow) {
   $membersById = $snapshotFresh ? $authz->buildDiscordMemberLookup($snapshot) : [];
 
   $users = $db->select(
-    "SELECT u.user_id, u.corp_id, u.status, u.session_revoked_at, l.discord_user_id
+    "SELECT u.user_id, u.corp_id, u.status, u.session_revoked_at, u.email, l.discord_user_id
        FROM app_user u
        LEFT JOIN discord_user_link l ON l.user_id = u.user_id
       WHERE u.corp_id = :cid
@@ -59,20 +59,30 @@ foreach ($corpRows as $corpRow) {
     if ($userId <= 0) {
       continue;
     }
+    $isAdmin = $authz->userIsAdmin($userId, $user);
     $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
     $inScope = $authz->isUserInScope($user, $accessConfig);
     $discordEntitled = $snapshotFresh && $discordUserId !== '' && isset($membersById[$discordUserId]);
     $entitled = $inScope && $discordEntitled;
-    $desiredStatus = $entitled ? 'active' : 'suspended';
     $previousStatus = (string)($user['status'] ?? 'active');
-    $statusChanged = $previousStatus !== $desiredStatus;
     $sessionRevokedAt = (string)($user['session_revoked_at'] ?? '');
-    $shouldRevokeSession = !$entitled && $sessionRevokedAt === '';
+
+    $decision = $authz->computeReconcileDecision($user, $isAdmin, $entitled);
+    $desiredStatus = (string)($decision['desired_status'] ?? $previousStatus);
+    $statusChanged = (bool)($decision['status_changed'] ?? false);
+    $shouldRevokeSession = (bool)($decision['should_revoke_session'] ?? false);
 
     $rolesRemoved = 0;
-    if (!$entitled) {
+    if (!$entitled && !$isAdmin) {
       $rolesRemoved = $db->execute(
         "DELETE FROM user_role WHERE user_id = :uid",
+        ['uid' => $userId]
+      );
+    } elseif ($isAdmin && !$entitled) {
+      $rolesRemoved = $db->execute(
+        "DELETE FROM user_role
+          WHERE user_id = :uid
+            AND role_id NOT IN (SELECT role_id FROM role WHERE role_key = 'admin')",
         ['uid' => $userId]
       );
     }
@@ -115,6 +125,7 @@ foreach ($corpRows as $corpRow) {
           'status' => $statusChanged ? $desiredStatus : $previousStatus,
           'session_revoked_at' => $sessionRevokedUpdate ?? $sessionRevokedAt,
           'in_scope' => $inScope,
+          'is_admin' => $isAdmin,
           'discord_entitled' => $discordEntitled,
           'roles_removed' => $rolesRemoved,
         ],

@@ -8,7 +8,7 @@ use App\Services\DiscordOutboxErrorHelp;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'webhook.manage');
+Auth::requireAdmin($authCtx);
 
 $corpId = (int)($authCtx['corp_id'] ?? 0);
 

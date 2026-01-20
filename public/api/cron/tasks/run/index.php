@@ -10,7 +10,7 @@ use App\Services\JobQueueService;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
-Auth::requirePerm($authCtx, 'esi.manage');
+Auth::requireAdmin($authCtx);
 
 $data = api_read_json();
 $taskKey = trim((string)($data['task_key'] ?? ($data['taskKey'] ?? ($data['task'] ?? ''))));
