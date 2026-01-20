@@ -74,7 +74,7 @@ $subNavGroups = $dispatcherLimited
       'items' => [
         ['label' => 'Admin', 'path' => '/admin/', 'perm' => null],
         ['label' => 'Users', 'path' => '/admin/users/', 'perm' => 'user.manage'],
-        ['label' => 'Rights', 'path' => '/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
+        ['label' => 'Rights', 'path' => '/admin/rights/', 'perm' => 'user.manage', 'requires_rights' => true, 'match' => 'rights'],
       ],
     ],
     [
