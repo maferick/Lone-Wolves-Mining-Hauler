@@ -37,6 +37,23 @@ For each portal user:
 
 Changes are logged to `audit_log` and active sessions are invalidated via `session_revoked_at`.
 
+## Admin Self-Heal (cron)
+To prevent admin lockouts caused by stale reconcile logic, the cron job performs an idempotent self-heal step before entitlement reconciliation. If an admin user is found in `status='suspended'`, the job restores:
+- `app_user.status = 'active'`
+- `app_user.session_revoked_at = NULL`
+
+Only admins (including break-glass allowlisted admins) are remediated. Admins in `status='disabled'` are **not** reactivated. Each remediation writes an `audit_log` entry with action `entitlement.admin_selfheal`, including the previous status, previous session revocation timestamp, the remediation timestamp, and `source='cron'`.
+
+### Monitoring
+- SQL:
+  ```sql
+  SELECT action, entity_pk, after_json, created_at
+    FROM audit_log
+   WHERE action = 'entitlement.admin_selfheal'
+   ORDER BY created_at DESC
+   LIMIT 50;
+  ```
+
 ## Verification
 - Admin UI → Discord → **Portal → Discord status map**:
   - Confirm **Compliance** badges and **Access** states match expectations.
