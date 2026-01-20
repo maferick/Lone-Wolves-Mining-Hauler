@@ -679,6 +679,21 @@ $rightsSourceByRight = [
   'hauling.member' => (string)($configRow['rights_source_member'] ?? $legacyRightsSource),
   'hauling.hauler' => (string)($configRow['rights_source_hauler'] ?? $legacyRightsSource),
 ];
+$memberRightsSource = in_array($rightsSourceByRight['hauling.member'], ['portal', 'discord'], true)
+  ? $rightsSourceByRight['hauling.member']
+  : 'portal';
+$governanceModeLabel = $memberRightsSource === 'discord' ? 'Discord-leading' : 'Portal-leading';
+$entitlementSourceLabel = $memberRightsSource === 'discord'
+  ? 'Entitlement (Discord snapshot)'
+  : 'Entitlement (Portal rights)';
+$scanStateLabel = $memberRightsSource === 'discord' ? 'Scan state' : 'Provisioning state';
+$entitlementSourceNote = $memberRightsSource === 'discord'
+  ? 'Entitlement is derived from the latest Discord role snapshot; stale snapshots default to not entitled.'
+  : 'Entitlement is derived from portal rights assignments and can be synced to Discord roles for alignment.';
+$scanStateNote = $memberRightsSource === 'discord'
+  ? '"Scan processed" means a linked user has no onboarding DM queued.'
+  : 'Provisioning state reflects the onboarding DM queue for linked users (no pending onboarding DM).';
+$effectiveAccessNote = 'Effective access uses the latest Discord snapshot; stale snapshots fail closed until refreshed.';
 
 $pendingCount = (int)($db->fetchValue(
   "SELECT COUNT(*) FROM discord_outbox WHERE corp_id = :cid AND status IN ('queued','failed','sending')",
@@ -916,6 +931,31 @@ if ($isAdmin) {
       ORDER BY u.display_name ASC, u.user_id ASC",
     ['cid' => $corpId]
   );
+}
+$portalEntitledByUserId = [];
+if ($portalUsers !== []) {
+  $portalUserIds = array_values(array_filter(array_map(
+    static fn(array $user): int => (int)($user['user_id'] ?? 0),
+    $portalUsers
+  ), static fn(int $userId): bool => $userId > 0));
+  if ($portalUserIds !== []) {
+    $placeholders = implode(',', array_fill(0, count($portalUserIds), '?'));
+    $entitledRows = $db->select(
+      "SELECT DISTINCT ur.user_id
+         FROM user_role ur
+         JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
+         JOIN permission p ON p.perm_id = rp.perm_id
+        WHERE p.perm_key = 'hauling.member'
+          AND ur.user_id IN ($placeholders)",
+      $portalUserIds
+    );
+    foreach ($entitledRows as $row) {
+      $userId = (int)($row['user_id'] ?? 0);
+      if ($userId > 0) {
+        $portalEntitledByUserId[$userId] = true;
+      }
+    }
+  }
 }
 
 $linkedPortalByDiscord = [];
@@ -1478,9 +1518,25 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         </div>
 
         <div class="card" style="padding:12px; margin-top:12px;">
-          <div class="label">Portal → Discord status map</div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div class="label">Identity governance status map (Portal ↔ Discord)</div>
+            <span class="pill">Governance mode: <?= htmlspecialchars($governanceModeLabel, ENT_QUOTES, 'UTF-8') ?></span>
+          </div>
           <div class="muted" style="margin-top:6px;">
-            "Scan processed" means a linked user has no onboarding DM queued. Entitlement is derived from the latest Discord role snapshot; stale snapshots default to not entitled.
+            Joiner/Mover/Leaver: Joiners are newly in-scope identities, Movers change eligibility or entitlement, and Leavers are out-of-scope or de-entitled.
+          </div>
+          <ul class="muted" style="margin-top:6px; padding-left:18px;">
+            <li><strong>Identity status</strong>: portal lifecycle state.</li>
+            <li><strong>Eligibility (in scope)</strong>: in-scope per access policy.</li>
+            <li><strong>Entitlement</strong>: authoritative rights decision (source varies by mode).</li>
+            <li><strong>Effective access</strong>: whether access would be granted.</li>
+            <li><strong>Policy outcome</strong>: compliance between eligibility and entitlement.</li>
+          </ul>
+          <div class="muted" style="margin-top:6px;"><?= htmlspecialchars($entitlementSourceNote, ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="muted" style="margin-top:4px;"><?= htmlspecialchars($scanStateNote, ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="muted" style="margin-top:4px;"><?= htmlspecialchars($effectiveAccessNote, ENT_QUOTES, 'UTF-8') ?></div>
+          <div class="muted" style="margin-top:4px;">
+            Privileged access exemptions (admin/subadmin/break-glass) are labeled in Effective access and Policy outcome; mismatches between entitlement and access indicate drift or exceptions.
           </div>
           <div class="muted" style="margin-top:4px;">Tip: click a column header to sort.</div>
           <?php if ($portalUsers === []): ?>
@@ -1490,16 +1546,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <thead>
                 <tr>
                   <th data-sort-type="string">User</th>
-                  <th data-sort-type="string">Portal status</th>
+                  <th data-sort-type="string">Identity status</th>
                   <th data-sort-type="string">Link state</th>
                   <th data-sort-type="string">Discord link</th>
-                  <th data-sort-type="string">Portal eligible</th>
-                  <th data-sort-type="string">Entitled (hauling.member)</th>
-                  <th data-sort-type="string">Access</th>
-                  <th data-sort-type="string">Compliance</th>
+                  <th data-sort-type="string">Eligibility (in scope)</th>
+                  <th data-sort-type="string"><?= htmlspecialchars($entitlementSourceLabel, ENT_QUOTES, 'UTF-8') ?></th>
+                  <th data-sort-type="string">Effective access</th>
+                  <th data-sort-type="string">Policy outcome</th>
                   <th data-sort-type="string">Discord hauling.hauler</th>
                   <th data-sort-type="date">Discord last seen</th>
-                  <th data-sort-type="string">Scan status</th>
+                  <th data-sort-type="string"><?= htmlspecialchars($scanStateLabel, ENT_QUOTES, 'UTF-8') ?></th>
                 </tr>
               </thead>
               <tbody>
@@ -1522,30 +1578,37 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $userIsAdmin = $authz ? $authz->userIsAdmin($userId, $user) : false;
                     $userIsSubadmin = $authz ? $authz->userIsSubadmin($userId) : false;
                     $isActive = (string)($user['status'] ?? '') === 'active';
-                    $accessGranted = $isActive && AuthzService::accessGranted($inScope, $discordMemberEntitled, $userIsAdmin);
-                    $adminExempt = $userIsAdmin && $isActive && !($inScope && $discordMemberEntitled);
+                    $portalMemberEntitled = isset($portalEntitledByUserId[$userId]);
+                    $authoritativeEntitled = $memberRightsSource === 'discord' ? $discordMemberEntitled : $portalMemberEntitled;
+                    $entitlementStatusLabel = $memberRightsSource === 'discord'
+                      ? $discordMemberRightStatus
+                      : ($portalMemberEntitled ? 'Entitled' : 'Not entitled');
+                    $effectiveEntitled = $discordMemberEntitled;
+                    $accessGranted = $isActive && AuthzService::accessGranted($inScope, $effectiveEntitled, $userIsAdmin);
+                    $adminExempt = $userIsAdmin && $isActive && !($inScope && $authoritativeEntitled);
                     if ($userIsAdmin) {
                       if (!$isActive) {
-                        $accessLabel = 'Admin (disabled)';
+                        $accessLabel = 'Privileged access (disabled)';
                       } elseif ($adminExempt) {
-                        $accessLabel = 'Admin exempt';
+                        $accessLabel = 'Privileged access (exempt)';
                       } else {
-                        $accessLabel = 'Admin (entitled)';
+                        $accessLabel = 'Privileged access (entitled)';
                       }
                     } elseif ($userIsSubadmin) {
                       if (!$isActive) {
-                        $accessLabel = 'Subadmin (disabled)';
-                      } elseif (!$discordMemberEntitled) {
-                        $accessLabel = 'Subadmin (self-heal)';
+                        $accessLabel = 'Privileged access (disabled)';
+                      } elseif (!$authoritativeEntitled) {
+                        $accessLabel = 'Privileged access (self-heal)';
                       } else {
                         $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
                       }
                     } else {
                       $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
                     }
-                    $compliance = AuthzService::classifyComplianceForAdmin($inScope, $discordMemberEntitled, $userIsAdmin);
+                    $compliance = AuthzService::classifyComplianceForAdmin($inScope, $authoritativeEntitled, $userIsAdmin);
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
-                    $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Scan processed');
+                    $scanCompleteLabel = $memberRightsSource === 'discord' ? 'Scan processed' : 'Queue clear';
+                    $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : $scanCompleteLabel);
                     $lastSeenAt = trim((string)($user['last_seen_at'] ?? ''));
                     $lastSeenSort = $lastSeenAt !== '' ? (int)strtotime($lastSeenAt) : 0;
                   ?>
@@ -1560,7 +1623,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <td><?= htmlspecialchars($linkState, ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($discordLabel, ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($inScope ? 'Yes' : 'No', ENT_QUOTES, 'UTF-8') ?></td>
-                    <td><?= htmlspecialchars($discordMemberRightStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($entitlementStatusLabel, ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($accessLabel, ENT_QUOTES, 'UTF-8') ?></td>
                     <td>
                       <span class="<?= htmlspecialchars($compliance['class'], ENT_QUOTES, 'UTF-8') ?>">

@@ -55,7 +55,7 @@ final class AuthzService
   public static function classifyComplianceForAdmin(bool $inScope, bool $entitled, bool $isAdmin): array
   {
     if ($isAdmin && !($inScope && $entitled)) {
-      return ['key' => 'admin-exempt', 'label' => 'Admin exempt', 'icon' => '🛡️', 'class' => 'pill subtle'];
+      return ['key' => 'admin-exempt', 'label' => 'Privileged exempt', 'icon' => '🛡️', 'class' => 'pill subtle'];
     }
     return self::classifyCompliance($inScope, $entitled);
   }
