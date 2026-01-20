@@ -877,34 +877,91 @@ foreach ($portalUsers as $user) {
 $discordRoleMembers = [];
 $discordRoleStatus = null;
 $discordRoleSnapshotAt = null;
+$discordHaulerMembers = [];
+$discordHaulerStatus = null;
+$discordHaulerSnapshotAt = null;
+$discordRoleMembersById = [];
+$discordHaulerMembersById = [];
 if ($isAdmin) {
-  $haulingRoleId = trim((string)($roleMap['hauling.member'] ?? ''));
   $guildId = trim((string)($configRow['guild_id'] ?? $config['discord']['guild_id'] ?? ''));
-  if ($haulingRoleId === '') {
-    $discordRoleStatus = 'Set a hauling.member role mapping to pull Discord membership.';
-  } elseif (empty($services['discord_delivery'])) {
-    $discordRoleStatus = 'Discord delivery service unavailable.';
-  } else {
+  $delivery = $services['discord_delivery'] ?? null;
+  $fetchRoleSnapshot = static function (string $roleKey, string $roleId) use ($corpId, $delivery, $config, $guildId): array {
+    if ($roleId === '') {
+      return [
+        'members' => [],
+        'status' => "Set a {$roleKey} role mapping to pull Discord membership.",
+        'scanned_at' => null,
+      ];
+    }
+    if (empty($delivery)) {
+      return [
+        'members' => [],
+        'status' => 'Discord delivery service unavailable.',
+        'scanned_at' => null,
+      ];
+    }
     /** @var \App\Services\DiscordDeliveryService $delivery */
-    $delivery = $services['discord_delivery'];
-    $snapshotResponse = $delivery->fetchRoleMemberSnapshot($corpId, $haulingRoleId);
+    $snapshotResponse = $delivery->fetchRoleMemberSnapshot($corpId, $roleId);
     if (!empty($snapshotResponse['ok'])) {
-      $discordRoleSnapshotAt = trim((string)($snapshotResponse['scanned_at'] ?? ''));
       $snapshotMembers = $snapshotResponse['members'] ?? [];
       if (!is_array($snapshotMembers)) {
         $snapshotMembers = [];
       }
-      $discordRoleMembers = array_values(array_filter(
+      $members = array_values(array_filter(
         $snapshotMembers,
         static fn($member): bool => is_array($member)
-          && in_array($haulingRoleId, (array)($member['roles'] ?? []), true)
+          && in_array($roleId, (array)($member['roles'] ?? []), true)
       ));
-    } elseif (empty($config['discord']['bot_token'])) {
-      $discordRoleStatus = 'Configure a bot token to run a full scan and capture Discord members.';
-    } elseif ($guildId === '') {
-      $discordRoleStatus = 'Set a Discord guild ID to run a full scan and capture role membership.';
-    } else {
-      $discordRoleStatus = 'No cached Discord members yet. Run a full onboarding scan to create the snapshot.';
+      return [
+        'members' => $members,
+        'status' => null,
+        'scanned_at' => trim((string)($snapshotResponse['scanned_at'] ?? '')),
+      ];
+    }
+    if (empty($config['discord']['bot_token'])) {
+      return [
+        'members' => [],
+        'status' => 'Configure a bot token to run a full scan and capture Discord members.',
+        'scanned_at' => null,
+      ];
+    }
+    if ($guildId === '') {
+      return [
+        'members' => [],
+        'status' => 'Set a Discord guild ID to run a full scan and capture role membership.',
+        'scanned_at' => null,
+      ];
+    }
+    return [
+      'members' => [],
+      'status' => 'No cached Discord members yet. Run a full onboarding scan to create the snapshot.',
+      'scanned_at' => null,
+    ];
+  };
+
+  $haulingRoleId = trim((string)($roleMap['hauling.member'] ?? ''));
+  $haulerRoleId = trim((string)($roleMap['hauling.hauler'] ?? ''));
+
+  $memberSnapshot = $fetchRoleSnapshot('hauling.member', $haulingRoleId);
+  $discordRoleMembers = $memberSnapshot['members'];
+  $discordRoleStatus = $memberSnapshot['status'];
+  $discordRoleSnapshotAt = $memberSnapshot['scanned_at'];
+
+  $haulerSnapshot = $fetchRoleSnapshot('hauling.hauler', $haulerRoleId);
+  $discordHaulerMembers = $haulerSnapshot['members'];
+  $discordHaulerStatus = $haulerSnapshot['status'];
+  $discordHaulerSnapshotAt = $haulerSnapshot['scanned_at'];
+
+  foreach ($discordRoleMembers as $member) {
+    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+    if ($discordUserId !== '') {
+      $discordRoleMembersById[$discordUserId] = true;
+    }
+  }
+  foreach ($discordHaulerMembers as $member) {
+    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+    if ($discordUserId !== '') {
+      $discordHaulerMembersById[$discordUserId] = true;
     }
   }
 }
@@ -1333,6 +1390,10 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <div style="font-size:20px; font-weight:600;"><?= count($discordRoleMembers) ?></div>
           </div>
           <div class="card" style="padding:12px;">
+            <div class="label">Discord hauling haulers</div>
+            <div style="font-size:20px; font-weight:600;"><?= count($discordHaulerMembers) ?></div>
+          </div>
+          <div class="card" style="padding:12px;">
             <div class="label">Onboarding scans queued</div>
             <div style="font-size:20px; font-weight:600;"><?= count($onboardingScanRows) ?></div>
           </div>
@@ -1357,6 +1418,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <th data-sort-type="string">User</th>
                   <th data-sort-type="string">Portal status</th>
                   <th data-sort-type="string">Discord link</th>
+                  <th data-sort-type="string">Discord hauling.member</th>
+                  <th data-sort-type="string">Discord hauling.hauler</th>
                   <th data-sort-type="date">Discord last seen</th>
                   <th data-sort-type="string">Onboarding status</th>
                 </tr>
@@ -1367,6 +1430,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
                     $discordUsername = trim((string)($user['discord_username'] ?? ''));
                     $discordLabel = $discordUsername !== '' ? $discordUsername : ($discordUserId !== '' ? $discordUserId : 'Not linked');
+                    $discordMemberRightStatus = $discordUserId === '' ? '—' : (isset($discordRoleMembersById[$discordUserId]) ? 'Yes' : 'No');
+                    $discordHaulerRightStatus = $discordUserId === '' ? '—' : (isset($discordHaulerMembersById[$discordUserId]) ? 'Yes' : 'No');
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
                     $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Processed');
                     $lastSeenAt = trim((string)($user['last_seen_at'] ?? ''));
@@ -1381,6 +1446,8 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     </td>
                     <td><?= htmlspecialchars((string)($user['status'] ?? 'active'), ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($discordLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($discordMemberRightStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($discordHaulerRightStatus, ENT_QUOTES, 'UTF-8') ?></td>
                     <td data-sort-value="<?= $lastSeenSort ?>">
                       <?= htmlspecialchars($lastSeenAt !== '' ? $lastSeenAt : '—', ENT_QUOTES, 'UTF-8') ?>
                     </td>
@@ -1417,6 +1484,68 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               </thead>
               <tbody>
                 <?php foreach ($discordRoleMembers as $member): ?>
+                  <?php
+                    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+                    $nickname = trim((string)($member['nickname'] ?? ''));
+                    $globalName = trim((string)($member['global_name'] ?? ''));
+                    $username = trim((string)($member['username'] ?? ''));
+                    $discriminator = trim((string)($member['discriminator'] ?? ''));
+                    $displayName = $nickname !== '' ? $nickname : ($globalName !== '' ? $globalName : $username);
+                    $handle = $username;
+                    if ($handle !== '' && $discriminator !== '' && $discriminator !== '0') {
+                      $handle .= '#' . $discriminator;
+                    }
+                    $linkedPortal = $discordUserId !== '' ? ($linkedPortalByDiscord[$discordUserId] ?? null) : null;
+                    $linkedLabel = $linkedPortal ? (string)($linkedPortal['display_name'] ?? '') : 'Not linked';
+                    $linkedStatus = $linkedPortal ? (string)($linkedPortal['status'] ?? 'active') : '—';
+                    $joinedAt = trim((string)($member['joined_at'] ?? ''));
+                    $joinedSort = $joinedAt !== '' ? (int)strtotime($joinedAt) : 0;
+                  ?>
+                  <tr>
+                    <td>
+                      <div style="font-weight:600;"><?= htmlspecialchars($displayName !== '' ? $displayName : $discordUserId, ENT_QUOTES, 'UTF-8') ?></div>
+                      <?php if ($handle !== '' && $handle !== $displayName): ?>
+                        <div class="muted" style="font-size:12px;"><?= htmlspecialchars($handle, ENT_QUOTES, 'UTF-8') ?></div>
+                      <?php endif; ?>
+                    </td>
+                    <td><code><?= htmlspecialchars($discordUserId !== '' ? $discordUserId : 'Unknown', ENT_QUOTES, 'UTF-8') ?></code></td>
+                    <td><?= htmlspecialchars($linkedLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($linkedStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td data-sort-value="<?= $joinedSort ?>">
+                      <?= htmlspecialchars($joinedAt !== '' ? $joinedAt : '—', ENT_QUOTES, 'UTF-8') ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          <?php endif; ?>
+        </div>
+
+        <div class="card" style="padding:12px; margin-top:12px;">
+          <div class="label">Discord hauling.hauler roster</div>
+          <div class="muted" style="margin-top:6px;">
+            Full Discord members list for the hauling.hauler role. Linked portal users are shown when available.
+          </div>
+          <?php if ($discordHaulerSnapshotAt): ?>
+            <div class="muted" style="margin-top:4px;">Snapshot taken: <?= htmlspecialchars($discordHaulerSnapshotAt, ENT_QUOTES, 'UTF-8') ?>.</div>
+          <?php endif; ?>
+          <?php if ($discordHaulerStatus): ?>
+            <div class="muted" style="margin-top:12px;"><?= htmlspecialchars($discordHaulerStatus, ENT_QUOTES, 'UTF-8') ?></div>
+          <?php elseif ($discordHaulerMembers === []): ?>
+            <div class="muted" style="margin-top:12px;">No Discord members found with the hauling.hauler role.</div>
+          <?php else: ?>
+            <table class="table" data-sortable-table style="margin-top:12px;">
+              <thead>
+                <tr>
+                  <th data-sort-type="string">Discord user</th>
+                  <th data-sort-type="string">Discord ID</th>
+                  <th data-sort-type="string">Linked portal user</th>
+                  <th data-sort-type="string">Portal status</th>
+                  <th data-sort-type="date">Joined at</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($discordHaulerMembers as $member): ?>
                   <?php
                     $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
                     $nickname = trim((string)($member['nickname'] ?? ''));
