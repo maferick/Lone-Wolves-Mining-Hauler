@@ -197,6 +197,9 @@ final class AuthzService
     if ($corpId <= 0) {
       return false;
     }
+    if ($this->userHasRole((int)($user['user_id'] ?? 0), 'admin')) {
+      return true;
+    }
     $discordUserId = $this->fetchDiscordUserId((int)($user['user_id'] ?? 0));
     $roleId = $this->getDiscordRoleId($corpId, 'hauling.member');
     $snapshot = $this->getLatestMemberSnapshot($corpId, $roleId);
@@ -216,5 +219,25 @@ final class AuthzService
       return false;
     }
     return $this->isEntitledByUserRow($user);
+  }
+
+  private function userHasRole(int $userId, string $roleKey): bool
+  {
+    if ($userId <= 0 || $roleKey === '') {
+      return false;
+    }
+    $row = $this->db->one(
+      "SELECT 1
+         FROM user_role ur
+         JOIN role r ON r.role_id = ur.role_id
+        WHERE ur.user_id = :uid
+          AND r.role_key = :role_key
+        LIMIT 1",
+      [
+        'uid' => $userId,
+        'role_key' => $roleKey,
+      ]
+    );
+    return $row !== null;
   }
 }
