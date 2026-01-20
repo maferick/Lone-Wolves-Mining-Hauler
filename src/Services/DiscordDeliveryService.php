@@ -1341,6 +1341,7 @@ final class DiscordDeliveryService
     $rightsSource = $this->resolveRightsSource($configRow, 'hauling.member');
     $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
     $onboardingEnabled = !empty($configRow['onboarding_dm_enabled']);
+    $autoLinkEnabled = !empty($configRow['auto_link_username']);
     $bypassList = $this->normalizeOnboardingBypass($configRow['onboarding_dm_bypass_json'] ?? null);
     $bypassLookup = $bypassList !== [] ? array_fill_keys($bypassList, true) : [];
     $targetRoleId = (string)($roleMap['hauling.member'] ?? '');
@@ -1358,6 +1359,13 @@ final class DiscordDeliveryService
     $linkedIds = $this->fetchLinkedDiscordUserIds($corpId);
     $linkedLookup = array_fill_keys($linkedIds, true);
     $message = $this->buildOnboardingMessage();
+    $portalPermsToSync = [];
+    if ($this->resolveRightsSource($configRow, 'hauling.member') === 'discord') {
+      $portalPermsToSync[] = 'hauling.member';
+    }
+    if ($this->resolveRightsSource($configRow, 'hauling.hauler') === 'discord') {
+      $portalPermsToSync[] = 'hauling.hauler';
+    }
 
     $queued = 0;
     $scanned = 0;
@@ -1442,6 +1450,17 @@ final class DiscordDeliveryService
         $after = $discordUserId;
         $scanned += 1;
         $snapshotMembers[] = $snapshotMember;
+
+        if ($autoLinkEnabled) {
+          $linkedUserId = $this->autoLinkUserByUsername($corpId, $snapshotMember, $linkedLookup);
+          if ($linkedUserId !== null) {
+            $linkedLookup[$discordUserId] = true;
+            if ($portalPermsToSync !== []) {
+              $this->syncPortalRightsFromDiscord($corpId, $linkedUserId, $discordUserId, $configRow, $portalPermsToSync);
+            }
+            continue;
+          }
+        }
 
         if (!$this->shouldQueueOnboarding($snapshotMember, $linkedLookup, $onboardingEnabled, $bypassLookup, $targetRoles, $rightsSource)) {
           continue;
@@ -1844,6 +1863,76 @@ final class DiscordDeliveryService
     }
 
     return true;
+  }
+
+  private function autoLinkUserByUsername(int $corpId, array $member, array $linkedLookup): ?int
+  {
+    $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+    if ($discordUserId === '' || isset($linkedLookup[$discordUserId])) {
+      return null;
+    }
+    if (!empty($member['is_bot'])) {
+      return null;
+    }
+    $username = trim((string)($member['username'] ?? ''));
+    if ($username === '') {
+      return null;
+    }
+
+    $matches = $this->db->select(
+      "SELECT u.user_id
+         FROM app_user u
+         LEFT JOIN discord_user_link l ON l.user_id = u.user_id
+        WHERE u.corp_id = :cid
+          AND u.display_name = :name
+          AND u.status = 'active'
+          AND l.discord_user_id IS NULL
+        LIMIT 2",
+      [
+        'cid' => $corpId,
+        'name' => $username,
+      ]
+    );
+    if (count($matches) !== 1) {
+      return null;
+    }
+    $userId = (int)($matches[0]['user_id'] ?? 0);
+    if ($userId <= 0) {
+      return null;
+    }
+
+    $existing = $this->db->fetchValue(
+      "SELECT user_id FROM discord_user_link WHERE discord_user_id = :did LIMIT 1",
+      ['did' => $discordUserId]
+    );
+    if (!empty($existing) && (int)$existing !== $userId) {
+      return null;
+    }
+
+    $discordUsername = $username;
+    $discriminator = trim((string)($member['discriminator'] ?? ''));
+    if ($discordUsername !== '' && $discriminator !== '' && $discriminator !== '0') {
+      $discordUsername .= '#' . $discriminator;
+    }
+
+    $this->db->execute(
+      "INSERT INTO discord_user_link
+        (user_id, discord_user_id, discord_username, linked_at, last_seen_at)
+       VALUES
+        (:uid, :did, :uname, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+       ON DUPLICATE KEY UPDATE
+        discord_user_id = VALUES(discord_user_id),
+        discord_username = VALUES(discord_username),
+        linked_at = UTC_TIMESTAMP(),
+        last_seen_at = UTC_TIMESTAMP()",
+      [
+        'uid' => $userId,
+        'did' => $discordUserId,
+        'uname' => $discordUsername !== '' ? $discordUsername : null,
+      ]
+    );
+
+    return $userId;
   }
 
   private function storeRoleMemberSnapshot(int $corpId, string $roleId, array $members): void
