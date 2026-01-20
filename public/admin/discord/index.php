@@ -95,6 +95,7 @@ $loadConfig = static function (Db $db, int $corpId): array {
     'rights_source_hauler' => 'portal',
     'onboarding_dm_enabled' => 1,
     'onboarding_dm_bypass_json' => null,
+    'auto_link_username' => 0,
     'last_bot_action_at' => null,
     'bot_permissions_test_json' => null,
     'bot_permissions_test_at' => null,
@@ -180,12 +181,12 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       (corp_id, enabled_webhooks, enabled_bot, application_id, public_key, guild_id, rate_limit_per_minute,
        dedupe_window_seconds, commands_ephemeral_default, channel_mode, hauling_channel_id, requester_thread_access,
       auto_thread_create_on_request, thread_auto_archive_minutes, auto_archive_on_complete, auto_lock_on_complete, role_map_json, rights_source,
-      rights_source_member, rights_source_hauler, onboarding_dm_enabled, onboarding_dm_bypass_json, bot_token_configured)
+      rights_source_member, rights_source_hauler, onboarding_dm_enabled, onboarding_dm_bypass_json, auto_link_username, bot_token_configured)
      VALUES
       (:cid, :enabled_webhooks, :enabled_bot, :application_id, :public_key, :guild_id, :rate_limit, :dedupe_window,
        :commands_ephemeral, :channel_mode, :hauling_channel_id, :requester_thread_access,
        :auto_thread_create_on_request, :thread_auto_archive_minutes, :auto_archive_on_complete, :auto_lock_on_complete, :role_map_json, :rights_source,
-       :rights_source_member, :rights_source_hauler, :onboarding_dm_enabled, :onboarding_dm_bypass_json, :bot_token_configured)
+       :rights_source_member, :rights_source_hauler, :onboarding_dm_enabled, :onboarding_dm_bypass_json, :auto_link_username, :bot_token_configured)
      ON DUPLICATE KEY UPDATE
       enabled_webhooks = VALUES(enabled_webhooks),
       enabled_bot = VALUES(enabled_bot),
@@ -208,6 +209,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       rights_source_hauler = VALUES(rights_source_hauler),
       onboarding_dm_enabled = VALUES(onboarding_dm_enabled),
       onboarding_dm_bypass_json = VALUES(onboarding_dm_bypass_json),
+      auto_link_username = VALUES(auto_link_username),
       bot_token_configured = VALUES(bot_token_configured),
       updated_at = UTC_TIMESTAMP()",
     [
@@ -233,6 +235,7 @@ $saveConfig = static function (Db $db, int $corpId, array $updates, array $authC
       'rights_source_hauler' => $merged['rights_source_hauler'] ?? 'portal',
       'onboarding_dm_enabled' => (int)($merged['onboarding_dm_enabled'] ?? 1),
       'onboarding_dm_bypass_json' => $merged['onboarding_dm_bypass_json'],
+      'auto_link_username' => (int)($merged['auto_link_username'] ?? 0),
       'bot_token_configured' => (int)($merged['bot_token_configured'] ?? 0),
     ]
   );
@@ -416,6 +419,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'onboarding_dm_enabled' => $isEnabled ? 0 : 1,
     ], $authCtx);
     $msg = $isEnabled ? 'Onboarding DMs disabled.' : 'Onboarding DMs enabled.';
+  } elseif ($action === 'toggle_auto_link_username') {
+    $isEnabled = !empty($configRow['auto_link_username']);
+    $saveConfig($db, $corpId, [
+      'auto_link_username' => $isEnabled ? 0 : 1,
+    ], $authCtx);
+    $msg = $isEnabled ? 'Auto-link by username disabled.' : 'Auto-link by username enabled.';
   } elseif ($action === 'save_onboarding_bypass') {
     $rawBypass = trim((string)($_POST['onboarding_dm_bypass'] ?? ''));
     $tokens = $rawBypass === '' ? [] : preg_split('/[\s,]+/', $rawBypass);
@@ -766,6 +775,7 @@ $botTokenConfigured = !empty($config['discord']['bot_token']);
 $publicKeyConfigured = !empty($configRow['public_key']) || !empty($config['discord']['public_key']);
 $roleMappingCount = count(array_filter($roleMap, static fn($value) => is_string($value) && trim($value) !== ''));
 $onboardingDmEnabled = !empty($configRow['onboarding_dm_enabled']);
+$autoLinkUsernameEnabled = !empty($configRow['auto_link_username']);
 $onboardingBypassList = [];
 if (!empty($configRow['onboarding_dm_bypass_json'])) {
   try {
@@ -1078,6 +1088,21 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         </div>
         <div class="muted" style="margin-top:10px;">
           When disabled, onboarding DMs will not send unless the Discord user ID is listed in the bypass list below.
+        </div>
+        <div class="row" style="align-items:center; gap:12px; margin-top:12px;">
+          <div>
+            <div class="label">Auto-link by username</div>
+            <div class="muted"><?= $autoLinkUsernameEnabled ? 'Enabled' : 'Disabled' ?></div>
+          </div>
+          <form method="post">
+            <input type="hidden" name="action" value="toggle_auto_link_username" />
+            <button class="btn <?= $autoLinkUsernameEnabled ? 'ghost' : '' ?>" type="submit">
+              <?= $autoLinkUsernameEnabled ? 'Disable auto-link' : 'Enable auto-link' ?>
+            </button>
+          </form>
+        </div>
+        <div class="muted" style="margin-top:10px;">
+          When enabled, Discord members whose usernames exactly match a portal display name will be linked automatically.
         </div>
       </div>
       <div class="card" style="padding:12px; margin-top:12px;">

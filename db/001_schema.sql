@@ -712,6 +712,7 @@ CREATE TABLE IF NOT EXISTS discord_config (
   rights_source_hauler  ENUM('portal','discord') NOT NULL DEFAULT 'portal',
   onboarding_dm_enabled TINYINT(1) NOT NULL DEFAULT 1,
   onboarding_dm_bypass_json JSON NULL,
+  auto_link_username   TINYINT(1) NOT NULL DEFAULT 0,
   last_bot_action_at    DATETIME NULL,
   bot_permissions_test_json JSON NULL,
   bot_permissions_test_at DATETIME NULL,
