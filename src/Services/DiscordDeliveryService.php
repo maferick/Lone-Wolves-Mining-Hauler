@@ -1452,13 +1452,19 @@ final class DiscordDeliveryService
     } while (count($members) === $limit);
 
     $this->storeRoleMemberSnapshot($corpId, $targetRoleId, $snapshotMembers);
+    $rightsSync = $this->syncPortalRightsFromSnapshot($corpId, $configRow, $snapshotMembers);
 
     return [
       'ok' => true,
       'status' => 200,
       'error' => null,
       'retry_after' => null,
-      'body' => Db::jsonEncode(['queued' => $queued, 'scanned' => $scanned, 'dry_run' => $dryRun]),
+      'body' => Db::jsonEncode([
+        'queued' => $queued,
+        'scanned' => $scanned,
+        'dry_run' => $dryRun,
+        'rights_synced' => $rightsSync,
+      ]),
     ];
   }
 
@@ -1510,6 +1516,104 @@ final class DiscordDeliveryService
       'nickname' => (string)($member['nick'] ?? ''),
       'joined_at' => (string)($member['joined_at'] ?? ''),
     ];
+  }
+
+  private function syncPortalRightsFromSnapshot(int $corpId, array $configRow, array $snapshotMembers): array
+  {
+    $rightsSourceByPerm = [
+      'hauling.member' => $this->resolveRightsSource($configRow, 'hauling.member'),
+      'hauling.hauler' => $this->resolveRightsSource($configRow, 'hauling.hauler'),
+    ];
+    $discordManagedPerms = array_keys(array_filter(
+      $rightsSourceByPerm,
+      static fn(string $source): bool => $source === 'discord'
+    ));
+    if ($discordManagedPerms === []) {
+      return ['scanned' => 0, 'updated' => 0];
+    }
+
+    $roleMap = $this->normalizeRoleMap($configRow['role_map_json'] ?? null);
+    $discordRoleByPerm = [];
+    foreach ($discordManagedPerms as $permKey) {
+      $discordRoleId = trim((string)($roleMap[$permKey] ?? ''));
+      if ($discordRoleId === '') {
+        continue;
+      }
+      $discordRoleByPerm[$permKey] = $discordRoleId;
+    }
+    if ($discordRoleByPerm === []) {
+      return ['scanned' => 0, 'updated' => 0];
+    }
+
+    $portalRoleByPerm = [];
+    foreach ($discordRoleByPerm as $permKey => $discordRoleId) {
+      $portalRoleId = $this->resolvePortalRoleIdForPermission($corpId, $permKey);
+      if ($portalRoleId <= 0) {
+        error_log('[discord-sync] portal role missing for perm ' . $permKey);
+        continue;
+      }
+      $portalRoleByPerm[$permKey] = $portalRoleId;
+    }
+    if ($portalRoleByPerm === []) {
+      return ['scanned' => 0, 'updated' => 0];
+    }
+
+    $linkedRows = $this->db->select(
+      "SELECT l.discord_user_id, l.user_id
+         FROM discord_user_link l
+         JOIN app_user u ON u.user_id = l.user_id
+        WHERE u.corp_id = :cid",
+      ['cid' => $corpId]
+    );
+    $linkedUsers = [];
+    foreach ($linkedRows as $row) {
+      $discordUserId = trim((string)($row['discord_user_id'] ?? ''));
+      $userId = (int)($row['user_id'] ?? 0);
+      if ($discordUserId === '' || $userId <= 0) {
+        continue;
+      }
+      $linkedUsers[$discordUserId] = $userId;
+    }
+    if ($linkedUsers === []) {
+      return ['scanned' => 0, 'updated' => 0];
+    }
+
+    $scanned = 0;
+    $updated = 0;
+
+    foreach ($snapshotMembers as $member) {
+      if (!is_array($member)) {
+        continue;
+      }
+      $discordUserId = trim((string)($member['discord_user_id'] ?? ''));
+      if ($discordUserId === '' || !isset($linkedUsers[$discordUserId])) {
+        continue;
+      }
+      $userId = $linkedUsers[$discordUserId];
+      $roles = $member['roles'] ?? [];
+      if (!is_array($roles)) {
+        $roles = [];
+      }
+      $scanned += 1;
+
+      foreach ($portalRoleByPerm as $permKey => $portalRoleId) {
+        $discordRoleId = $discordRoleByPerm[$permKey];
+        $hasDiscordRole = in_array($discordRoleId, $roles, true);
+        if ($hasDiscordRole) {
+          $updated += $this->db->execute(
+            "INSERT IGNORE INTO user_role (user_id, role_id) VALUES (:uid, :rid)",
+            ['uid' => $userId, 'rid' => $portalRoleId]
+          );
+        } else {
+          $updated += $this->db->execute(
+            "DELETE FROM user_role WHERE user_id = :uid AND role_id = :rid",
+            ['uid' => $userId, 'rid' => $portalRoleId]
+          );
+        }
+      }
+    }
+
+    return ['scanned' => $scanned, 'updated' => $updated];
   }
 
   private function resolveRightsSource(array $configRow, string $permKey): string
