@@ -63,7 +63,7 @@ final class Auth
     }
 
     $u = $db->one(
-      "SELECT user_id, corp_id, character_id, character_name, display_name, email, status, session_revoked_at
+      "SELECT user_id, corp_id, character_id, character_name, display_name, email, status, session_revoked_at, is_in_scope
          FROM app_user WHERE user_id = :id LIMIT 1",
       ['id' => $uid]
     );

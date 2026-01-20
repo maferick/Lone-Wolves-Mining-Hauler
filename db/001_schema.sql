@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS app_user (
   timezone           VARCHAR(64) NOT NULL DEFAULT 'Europe/Amsterdam',
   locale             VARCHAR(16) NOT NULL DEFAULT 'en',
   status             ENUM('active','disabled','invited') NOT NULL DEFAULT 'active',
+  is_in_scope        TINYINT(1) NOT NULL DEFAULT 0,
   last_login_at      DATETIME NULL,
   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

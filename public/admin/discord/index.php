@@ -908,7 +908,7 @@ if ($onboardingCleanupIds !== []) {
 $portalUsers = [];
 if ($isAdmin) {
   $portalUsers = $db->select(
-    "SELECT u.user_id, u.display_name, u.email, u.status, u.last_login_at, u.created_at,
+    "SELECT u.user_id, u.display_name, u.email, u.status, u.is_in_scope, u.last_login_at, u.created_at,
             l.discord_user_id, l.discord_username, l.linked_at, l.last_seen_at
        FROM app_user u
        LEFT JOIN discord_user_link l ON l.user_id = u.user_id
@@ -1493,7 +1493,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   <th data-sort-type="string">Portal status</th>
                   <th data-sort-type="string">Link state</th>
                   <th data-sort-type="string">Discord link</th>
-                  <th data-sort-type="string">In scope</th>
+                  <th data-sort-type="string">Portal eligible</th>
                   <th data-sort-type="string">Entitled (hauling.member)</th>
                   <th data-sort-type="string">Access</th>
                   <th data-sort-type="string">Compliance</th>
@@ -1513,7 +1513,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                       && $discordUserId !== ''
                       && isset($discordRoleMembersById[$discordUserId]);
                     $discordMemberRightStatus = $discordUserId === ''
-                      ? 'Not linked'
+                      ? 'Unknown (not linked)'
                       : ($discordSnapshotFresh ? ($discordMemberEntitled ? 'Entitled' : 'Not entitled') : 'Unknown (stale)');
                     $discordHaulerRightStatus = $discordUserId === '' ? '—' : (isset($discordHaulerMembersById[$discordUserId]) ? 'Yes' : 'No');
                     $linkState = $discordUserId === '' ? 'Not linked' : 'Linked';
@@ -1522,11 +1522,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $userIsAdmin = $authz ? $authz->userIsAdmin($userId, $user) : false;
                     $userIsSubadmin = $authz ? $authz->userIsSubadmin($userId) : false;
                     $isActive = (string)($user['status'] ?? '') === 'active';
-                    $accessGranted = $isActive && ($userIsAdmin || ($inScope && $discordMemberEntitled));
+                    $accessGranted = $isActive && AuthzService::accessGranted($inScope, $discordMemberEntitled, $userIsAdmin);
+                    $adminExempt = $userIsAdmin && $isActive && !($inScope && $discordMemberEntitled);
                     if ($userIsAdmin) {
-                      $accessLabel = $isActive
-                        ? ($discordMemberEntitled ? 'Admin (entitled)' : 'Admin (bypass)')
-                        : 'Admin (disabled)';
+                      if (!$isActive) {
+                        $accessLabel = 'Admin (disabled)';
+                      } elseif ($adminExempt) {
+                        $accessLabel = 'Admin exempt';
+                      } else {
+                        $accessLabel = 'Admin (entitled)';
+                      }
                     } elseif ($userIsSubadmin) {
                       if (!$isActive) {
                         $accessLabel = 'Subadmin (disabled)';
@@ -1538,7 +1543,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     } else {
                       $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
                     }
-                    $compliance = AuthzService::classifyCompliance($inScope, $discordMemberEntitled);
+                    $compliance = AuthzService::classifyComplianceForAdmin($inScope, $discordMemberEntitled, $userIsAdmin);
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
                     $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Scan processed');
                     $lastSeenAt = trim((string)($user['last_seen_at'] ?? ''));

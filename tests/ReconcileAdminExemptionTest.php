@@ -18,7 +18,7 @@ $user = [
   'session_revoked_at' => '',
 ];
 
-$decision = $authz->computeReconcileDecision($user, true, false);
+$decision = $authz->computeReconcileDecision($user, true, false, false);
 
 if (($decision['desired_status'] ?? '') !== 'active') {
   throw new RuntimeException('Expected admin to avoid suspension during reconcile.');

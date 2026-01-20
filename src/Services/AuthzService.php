@@ -52,6 +52,19 @@ final class AuthzService
     return ['key' => 'out-of-scope', 'label' => 'Out of scope', 'icon' => '⛔', 'class' => 'pill subtle'];
   }
 
+  public static function classifyComplianceForAdmin(bool $inScope, bool $entitled, bool $isAdmin): array
+  {
+    if ($isAdmin && !($inScope && $entitled)) {
+      return ['key' => 'admin-exempt', 'label' => 'Admin exempt', 'icon' => '🛡️', 'class' => 'pill subtle'];
+    }
+    return self::classifyCompliance($inScope, $entitled);
+  }
+
+  public static function accessGranted(bool $inScope, bool $entitled, bool $isAdmin): bool
+  {
+    return $isAdmin || ($inScope && $entitled);
+  }
+
   public function loadAccessConfig(): array
   {
     $config = [
@@ -80,6 +93,9 @@ final class AuthzService
 
   public function isUserInScope(array $user, array $accessConfig): bool
   {
+    if (array_key_exists('is_in_scope', $user)) {
+      return (bool)$user['is_in_scope'];
+    }
     $scope = in_array((string)($accessConfig['scope'] ?? 'corp'), ['corp', 'alliance', 'alliances', 'public'], true)
       ? (string)$accessConfig['scope']
       : 'corp';
@@ -196,10 +212,6 @@ final class AuthzService
     if ($status !== 'active') {
       return false;
     }
-    $accessConfig = $accessConfig ?? $this->loadAccessConfig();
-    if (!$this->isUserInScope($user, $accessConfig)) {
-      return false;
-    }
     $corpId = (int)($user['corp_id'] ?? 0);
     if ($corpId <= 0) {
       return false;
@@ -213,7 +225,7 @@ final class AuthzService
   public function isEntitledUserId(int $userId): bool
   {
     $user = $this->db->one(
-      "SELECT user_id, corp_id, status
+      "SELECT user_id, corp_id, status, is_in_scope
          FROM app_user
         WHERE user_id = :uid
         LIMIT 1",
@@ -223,6 +235,30 @@ final class AuthzService
       return false;
     }
     return $this->isEntitled($user);
+  }
+
+  public function isAccessGranted(array $user, ?array $accessConfig = null): bool
+  {
+    $accessConfig = $accessConfig ?? $this->loadAccessConfig();
+    if (!$this->isUserInScope($user, $accessConfig)) {
+      return false;
+    }
+    return $this->isEntitled($user, $accessConfig);
+  }
+
+  public function isAccessGrantedUserId(int $userId): bool
+  {
+    $user = $this->db->one(
+      "SELECT user_id, corp_id, status, is_in_scope
+         FROM app_user
+        WHERE user_id = :uid
+        LIMIT 1",
+      ['uid' => $userId]
+    );
+    if (!$user) {
+      return false;
+    }
+    return $this->isAccessGranted($user);
   }
 
   public function userIsAdmin(int $userId, ?array $userRow = null): bool
@@ -258,21 +294,25 @@ final class AuthzService
     $userId = (int)($user['user_id'] ?? 0);
     $email = trim((string)($user['email'] ?? ''));
     $isAdmin = $this->isBreakglassAdmin($userId, $email) || $this->userHasRole($userId, 'admin');
+    $accessGranted = self::accessGranted($inScope, $isEntitled, $isAdmin);
 
     return [
       'is_admin' => $isAdmin,
       'is_entitled' => $isEntitled,
-      'compliance' => self::classifyCompliance($inScope, $isEntitled),
+      'is_in_scope' => $inScope,
+      'access_granted' => $accessGranted,
+      'compliance' => self::classifyComplianceForAdmin($inScope, $isEntitled, $isAdmin),
     ];
   }
 
-  public function computeReconcileDecision(array $user, bool $isAdmin, bool $entitled): array
+  public function computeReconcileDecision(array $user, bool $isAdmin, bool $inScope, bool $entitled): array
   {
     $previousStatus = (string)($user['status'] ?? 'active');
     $sessionRevokedAt = (string)($user['session_revoked_at'] ?? '');
+    $accessGranted = $inScope && $entitled;
 
     $desiredStatus = $previousStatus;
-    if ($entitled) {
+    if ($accessGranted) {
       $desiredStatus = 'active';
     } elseif (!$isAdmin) {
       $desiredStatus = 'suspended';
@@ -283,7 +323,7 @@ final class AuthzService
     return [
       'desired_status' => $desiredStatus,
       'status_changed' => $desiredStatus !== $previousStatus,
-      'should_revoke_session' => !$entitled && !$isAdmin && $sessionRevokedAt === '',
+      'should_revoke_session' => !$accessGranted && !$isAdmin && $sessionRevokedAt === '',
     ];
   }
 

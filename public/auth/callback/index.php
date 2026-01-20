@@ -274,8 +274,8 @@ try {
       );
     } else {
       $userId = (int)$db->insert(
-        "INSERT INTO app_user (corp_id, character_id, character_name, display_name, status, last_login_at)
-         VALUES (:cid, :chid, :cn, :dn, 'active', UTC_TIMESTAMP())",
+        "INSERT INTO app_user (corp_id, character_id, character_name, display_name, status, is_in_scope, last_login_at)
+         VALUES (:cid, :chid, :cn, :dn, 'active', 1, UTC_TIMESTAMP())",
         ['cid'=>$appCorpId,'chid'=>$characterId,'cn'=>$characterName,'dn'=>$characterName]
       );
     }
