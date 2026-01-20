@@ -27,6 +27,7 @@ declare(strict_types=1);
 require __DIR__ . '/../src/bootstrap.php';
 
 use App\Db\Db;
+use App\Services\AuthzService;
 use App\Services\JobQueueService;
 
 $log = static function (string $message): void {
@@ -103,6 +104,16 @@ if ($workerLimit <= 0) {
 
 $now = time();
 $jobQueue = new JobQueueService($db);
+
+try {
+  $authz = new AuthzService($db);
+  $remediated = $authz->selfHealAdminAccess('scheduled_cron');
+  if ($remediated > 0) {
+    $log("Admin self-heal remediated {$remediated} user(s).");
+  }
+} catch (Throwable $e) {
+  $log("Admin self-heal error: {$e->getMessage()}");
+}
 
 $loadState = static function (Db $db, int $corpId): array {
   $row = $db->one(
