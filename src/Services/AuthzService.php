@@ -287,17 +287,34 @@ final class AuthzService
     ];
   }
 
-  public function getAdminUserIds(): array
+  public function getAdminClassUserIds(): array
   {
-    $rows = $this->db->select(
-      "SELECT DISTINCT ur.user_id
-         FROM user_role ur
-         JOIN role r ON r.role_id = ur.role_id
-        WHERE r.role_key = :role_key",
-      ['role_key' => 'admin']
+    $roleRows = $this->db->select(
+      "SELECT role_id, corp_id
+         FROM role
+        WHERE role_key IN ('admin', 'subadmin')"
     );
-    $userIds = array_map('intval', array_column($rows, 'user_id'));
-    $userIds = array_values(array_filter($userIds, static fn(int $id): bool => $id > 0));
+    $roleIds = array_map('intval', array_column($roleRows, 'role_id'));
+    $roleIds = array_values(array_filter($roleIds, static fn(int $id): bool => $id > 0));
+
+    $userIds = [];
+    if ($roleIds !== []) {
+      $placeholders = [];
+      $params = [];
+      foreach ($roleIds as $index => $roleId) {
+        $key = 'role_' . $index;
+        $placeholders[] = ':' . $key;
+        $params[$key] = $roleId;
+      }
+      $rows = $this->db->select(
+        "SELECT DISTINCT user_id
+           FROM user_role
+          WHERE role_id IN (" . implode(', ', $placeholders) . ")",
+        $params
+      );
+      $userIds = array_map('intval', array_column($rows, 'user_id'));
+      $userIds = array_values(array_filter($userIds, static fn(int $id): bool => $id > 0));
+    }
 
     $breakglassIds = $this->getBreakglassUserIds();
     if ($breakglassIds !== []) {
@@ -328,9 +345,22 @@ final class AuthzService
     return $userIds;
   }
 
+  public function userIsAdminClass(int $userId, ?array $userRow = null): bool
+  {
+    if ($this->userIsAdmin($userId, $userRow)) {
+      return true;
+    }
+    return $this->userHasRole($userId, 'subadmin');
+  }
+
+  public function userIsSubadmin(int $userId): bool
+  {
+    return $this->userHasRole($userId, 'subadmin');
+  }
+
   public function selfHealAdminAccess(string $source = 'cron'): int
   {
-    $adminUserIds = $this->getAdminUserIds();
+    $adminUserIds = $this->getAdminClassUserIds();
     if ($adminUserIds === []) {
       return 0;
     }
@@ -355,7 +385,7 @@ final class AuthzService
       if ($status !== 'suspended') {
         continue;
       }
-      if (!$this->userIsAdmin($userId, $user)) {
+      if (!$this->userIsAdminClass($userId, $user)) {
         continue;
       }
 
