@@ -64,12 +64,43 @@ final class Auth
     }
 
     $u = $db->one(
-      "SELECT user_id, corp_id, character_id, character_name, display_name, status
+      "SELECT user_id, corp_id, character_id, character_name, display_name, status, session_revoked_at
          FROM app_user WHERE user_id = :id LIMIT 1",
       ['id' => $uid]
     );
 
     if (!$u || ($u['status'] ?? '') !== 'active') {
+      self::logout();
+      return [
+        'user_id' => null,
+        'corp_id' => null,
+        'character_id' => null,
+        'display_name' => 'Guest',
+        'roles' => [],
+        'perms' => [],
+      ];
+    }
+
+    $loggedInAt = $_SESSION['logged_in_at'] ?? null;
+    if (!empty($u['session_revoked_at'])) {
+      $revokedAt = strtotime((string)$u['session_revoked_at']);
+      if ($revokedAt !== false) {
+        if ($loggedInAt === null || (int)$loggedInAt < $revokedAt) {
+          self::logout();
+          return [
+            'user_id' => null,
+            'corp_id' => null,
+            'character_id' => null,
+            'display_name' => 'Guest',
+            'roles' => [],
+            'perms' => [],
+          ];
+        }
+      }
+    }
+
+    $authz = new \App\Services\AuthzService($db);
+    if (!$authz->isEntitledByUserRow($u)) {
       self::logout();
       return [
         'user_id' => null,

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../src/bootstrap.php';
 
 use App\Auth\Auth;
 use App\Db\Db;
+use App\Services\AuthzService;
 use App\Services\DiscordOutboxErrorHelp;
 
 $authCtx = Auth::context($db);
@@ -16,6 +17,9 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Discord';
 $isAdmin = Auth::hasRole($authCtx, 'admin');
+$authz = $db ? new AuthzService($db) : null;
+$accessConfig = $authz ? $authz->loadAccessConfig() : ['scope' => 'corp', 'alliances' => [], 'corp_id' => null];
+$snapshotMaxAge = AuthzService::snapshotMaxAgeSeconds();
 
 $msg = null;
 $msgTone = 'info';
@@ -1476,7 +1480,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <div class="card" style="padding:12px; margin-top:12px;">
           <div class="label">Portal → Discord status map</div>
           <div class="muted" style="margin-top:6px;">
-            Users are marked "Processed" when linked and no onboarding DM is queued. Run a scan to refresh Discord membership coverage.
+            "Scan processed" means a linked user has no onboarding DM queued. Entitlement is derived from the latest Discord role snapshot; stale snapshots default to not entitled.
           </div>
           <div class="muted" style="margin-top:4px;">Tip: click a column header to sort.</div>
           <?php if ($portalUsers === []): ?>
@@ -1487,11 +1491,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 <tr>
                   <th data-sort-type="string">User</th>
                   <th data-sort-type="string">Portal status</th>
+                  <th data-sort-type="string">Link state</th>
                   <th data-sort-type="string">Discord link</th>
-                  <th data-sort-type="string">Discord hauling.member</th>
+                  <th data-sort-type="string">In scope</th>
+                  <th data-sort-type="string">Entitled (hauling.member)</th>
+                  <th data-sort-type="string">Access</th>
+                  <th data-sort-type="string">Compliance</th>
                   <th data-sort-type="string">Discord hauling.hauler</th>
                   <th data-sort-type="date">Discord last seen</th>
-                  <th data-sort-type="string">Onboarding status</th>
+                  <th data-sort-type="string">Scan status</th>
                 </tr>
               </thead>
               <tbody>
@@ -1500,10 +1508,21 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
                     $discordUsername = trim((string)($user['discord_username'] ?? ''));
                     $discordLabel = $discordUsername !== '' ? $discordUsername : ($discordUserId !== '' ? $discordUserId : 'Not linked');
-                    $discordMemberRightStatus = $discordUserId === '' ? '—' : (isset($discordRoleMembersById[$discordUserId]) ? 'Yes' : 'No');
+                    $discordSnapshotFresh = AuthzService::isSnapshotFresh($discordRoleSnapshotAt, $snapshotMaxAge);
+                    $discordMemberEntitled = $discordSnapshotFresh
+                      && $discordUserId !== ''
+                      && isset($discordRoleMembersById[$discordUserId]);
+                    $discordMemberRightStatus = $discordUserId === ''
+                      ? 'Not linked'
+                      : ($discordSnapshotFresh ? ($discordMemberEntitled ? 'Entitled' : 'Not entitled') : 'Unknown (stale)');
                     $discordHaulerRightStatus = $discordUserId === '' ? '—' : (isset($discordHaulerMembersById[$discordUserId]) ? 'Yes' : 'No');
+                    $linkState = $discordUserId === '' ? 'Not linked' : 'Linked';
+                    $inScope = $authz ? $authz->isUserInScope($user, $accessConfig) : false;
+                    $accessGranted = $inScope && $discordMemberEntitled && (string)($user['status'] ?? '') === 'active';
+                    $accessLabel = $accessGranted ? 'Granted' : 'Revoked';
+                    $compliance = AuthzService::classifyCompliance($inScope, $discordMemberEntitled);
                     $hasPendingOnboarding = $discordUserId !== '' && isset($pendingOnboardingByDiscord[$discordUserId]);
-                    $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Processed');
+                    $onboardingStatus = $discordUserId === '' ? 'Not linked' : ($hasPendingOnboarding ? 'Pending onboarding DM' : 'Scan processed');
                     $lastSeenAt = trim((string)($user['last_seen_at'] ?? ''));
                     $lastSeenSort = $lastSeenAt !== '' ? (int)strtotime($lastSeenAt) : 0;
                   ?>
@@ -1515,8 +1534,16 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                       </div>
                     </td>
                     <td><?= htmlspecialchars((string)($user['status'] ?? 'active'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($linkState, ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($discordLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($inScope ? 'Yes' : 'No', ENT_QUOTES, 'UTF-8') ?></td>
                     <td><?= htmlspecialchars($discordMemberRightStatus, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td><?= htmlspecialchars($accessLabel, ENT_QUOTES, 'UTF-8') ?></td>
+                    <td>
+                      <span class="<?= htmlspecialchars($compliance['class'], ENT_QUOTES, 'UTF-8') ?>">
+                        <?= htmlspecialchars($compliance['icon'] . ' ' . $compliance['label'], ENT_QUOTES, 'UTF-8') ?>
+                      </span>
+                    </td>
                     <td><?= htmlspecialchars($discordHaulerRightStatus, ENT_QUOTES, 'UTF-8') ?></td>
                     <td data-sort-value="<?= $lastSeenSort ?>">
                       <?= htmlspecialchars($lastSeenAt !== '' ? $lastSeenAt : '—', ENT_QUOTES, 'UTF-8') ?>
