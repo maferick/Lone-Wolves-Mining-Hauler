@@ -45,7 +45,7 @@ foreach ($corpRows as $corpRow) {
   $membersById = $snapshotFresh ? $authz->buildDiscordMemberLookup($snapshot) : [];
 
   $users = $db->select(
-    "SELECT u.user_id, u.corp_id, u.status, u.session_revoked_at, u.email, l.discord_user_id
+    "SELECT u.user_id, u.corp_id, u.status, u.session_revoked_at, u.email, u.is_in_scope, l.discord_user_id
        FROM app_user u
        LEFT JOIN discord_user_link l ON l.user_id = u.user_id
       WHERE u.corp_id = :cid
@@ -68,22 +68,22 @@ foreach ($corpRows as $corpRow) {
     $discordUserId = trim((string)($user['discord_user_id'] ?? ''));
     $inScope = $authz->isUserInScope($user, $accessConfig);
     $discordEntitled = $snapshotFresh && $discordUserId !== '' && isset($membersById[$discordUserId]);
-    $entitled = $inScope && $discordEntitled;
+    $accessGranted = $inScope && $discordEntitled;
     $previousStatus = (string)($user['status'] ?? 'active');
     $sessionRevokedAt = (string)($user['session_revoked_at'] ?? '');
 
-    $decision = $authz->computeReconcileDecision($user, $isAdmin, $entitled);
+    $decision = $authz->computeReconcileDecision($user, $isAdmin, $inScope, $discordEntitled);
     $desiredStatus = (string)($decision['desired_status'] ?? $previousStatus);
     $statusChanged = (bool)($decision['status_changed'] ?? false);
     $shouldRevokeSession = (bool)($decision['should_revoke_session'] ?? false);
 
     $rolesRemoved = 0;
-    if (!$entitled && !$isAdmin) {
+    if (!$accessGranted && !$isAdmin) {
       $rolesRemoved = $db->execute(
         "DELETE FROM user_role WHERE user_id = :uid",
         ['uid' => $userId]
       );
-    } elseif ($isAdmin && !$entitled) {
+    } elseif ($isAdmin && !$accessGranted) {
       $rolesRemoved = $db->execute(
         "DELETE FROM user_role
           WHERE user_id = :uid

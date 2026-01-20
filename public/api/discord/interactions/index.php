@@ -246,7 +246,7 @@ $requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, 
 
 $userHasRight = static function (int $userId, string $permKey) use ($db): bool {
   $authz = new AuthzService($db);
-  if (!$authz->isEntitledUserId($userId)) {
+  if (!$authz->isAccessGrantedUserId($userId)) {
     return false;
   }
   $row = $db->one(
