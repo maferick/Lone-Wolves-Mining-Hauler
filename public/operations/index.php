@@ -9,7 +9,7 @@ use App\Db\Db;
 $appName = $config['app']['name'];
 $title = $appName . ' • Operations';
 \App\Auth\Auth::requireLogin($authCtx);
-\App\Auth\Auth::requireEntitled($authCtx);
+\App\Auth\Auth::requireAccess($authCtx, 'operations');
 $queueStats = [
   'outstanding' => 0,
   'in_progress' => 0,

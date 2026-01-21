@@ -3,14 +3,15 @@
 ## Purpose
 This job enforces the hybrid identity model:
 - Portal users are retained.
-- Discord role membership drives entitlement.
+- Entitlement source follows the governance mode (Discord-leading or Portal-leading).
 - Out-of-scope or de-entitled users are suspended and stripped of portal roles.
 
 The job is idempotent and logs changes to `audit_log` with the action `entitlement.reconcile`.
 
 ## Prerequisites
-- A Discord role mapping for `hauling.member` in **Admin → Discord → Role Mapping**.
-- A recent Discord member snapshot (run **Discord onboarding scan**).
+- A Discord role mapping for `hauling.member` in **Admin → Discord → Role Mapping** (required for Discord-leading mode).
+- A recent Discord member snapshot (run **Discord onboarding scan**) when Discord-leading.
+- Portal role assignments for `hauling.member` when Portal-leading.
 - Database access.
 
 ## Run
@@ -28,7 +29,9 @@ DISCORD_SNAPSHOT_MAX_AGE_SECONDS=21600 php bin/reconcile_discord_entitlements.ph
 ## What the job does
 For each portal user:
 1. Determines portal **In Scope** status (based on access.login scope).
-2. Determines Discord **Entitled** status from the latest `hauling.member` snapshot.
+2. Determines **Entitled** status from the authoritative source:
+   - Discord-leading: latest `hauling.member` snapshot (stale snapshots fail closed).
+   - Portal-leading: portal rights (`hauling.member`) assignments.
 3. Applies the decision matrix:
    - InScope + Entitled → `status=active`
    - InScope + NotEntitled → `status=suspended`, roles removed, sessions revoked

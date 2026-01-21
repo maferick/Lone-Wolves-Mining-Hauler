@@ -693,7 +693,9 @@ $entitlementSourceNote = $memberRightsSource === 'discord'
 $scanStateNote = $memberRightsSource === 'discord'
   ? '"Scan processed" means a linked user has no onboarding DM queued.'
   : 'Provisioning state reflects the onboarding DM queue for linked users (no pending onboarding DM).';
-$effectiveAccessNote = 'Effective access uses the latest Discord snapshot; stale snapshots fail closed until refreshed.';
+$effectiveAccessNote = $memberRightsSource === 'discord'
+  ? 'Effective access uses the latest Discord snapshot; stale snapshots fail closed until refreshed.'
+  : 'Effective access uses portal rights; Discord snapshots are advisory and may lag provisioning.';
 
 $pendingCount = (int)($db->fetchValue(
   "SELECT COUNT(*) FROM discord_outbox WHERE corp_id = :cid AND status IN ('queued','failed','sending')",
@@ -1583,7 +1585,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     $entitlementStatusLabel = $memberRightsSource === 'discord'
                       ? $discordMemberRightStatus
                       : ($portalMemberEntitled ? 'Entitled' : 'Not entitled');
-                    $effectiveEntitled = $discordMemberEntitled;
+                    $effectiveEntitled = $memberRightsSource === 'discord' ? $discordMemberEntitled : $portalMemberEntitled;
                     $accessGranted = $isActive && AuthzService::accessGranted($inScope, $effectiveEntitled, $userIsAdmin);
                     $adminExempt = $userIsAdmin && $isActive && !($inScope && $authoritativeEntitled);
                     if ($userIsAdmin) {

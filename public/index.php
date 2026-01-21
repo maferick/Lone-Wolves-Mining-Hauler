@@ -129,7 +129,7 @@ switch ($path) {
     $title = $appName . ' • Dashboard';
     $basePathForViews = $basePath; // pass-through
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
+    \App\Auth\Auth::requireAccess($authCtx, 'home');
     $contractStats = [
       'total' => 0,
       'outstanding' => 0,
@@ -364,7 +364,7 @@ switch ($path) {
     $title = $appName . ' • Operations';
     $basePathForViews = $basePath;
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
+    \App\Auth\Auth::requireAccess($authCtx, 'operations');
     $queueStats = [
       'outstanding' => 0,
       'in_progress' => 0,
@@ -521,8 +521,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
-    \App\Auth\Auth::requirePerm($authCtx, 'haul.request.read');
+    \App\Auth\Auth::requireAccess($authCtx, 'hall_of_fame');
 
     $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
     $hallOfFameRows = [];
@@ -772,7 +771,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
+    \App\Auth\Auth::requireAccess($authCtx, 'my_contracts');
 
     $userId = (int)($authCtx['user_id'] ?? 0);
     $corpId = (int)($authCtx['corp_id'] ?? ($config['corp']['id'] ?? 0));
@@ -865,7 +864,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
+    \App\Auth\Auth::requireAccess($authCtx, 'profile');
 
     require __DIR__ . '/../src/Views/profile.php';
     break;
@@ -876,7 +875,7 @@ switch ($path) {
     $basePathForViews = $basePath;
 
     \App\Auth\Auth::requireLogin($authCtx);
-    \App\Auth\Auth::requireEntitled($authCtx);
+    \App\Auth\Auth::requireAccess($authCtx, 'request');
     $requestKey = trim((string)($_GET['request_key'] ?? ''));
     $error = null;
     $request = null;
