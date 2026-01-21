@@ -45,6 +45,21 @@ return [
       'sso_verify' => getenv('SSO_VERIFY_URL') ?: 'https://login.eveonline.com/oauth/verify',
     ],
   ],
+  'cache' => [
+    'driver' => getenv('CACHE_DRIVER') ?: 'db',
+    'metrics' => [
+      'enabled' => (getenv('METRICS_ENABLED') ?: '1') === '1',
+      'flush_interval_seconds' => (int)(getenv('METRICS_FLUSH_INTERVAL_SECONDS') ?: 60),
+    ],
+    'redis' => [
+      'host' => getenv('REDIS_HOST') ?: '',
+      'port' => (int)(getenv('REDIS_PORT') ?: 6379),
+      'password' => getenv('REDIS_PASS') ?: '',
+      'database' => (int)(getenv('REDIS_DB') ?: 0),
+      'timeout_seconds' => (float)(getenv('REDIS_TIMEOUT') ?: 1.5),
+      'prefix' => getenv('REDIS_PREFIX') ?: 'esi_cache:',
+    ],
+  ],
   'sde' => [
     'enabled' => (getenv('SDE_ENABLED') ?: '0') === '1',
     'path' => getenv('SDE_PATH') ?: '',

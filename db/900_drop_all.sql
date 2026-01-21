@@ -42,6 +42,7 @@ DROP TABLE IF EXISTS eve_region;
 
 DROP TABLE IF EXISTS eve_entity_alias;
 DROP TABLE IF EXISTS eve_entity;
+DROP TABLE IF EXISTS cache_metrics;
 DROP TABLE IF EXISTS esi_cache;
 
 DROP TABLE IF EXISTS sso_token;

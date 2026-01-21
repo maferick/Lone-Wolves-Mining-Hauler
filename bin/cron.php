@@ -26,6 +26,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../src/bootstrap.php';
 
+use App\Cache\CacheMetricsCollector;
 use App\Db\Db;
 use App\Services\AuthzService;
 use App\Services\JobQueueService;
@@ -104,6 +105,7 @@ if ($workerLimit <= 0) {
 
 $now = time();
 $jobQueue = new JobQueueService($db);
+CacheMetricsCollector::fromConfig($config)->flushIfDue($db, true);
 
 try {
   $authz = new AuthzService($db);
