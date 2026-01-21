@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../src/bootstrap.php';
 
 use App\Auth\Auth;
 use App\Cache\CacheMetricsRepository;
+use App\Cache\RedisDiagnostics;
 
 $authCtx = Auth::context($db);
 Auth::requireLogin($authCtx);
@@ -21,6 +22,19 @@ $cacheScopeParamsDefault = ['cid' => $corpId];
 
 $metricsEnabled = (bool)($config['cache']['metrics']['enabled'] ?? true);
 $metricsPayload = $metricsEnabled ? CacheMetricsRepository::getCurrent($db) : [];
+$redisSummary = RedisDiagnostics::configSummary($config);
+$redisPing = RedisDiagnostics::ping($config, 0.2);
+$redisHostLabel = $redisSummary['host'] !== ''
+  ? sprintf(
+    '%s:%d/%d/%s',
+    $redisSummary['host'],
+    $redisSummary['port'],
+    $redisSummary['database'],
+    $redisSummary['prefix']
+  )
+  : '—';
+$redisPingStatus = $redisPing['status'] ?? 'Unavailable';
+$redisPingError = $redisPing['error'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = (string)($_POST['action'] ?? '');
@@ -172,6 +186,33 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </form>
         </div>
       <?php endif; ?>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2>Redis Status</h2>
+      <p class="muted">Connectivity snapshot for the cache accelerator.</p>
+    </div>
+    <div class="content">
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
+        <div class="card" style="padding:12px;">
+          <div class="muted">Cache driver</div>
+          <div><strong><?= htmlspecialchars((string)$redisSummary['driver'], ENT_QUOTES, 'UTF-8') ?></strong></div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div class="muted">Redis target</div>
+          <div><strong><?= htmlspecialchars($redisHostLabel, ENT_QUOTES, 'UTF-8') ?></strong></div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div class="muted">Ping status</div>
+          <div><strong><?= htmlspecialchars($redisPingStatus, ENT_QUOTES, 'UTF-8') ?></strong></div>
+        </div>
+        <div class="card" style="padding:12px;">
+          <div class="muted">Last Redis error</div>
+          <div><strong><?= htmlspecialchars((string)($redisPingError ?? '—'), ENT_QUOTES, 'UTF-8') ?></strong></div>
+        </div>
+      </div>
     </div>
   </div>
 

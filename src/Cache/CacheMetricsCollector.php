@@ -22,9 +22,11 @@ final class CacheMetricsCollector
   private int $lastFlushAt = 0;
   private bool $enabled;
   private int $flushInterval;
+  private array $config;
 
   private function __construct(array $config)
   {
+    $this->config = $config;
     $metricsCfg = $config['cache']['metrics'] ?? [];
     $this->enabled = (bool)($metricsCfg['enabled'] ?? true);
     $this->flushInterval = max(10, (int)($metricsCfg['flush_interval_seconds'] ?? 60));
@@ -100,12 +102,14 @@ final class CacheMetricsCollector
     $delta = $this->buffer;
     $hasData = array_reduce($delta, static fn($carry, $value) => $carry || ((float)$value !== 0.0), false);
     if (!$hasData) {
+      RedisDiagnostics::touch($this->config);
       $this->lastFlushAt = $now;
       return;
     }
 
     try {
       CacheMetricsRepository::applyDelta($db, $delta);
+      RedisDiagnostics::touch($this->config);
       $this->buffer = [
         'cache_get_total' => 0,
         'cache_get_hit_redis' => 0,

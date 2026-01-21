@@ -70,6 +70,8 @@ The cache table in MariaDB remains the system of record. Redis is optional and b
 - `CACHE_DRIVER=db|write_through|tiered` (use `write_through`/`tiered` to enable Redis)
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASS`, `REDIS_DB`, `REDIS_TIMEOUT`, `REDIS_PREFIX`
 - `METRICS_ENABLED=1` and `METRICS_FLUSH_INTERVAL_SECONDS=60` for cache metrics
+- If `REDIS_*` is configured but `CACHE_DRIVER` is missing, startup logs emit:
+  `Redis configured but CACHE_DRIVER not enabled; using DB-only.`
 
 **Failure behavior**
 - Writes always persist to MariaDB first (Redis failures are logged and ignored).
@@ -78,7 +80,9 @@ The cache table in MariaDB remains the system of record. Redis is optional and b
 
 **Validating Redis hits**
 - Use Admin → Cache → “Cache Performance” to check Redis/DB hit rates.
+- Use Admin → Cache → “Redis Status” to verify driver, target, ping status, and last Redis error.
 - For lower-level validation, inspect Redis keys (`esi_cache:<corp_id|shared>:<sha256>`).
+- When Redis is enabled, you should see `PING` and a `SETEX` for `esi_cache:diag:ping` in `redis-cli MONITOR`.
 
 **Metrics definitions**
 - `cache_get_total`: total cache get attempts (Redis + DB).

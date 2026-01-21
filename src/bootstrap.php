@@ -51,6 +51,14 @@ if (file_exists($envPath)) {
 $config = require __DIR__ . '/Config/config.php';
 $GLOBALS['config'] = $config;
 
+$cacheDriverEnv = getenv('CACHE_DRIVER');
+$cacheDriverMissing = $cacheDriverEnv === false || trim((string)$cacheDriverEnv) === '';
+$cacheDriver = strtolower((string)($config['cache']['driver'] ?? 'db'));
+$redisHost = (string)($config['cache']['redis']['host'] ?? '');
+if ($cacheDriverMissing && $redisHost !== '' && $cacheDriver === 'db') {
+  error_log('Redis configured but CACHE_DRIVER not enabled; using DB-only.');
+}
+
 // Debug switch
 if (($config['app']['debug'] ?? false) === true) {
   ini_set('display_errors', '1');
