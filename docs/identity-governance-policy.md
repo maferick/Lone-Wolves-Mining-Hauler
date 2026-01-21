@@ -40,7 +40,7 @@ Applies to all Portal users and linked Discord accounts that participate in haul
 - **Entitlement source**: Portal role assignments are authoritative for hauling access.
 - **Provisioning to Discord**: Portal-managed entitlements can be synced to Discord roles via role sync operations for linked users.
 - **Reconciliation**: Reconciliation compares Portal eligibility with Portal-derived entitlements; Discord roles are expected to converge through sync operations.
-- **Snapshot considerations**: Effective access still depends on the latest Discord snapshot used by the Portal. If the snapshot is stale, effective access fails closed until refreshed, which can surface as drift.
+- **Snapshot considerations**: Effective access is based on Portal entitlement; Discord snapshots are advisory for provisioning and monitoring, and stale snapshots should not block Portal access.
 
 ## Privileged access / break-glass
 Privileged users (admin/subadmin/break-glass allowlist) may receive access exemptions to prevent lockout during reconciliation or operational recovery. These exemptions are tracked separately and should be reviewed regularly. Privileged access does not replace normal entitlement governance; it is a controlled exception path.

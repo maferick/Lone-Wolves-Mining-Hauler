@@ -11,6 +11,7 @@ final class AuthzService
   public const SNAPSHOT_DEFAULT_MAX_AGE_SECONDS = 21600;
   private ?array $breakglassUserIds = null;
   private ?array $breakglassEmails = null;
+  private ?array $rightsSourceByCorp = null;
 
   public function __construct(Db $db)
   {
@@ -206,7 +207,7 @@ final class AuthzService
     return $this->isEntitled($user);
   }
 
-  public function isEntitled(array $user, ?array $accessConfig = null): bool
+  public function isEntitled(array $user, ?array $accessConfig = null, array $permKeys = []): bool
   {
     $status = (string)($user['status'] ?? 'active');
     if ($status !== 'active') {
@@ -216,6 +217,14 @@ final class AuthzService
     if ($corpId <= 0) {
       return false;
     }
+    $rightsSource = $this->resolveRightsSource($corpId, 'hauling.member');
+    if ($rightsSource === 'portal') {
+      if ($permKeys === []) {
+        $permKeys = $this->getUserPermKeys((int)($user['user_id'] ?? 0));
+      }
+      return in_array('hauling.member', $permKeys, true);
+    }
+
     $discordUserId = $this->fetchDiscordUserId((int)($user['user_id'] ?? 0));
     $roleId = $this->getDiscordRoleId($corpId, 'hauling.member');
     $snapshot = $this->getLatestMemberSnapshot($corpId, $roleId);
@@ -286,11 +295,11 @@ final class AuthzService
     return $this->userHasRole($userId, 'admin');
   }
 
-  public function computeAccessState(array $user): array
+  public function computeAccessState(array $user, array $permKeys = []): array
   {
     $accessConfig = $this->loadAccessConfig();
     $inScope = $this->isUserInScope($user, $accessConfig);
-    $isEntitled = $this->isEntitled($user, $accessConfig);
+    $isEntitled = $this->isEntitled($user, $accessConfig, $permKeys);
     $userId = (int)($user['user_id'] ?? 0);
     $email = trim((string)($user['email'] ?? ''));
     $isAdmin = $this->isBreakglassAdmin($userId, $email) || $this->userHasRole($userId, 'admin');
@@ -560,5 +569,55 @@ final class AuthzService
       ]
     );
     return $row !== null;
+  }
+
+  private function getUserPermKeys(int $userId): array
+  {
+    if ($userId <= 0) {
+      return [];
+    }
+    $rows = $this->db->select(
+      "SELECT DISTINCT p.perm_key
+         FROM user_role ur
+         JOIN role_permission rp ON rp.role_id = ur.role_id AND rp.allow = 1
+         JOIN permission p ON p.perm_id = rp.perm_id
+        WHERE ur.user_id = :uid",
+      ['uid' => $userId]
+    );
+    return array_values(array_map(static fn($row) => (string)($row['perm_key'] ?? ''), $rows));
+  }
+
+  private function resolveRightsSource(int $corpId, string $permKey): string
+  {
+    $configRow = $this->loadDiscordConfig($corpId);
+    $legacy = (string)($configRow['rights_source'] ?? 'portal');
+    $field = match ($permKey) {
+      'hauling.member' => 'rights_source_member',
+      'hauling.hauler' => 'rights_source_hauler',
+      default => '',
+    };
+    $value = $field !== '' ? (string)($configRow[$field] ?? '') : '';
+    $normalized = $value !== '' ? $value : $legacy;
+    return in_array($normalized, ['portal', 'discord'], true) ? $normalized : 'portal';
+  }
+
+  private function loadDiscordConfig(int $corpId): array
+  {
+    if ($corpId <= 0) {
+      return [];
+    }
+    if ($this->rightsSourceByCorp !== null && array_key_exists($corpId, $this->rightsSourceByCorp)) {
+      return $this->rightsSourceByCorp[$corpId];
+    }
+    $row = $this->db->one(
+      "SELECT rights_source, rights_source_member, rights_source_hauler
+         FROM discord_config
+        WHERE corp_id = :cid
+        LIMIT 1",
+      ['cid' => $corpId]
+    );
+    $this->rightsSourceByCorp ??= [];
+    $this->rightsSourceByCorp[$corpId] = $row ?: [];
+    return $this->rightsSourceByCorp[$corpId];
   }
 }
