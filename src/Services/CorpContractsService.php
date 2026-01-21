@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Cache\CacheStoreInterface;
 use App\Db\Db;
 
 /**
@@ -49,7 +50,11 @@ final class CorpContractsService
     private EsiClient $esi,
     private SsoService $sso,
     private ?DiscordWebhookService $webhooks = null
-  ) {}
+  ) {
+    $this->cacheStore = $esi->cacheStore();
+  }
+
+  private CacheStoreInterface $cacheStore;
 
   /**
    * Pull latest corp contracts and upsert into DB.
@@ -453,7 +458,7 @@ final class CorpContractsService
     $cached = ['hit' => false, 'json' => null, 'etag' => null];
 
     if ($cacheEnabled) {
-      $cached = $this->db->esiCacheGet($corpId, $cacheKeyBin);
+      $cached = $this->cacheStore->get($corpId, $cacheKeyBin);
     }
 
     $qs = $query ? ('?' . http_build_query($query)) : '';
@@ -530,7 +535,7 @@ final class CorpContractsService
 
     if ($status === 304 && $cacheEnabled && $cached['hit'] && $cached['json'] !== null) {
       $raw = $cached['json'];
-      $this->db->esiCachePut($corpId, $cacheKeyBin, 'GET', $url, $query, null, 200, $cached['etag'], $respHeaders['last-modified'] ?? null, $ttl, $raw);
+      $this->cacheStore->put($corpId, $cacheKeyBin, 'GET', $url, $query, null, 200, $cached['etag'], $respHeaders['last-modified'] ?? null, $ttl, $raw);
       return ['ok' => true, 'status' => 200, 'headers' => $respHeaders, 'json' => Db::jsonDecode($raw, null), 'raw' => $raw, 'from_cache' => true];
     }
 
@@ -542,7 +547,7 @@ final class CorpContractsService
     }
 
     if ($cacheEnabled) {
-      $this->db->esiCachePut($corpId, $cacheKeyBin, 'GET', $url, $query, null, $status, $respHeaders['etag'] ?? null, $respHeaders['last-modified'] ?? null, $ttl, $raw, ($status >= 400 ? ('HTTP ' . $status) : null));
+      $this->cacheStore->put($corpId, $cacheKeyBin, 'GET', $url, $query, null, $status, $respHeaders['etag'] ?? null, $respHeaders['last-modified'] ?? null, $ttl, $raw, ($status >= 400 ? ('HTTP ' . $status) : null));
     }
 
     $decoded = null;

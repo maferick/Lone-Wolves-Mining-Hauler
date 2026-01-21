@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Cache\CacheStoreFactory;
+use App\Cache\CacheStoreInterface;
 use App\Db\Db;
 
 /**
@@ -22,12 +24,22 @@ final class EsiClient
 {
   public function __construct(
     private Db $db,
-    private array $config
-  ) {}
+    private array $config,
+    ?CacheStoreInterface $cacheStore = null
+  ) {
+    $this->cacheStore = $cacheStore ?? CacheStoreFactory::fromConfig($db, $config);
+  }
+
+  private CacheStoreInterface $cacheStore;
 
   public function get(string $path, ?array $query = null, ?int $corpId = null, ?int $ttlSeconds = null): array
   {
     return $this->request('GET', $path, $query, null, $corpId, $ttlSeconds);
+  }
+
+  public function cacheStore(): CacheStoreInterface
+  {
+    return $this->cacheStore;
   }
 
   public function post(string $path, ?array $query = null, ?array $body = null, ?int $corpId = null, ?int $ttlSeconds = null): array
@@ -64,7 +76,7 @@ final class EsiClient
     $cached = ['hit' => false, 'json' => null, 'etag' => null];
 
     if ($cacheEnabled) {
-      $cached = $this->db->esiCacheGet($corpId, $cacheKeyBin);
+      $cached = $this->cacheStore->get($corpId, $cacheKeyBin);
       if ($cached['hit'] && $cached['json'] !== null) {
         $expiresAt = $cached['expires_at'] ?? null;
         $statusCode = isset($cached['status_code']) ? (int)$cached['status_code'] : 0;
@@ -174,7 +186,7 @@ final class EsiClient
     if ($status === 304 && $cacheEnabled && $cached['hit'] && $cached['json'] !== null) {
       $raw = $cached['json'];
       // Extend TTL on successful revalidation
-      $this->db->esiCachePut(
+      $this->cacheStore->put(
         $corpId,
         $cacheKeyBin,
         $method,
@@ -229,7 +241,7 @@ final class EsiClient
       $etag = $respHeaders['etag'] ?? null;
       $lastMod = $respHeaders['last-modified'] ?? null;
 
-      $this->db->esiCachePut(
+      $this->cacheStore->put(
         $corpId,
         $cacheKeyBin,
         $method,
