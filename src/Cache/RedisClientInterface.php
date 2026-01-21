@@ -10,4 +10,6 @@ interface RedisClientInterface
   public function setex(string $key, int $ttlSeconds, string $value): bool;
 
   public function del(string $key): void;
+
+  public function ping(): bool;
 }

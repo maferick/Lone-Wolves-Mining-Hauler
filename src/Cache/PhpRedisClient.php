@@ -55,4 +55,16 @@ final class PhpRedisClient implements RedisClientInterface
   {
     $this->redis->del($key);
   }
+
+  public function ping(): bool
+  {
+    $response = $this->redis->ping();
+    if ($response === true) {
+      return true;
+    }
+    if (is_string($response)) {
+      return strtoupper($response) === 'PONG';
+    }
+    return false;
+  }
 }
