@@ -217,6 +217,8 @@ final class AuthzService
     if ($corpId <= 0) {
       return false;
     }
+    $accessConfig = $accessConfig ?? $this->loadAccessConfig();
+    $inScope = $this->isUserInScope($user, $accessConfig);
     $rightsSource = $this->resolveRightsSource($corpId, 'hauling.member');
     if ($rightsSource === 'portal') {
       if ($permKeys === []) {
@@ -226,6 +228,9 @@ final class AuthzService
     }
 
     $discordUserId = $this->fetchDiscordUserId((int)($user['user_id'] ?? 0));
+    if ($discordUserId === '' && $inScope) {
+      return true;
+    }
     $roleId = $this->getDiscordRoleId($corpId, 'hauling.member');
     $snapshot = $this->getLatestMemberSnapshot($corpId, $roleId);
     return $this->isDiscordEntitled($corpId, $discordUserId, $snapshot);

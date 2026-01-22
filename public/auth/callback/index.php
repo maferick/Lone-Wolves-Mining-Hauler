@@ -267,6 +267,7 @@ try {
         "UPDATE app_user
             SET character_name=:cn,
                 display_name=:dn,
+                is_in_scope=1,
                 last_login_at=UTC_TIMESTAMP(),
                 status = CASE WHEN status = 'suspended' THEN status ELSE 'active' END
           WHERE user_id=:uid",
