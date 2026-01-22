@@ -413,49 +413,47 @@ usort($items, static function (array $a, array $b): int {
   return ($a['sort_name'] ?? '') <=> ($b['sort_name'] ?? '');
 });
 
-if (!$items) {
-  $systemFilter = '';
-  $systemParams = [];
-  if ($hasAllowlist) {
-    if (!empty($allowedSystemScope)) {
-      $systemPlaceholders = implode(',', array_fill(0, count($allowedSystemScope), '?'));
-      $systemFilter = " AND ms.system_id IN ({$systemPlaceholders})";
-      $systemParams = $allowedSystemScope;
-    } else {
-      $systemFilter = ' AND 1=0';
-    }
+$systemFilter = '';
+$systemParams = [];
+if ($hasAllowlist) {
+  if (!empty($allowedSystemScope)) {
+    $systemPlaceholders = implode(',', array_fill(0, count($allowedSystemScope), '?'));
+    $systemFilter = " AND ms.system_id IN ({$systemPlaceholders})";
+    $systemParams = $allowedSystemScope;
+  } else {
+    $systemFilter = ' AND 1=0';
   }
-  if (!$hasAllowlist || $systemFilter !== ' AND 1=0') {
-    $systemRows = $db->select(
-      "SELECT ms.system_id,
-              COALESCE(ms.system_name, s.system_name) AS system_name
-         FROM map_system ms
-         LEFT JOIN eve_system s ON s.system_id = ms.system_id
-        WHERE COALESCE(ms.system_name, s.system_name) LIKE ?
-          {$systemFilter}
-        ORDER BY system_name
-        LIMIT ?",
-      array_merge([$likePrefix], $systemParams, [$limit])
-    );
-    foreach ($systemRows as $row) {
-      $systemName = trim((string)($row['system_name'] ?? ''));
-      if ($systemName === '') {
-        continue;
-      }
-      $score = $matchScore($systemName, '');
-      if ($score === null) {
-        continue;
-      }
-      $addItem([
-        'name' => $systemName,
-        'label' => 'System',
-        'location_type' => 'system',
-        'location_id' => (int)($row['system_id'] ?? 0),
-        'location_name' => $systemName,
-        'system_id' => (int)($row['system_id'] ?? 0),
-        'system_name' => $systemName,
-      ], $score, false);
+}
+if (!$hasAllowlist || $systemFilter !== ' AND 1=0') {
+  $systemRows = $db->select(
+    "SELECT ms.system_id,
+            COALESCE(ms.system_name, s.system_name) AS system_name
+       FROM map_system ms
+       LEFT JOIN eve_system s ON s.system_id = ms.system_id
+      WHERE COALESCE(ms.system_name, s.system_name) LIKE ?
+        {$systemFilter}
+      ORDER BY system_name
+      LIMIT ?",
+    array_merge([$likePrefix], $systemParams, [$limit])
+  );
+  foreach ($systemRows as $row) {
+    $systemName = trim((string)($row['system_name'] ?? ''));
+    if ($systemName === '') {
+      continue;
     }
+    $score = $matchScore($systemName, '');
+    if ($score === null) {
+      continue;
+    }
+    $addItem([
+      'name' => $systemName,
+      'label' => 'System',
+      'location_type' => 'system',
+      'location_id' => (int)($row['system_id'] ?? 0),
+      'location_name' => $systemName,
+      'system_id' => (int)($row['system_id'] ?? 0),
+      'system_name' => $systemName,
+    ], $score, false);
   }
 }
 
