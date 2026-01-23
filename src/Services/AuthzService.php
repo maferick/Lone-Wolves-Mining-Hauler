@@ -248,6 +248,12 @@ final class AuthzService
       return false;
     }
     $accessConfig = $accessConfig ?? $this->loadAccessConfig();
+    $scope = in_array((string)($accessConfig['scope'] ?? 'corp'), ['corp', 'alliance', 'alliances', 'public'], true)
+      ? (string)$accessConfig['scope']
+      : 'corp';
+    if ($scope === 'public') {
+      return true;
+    }
     $inScope = $this->isUserInScope($user, $accessConfig);
     $rightsSource = $this->resolveRightsSource($corpId, 'hauling.member');
     if ($rightsSource === 'portal') {
