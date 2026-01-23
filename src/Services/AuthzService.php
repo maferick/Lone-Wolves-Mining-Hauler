@@ -66,10 +66,20 @@ final class AuthzService
     return $isAdmin || ($inScope && $entitled);
   }
 
+  /**
+   * Load access scope configuration from app_setting.access.login.
+   *
+   * Expected access.login JSON shape:
+   *  - scope: "corp" | "alliance" | "alliances" | "public"
+   *  - alliance_id: (int) home alliance ID when scope = "alliance"
+   *  - alliances: [int, ...] allowed alliance IDs when scope = "alliances"
+   *  - corp_id is injected from the app_setting row (home corp)
+   */
   public function loadAccessConfig(): array
   {
     $config = [
       'scope' => 'corp',
+      'alliance_id' => null,
       'alliances' => [],
       'corp_id' => null,
     ];
@@ -102,6 +112,26 @@ final class AuthzService
       : 'corp';
     if ($scope === 'public') {
       return true;
+    }
+    if ($scope === 'alliance') {
+      $homeAllianceId = (int)($accessConfig['alliance_id'] ?? 0);
+      $userAllianceId = (int)($user['alliance_id'] ?? 0);
+      if ($homeAllianceId === 0) {
+        return $userAllianceId > 0;
+      }
+      return $userAllianceId === $homeAllianceId;
+    }
+    if ($scope === 'alliances') {
+      $userAllianceId = (int)($user['alliance_id'] ?? 0);
+      $alliances = $accessConfig['alliances'] ?? [];
+      if (!is_array($alliances)) {
+        $alliances = [];
+      }
+      $allowedAllianceIds = array_values(array_filter(array_map('intval', $alliances), static fn(int $id): bool => $id > 0));
+      if ($allowedAllianceIds === []) {
+        return $userAllianceId > 0;
+      }
+      return in_array($userAllianceId, $allowedAllianceIds, true);
     }
     $homeCorpId = (int)($accessConfig['corp_id'] ?? 0);
     $userCorpId = (int)($user['corp_id'] ?? 0);
