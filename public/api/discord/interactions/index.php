@@ -9,6 +9,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
 
 require_once __DIR__ . '/../../bootstrap.php';
 
+use App\Cache\CacheStoreFactory;
 use App\Db\Db;
 use App\Services\AuthzService;
 
@@ -108,28 +109,53 @@ $getDiscordUserId = static function (array $payload): string {
   return (string)($payload['member']['user']['id'] ?? $payload['user']['id'] ?? '');
 };
 
-$parseFilters = static function (array $input): array {
+$openConfig = $config['open_contracts'] ?? [];
+$openLimitMin = (int)($openConfig['limit_min'] ?? 1);
+$openLimitMax = (int)($openConfig['limit_max'] ?? 10);
+$openVolumeMin = (float)($openConfig['volume_min'] ?? 0);
+$openVolumeMax = (float)($openConfig['volume_max'] ?? 100000000);
+$openRewardMin = (float)($openConfig['reward_min'] ?? 0);
+$openRewardMax = (float)($openConfig['reward_max'] ?? 100000000000);
+$openCooldownSeconds = (int)($openConfig['cooldown_seconds'] ?? 3);
+$openCacheStore = $db ? CacheStoreFactory::fromConfig($db, $config) : null;
+
+$normalizeOpenText = static function (?string $value): string {
+  $value = trim((string)$value);
+  return preg_replace('/\s+/', ' ', $value) ?? $value;
+};
+
+$clampOpenNumber = static function (?float $value, float $min, float $max): ?float {
+  if ($value === null) {
+    return null;
+  }
+  return max($min, min($max, $value));
+};
+
+$parseFilters = static function (array $input) use ($normalizeOpenText, $clampOpenNumber, $openVolumeMin, $openVolumeMax, $openRewardMin, $openRewardMax): array {
   $filters = [];
   if (isset($input['priority'])) {
-    $filters['priority'] = trim((string)$input['priority']);
+    $filters['priority'] = strtolower($normalizeOpenText((string)$input['priority']));
   }
   if (isset($input['min_volume'])) {
-    $filters['min_volume'] = $input['min_volume'];
+    $filters['min_volume'] = $clampOpenNumber((float)$input['min_volume'], $openVolumeMin, $openVolumeMax);
   }
   if (isset($input['max_volume'])) {
-    $filters['max_volume'] = $input['max_volume'];
+    $filters['max_volume'] = $clampOpenNumber((float)$input['max_volume'], $openVolumeMin, $openVolumeMax);
   }
   if (isset($input['min_reward'])) {
-    $filters['min_reward'] = $input['min_reward'];
+    $filters['min_reward'] = $clampOpenNumber((float)$input['min_reward'], $openRewardMin, $openRewardMax);
   }
   if (isset($input['pickup_system'])) {
-    $filters['pickup_system'] = trim((string)$input['pickup_system']);
+    $filters['pickup_system'] = strtolower($normalizeOpenText((string)$input['pickup_system']));
   }
   if (isset($input['drop_system'])) {
-    $filters['drop_system'] = trim((string)$input['drop_system']);
+    $filters['drop_system'] = strtolower($normalizeOpenText((string)$input['drop_system']));
   }
   if (isset($input['risk'])) {
-    $filters['risk'] = trim((string)$input['risk']);
+    $filters['risk'] = strtolower($normalizeOpenText((string)$input['risk']));
+  }
+  if (isset($filters['min_volume'], $filters['max_volume']) && $filters['min_volume'] > $filters['max_volume']) {
+    $filters['max_volume'] = $filters['min_volume'];
   }
   return array_filter($filters, static fn($value) => $value !== '' && $value !== null);
 };
@@ -195,7 +221,7 @@ $buildOpenContractsMessage = static function (array $contracts, int $offset, int
   $count = count($contracts);
   $start = $count > 0 ? $offset + 1 : 0;
   $end = $count > 0 ? $offset + $count : 0;
-  $summary = $contracts === [] ? 'No open contracts found.' : implode("\n\n", array_map($formatOpenContractLine, $contracts));
+  $summary = $contracts === [] ? 'No open contracts found for these filters.' : implode("\n\n", array_map($formatOpenContractLine, $contracts));
   $filterSummary = $buildFilterSummary($filters);
 
   $embed = [
@@ -262,10 +288,59 @@ $buildOpenContractsMessage = static function (array $contracts, int $offset, int
   }
 
   return [
-    'content' => $contracts === [] ? 'No open contracts found.' : 'Open contracts available.',
+    'content' => $contracts === [] ? 'No open contracts found for these filters.' : 'Open contracts available.',
     'embeds' => [$embed],
     'components' => $components,
   ];
+};
+
+$buildOpenContractsErrorMessage = static function (string $title, string $description): array {
+  return [
+    'content' => '',
+    'embeds' => [[
+      'title' => $title,
+      'description' => $description,
+    ]],
+    'components' => [],
+  ];
+};
+
+$enforceOpenCooldown = static function (string $discordUserId) use ($openCooldownSeconds, $openCacheStore, $corpId): bool {
+  if ($openCooldownSeconds <= 0 || !$openCacheStore || $discordUserId === '' || $corpId === null) {
+    return true;
+  }
+  $cacheKey = Db::esiCacheKey('POST', 'discord.open.cooldown', [
+    'discord_user_id' => $discordUserId,
+    'corp_id' => $corpId,
+  ], null);
+  $cached = $openCacheStore->get($corpId, $cacheKey);
+  if (!empty($cached['hit'])) {
+    $expiresAt = $cached['expires_at'] ?? null;
+    if ($expiresAt) {
+      $expiresTs = strtotime((string)$expiresAt);
+      if ($expiresTs !== false && $expiresTs > time()) {
+        return false;
+      }
+    }
+  }
+  $openCacheStore->put(
+    $corpId,
+    $cacheKey,
+    'POST',
+    'discord.open.cooldown',
+    ['discord_user_id' => $discordUserId, 'corp_id' => $corpId],
+    null,
+    200,
+    null,
+    null,
+    $openCooldownSeconds,
+    Db::jsonEncode(['cooldown' => true])
+  );
+  return true;
+};
+
+$logOpenContracts = static function (array $context): void {
+  error_log('[discord-open] ' . json_encode($context, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 };
 
 $apiBase = rtrim((string)($config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
@@ -459,50 +534,138 @@ if ($type === 3) {
   $customId = (string)($payload['data']['custom_id'] ?? '');
   $parts = explode(':', $customId, 4);
   if (count($parts) >= 3 && $parts[0] === 'open') {
+    $startedAt = microtime(true);
+    $error = null;
     $offset = max(0, (int)($parts[1] ?? 0));
-    $limit = max(1, min(10, (int)($parts[2] ?? 5)));
+    $limit = max($openLimitMin, min($openLimitMax, (int)($parts[2] ?? 5)));
     $filterQuery = $parts[3] ?? '';
     $filters = $parseFilters($parseFilterQuery($filterQuery));
 
     if (!$openContractsService instanceof \App\Services\OpenContractsService) {
+      $error = 'service_unavailable';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => $getDiscordUserId($payload),
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       api_send_json([
         'type' => 7,
-        'data' => [
-          'content' => 'Open contracts service unavailable.',
-        ],
+        'data' => $buildOpenContractsErrorMessage('Service unavailable', 'Open contracts service unavailable.'),
       ]);
     }
 
     $discordUserId = $getDiscordUserId($payload);
     if ($discordUserId === '') {
+      $error = 'discord_user_missing';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => '',
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       api_send_json([
         'type' => 7,
-        'data' => [
-          'content' => 'Unable to resolve Discord user.',
-        ],
+        'data' => $buildOpenContractsErrorMessage('Unable to resolve user', 'Unable to resolve Discord user.'),
       ]);
     }
     $linkedUserId = $lookupLinkedUserId($discordUserId);
     if ($linkedUserId === null) {
+      $error = 'link_required';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       api_send_json([
         'type' => 4,
         'data' => [
-          'content' => $onboardingMessage,
+          'embeds' => [[
+            'title' => 'Link required',
+            'description' => 'You must /link first to view open contracts.',
+          ]],
           'flags' => 64,
         ],
       ]);
     }
     if (!$userHasRight($linkedUserId, 'hauling.member')) {
+      $error = 'permission_denied';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       api_send_json([
         'type' => 7,
-        'data' => [
-          'content' => $deniedMessage,
-        ],
+        'data' => $buildOpenContractsErrorMessage('Access denied', $deniedMessage),
+      ]);
+    }
+    if (!$enforceOpenCooldown($discordUserId)) {
+      $error = 'rate_limited';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
+      api_send_json([
+        'type' => 7,
+        'data' => $buildOpenContractsErrorMessage('Slow down', 'Please wait a moment before refreshing open contracts again.'),
       ]);
     }
 
-    $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    try {
+      $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    } catch (Throwable $e) {
+      $error = 'open_contracts_error';
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'component',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $e->getMessage(),
+      ]);
+      api_send_json([
+        'type' => 7,
+        'data' => $buildOpenContractsErrorMessage('Error', 'Unable to load open contracts right now.'),
+      ]);
+    }
     $message = $buildOpenContractsMessage($contracts, $offset, $limit, $filters);
+    $logOpenContracts([
+      'command' => 'open',
+      'event' => 'component',
+      'discord_user_id' => $discordUserId,
+      'corp_id' => $corpId,
+      'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+      'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+      'result_count' => count($contracts),
+      'error' => $error,
+    ]);
 
     api_send_json([
       'type' => 7,
@@ -525,21 +688,84 @@ set_time_limit(0);
 
 switch ($commandName) {
   case 'open':
+    $startedAt = microtime(true);
+    $error = null;
+    $emptyFiltersHash = hash('sha256', json_encode([], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     if (!$openContractsService instanceof \App\Services\OpenContractsService) {
-      $sendFollowupMessage('Open contracts service unavailable.', $ephemeral);
+      $error = 'service_unavailable';
+      $sendFollowup($buildOpenContractsErrorMessage('Service unavailable', 'Open contracts service unavailable.') + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => $getDiscordUserId($payload),
+        'corp_id' => $corpId,
+        'filters_hash' => $emptyFiltersHash,
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       exit;
     }
     $discordUserId = $getDiscordUserId($payload);
     if ($discordUserId === '') {
-      $sendFollowupMessage('Unable to resolve Discord user.', $ephemeral);
+      $error = 'discord_user_missing';
+      $sendFollowup($buildOpenContractsErrorMessage('Unable to resolve user', 'Unable to resolve Discord user.') + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => '',
+        'corp_id' => $corpId,
+        'filters_hash' => $emptyFiltersHash,
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       exit;
     }
-    $linkedUserId = $requireLinkedUser($discordUserId);
+    $linkedUserId = $lookupLinkedUserId($discordUserId);
     if ($linkedUserId === null) {
+      $error = 'link_required';
+      $sendFollowup($buildOpenContractsErrorMessage('Link required', 'You must /link first to view open contracts.') + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => $emptyFiltersHash,
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       exit;
     }
     if (!$userHasRight($linkedUserId, 'hauling.member')) {
-      $sendFollowupMessage($deniedMessage, $ephemeral);
+      $error = 'permission_denied';
+      $sendFollowup($buildOpenContractsErrorMessage('Access denied', $deniedMessage) + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => $emptyFiltersHash,
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
+      exit;
+    }
+    if (!$enforceOpenCooldown($discordUserId)) {
+      $error = 'rate_limited';
+      $sendFollowup($buildOpenContractsErrorMessage('Slow down', 'Please wait a moment before refreshing open contracts again.') + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => $emptyFiltersHash,
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $error,
+      ]);
       exit;
     }
 
@@ -553,13 +779,39 @@ switch ($commandName) {
       'risk' => $optionMap['risk'] ?? null,
     ]);
 
-    $limit = max(1, min(10, (int)($optionMap['limit'] ?? 5)));
+    $limit = max($openLimitMin, min($openLimitMax, (int)($optionMap['limit'] ?? 5)));
     $page = max(1, (int)($optionMap['page'] ?? 1));
     $offset = ($page - 1) * $limit;
 
-    $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    try {
+      $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    } catch (Throwable $e) {
+      $error = 'open_contracts_error';
+      $sendFollowup($buildOpenContractsErrorMessage('Error', 'Unable to load open contracts right now.') + ['flags' => $ephemeral ? 64 : 0]);
+      $logOpenContracts([
+        'command' => 'open',
+        'event' => 'slash',
+        'discord_user_id' => $discordUserId,
+        'corp_id' => $corpId,
+        'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+        'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+        'result_count' => 0,
+        'error' => $e->getMessage(),
+      ]);
+      exit;
+    }
     $message = $buildOpenContractsMessage($contracts, $offset, $limit, $filters);
     $sendFollowup($message + ['flags' => $ephemeral ? 64 : 0]);
+    $logOpenContracts([
+      'command' => 'open',
+      'event' => 'slash',
+      'discord_user_id' => $discordUserId,
+      'corp_id' => $corpId,
+      'filters_hash' => hash('sha256', json_encode($filters, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
+      'latency_ms' => (int)((microtime(true) - $startedAt) * 1000),
+      'result_count' => count($contracts),
+      'error' => $error,
+    ]);
     break;
 
   case 'request':

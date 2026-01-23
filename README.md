@@ -237,6 +237,18 @@ Available commands:
 - `/help` — Quick usage hints.
 - `/ping` — Bot health check.
 
+#### `/open` filters and pagination
+Examples:
+- `/open priority:high`
+- `/open min_volume:5000 max_volume:120000`
+- `/open min_reward:25000000 pickup_system:Jita drop_system:Amarr`
+- `/open limit:5 page:2`
+
+Pagination notes:
+- `/open` returns results ordered by priority (high → normal), then oldest first, with deterministic IDs for stability.
+- Use `limit` (max 10) and `page` to move through results.
+- The Prev/Next/Refresh buttons keep filters intact and are rate-limited to prevent spam.
+
 ### How to link Discord account
 1) Sign in to the hauling portal (EVE SSO).
 2) Open **My Contracts** and find the **Discord Account Linking** card.
