@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Cache\CacheStoreFactory;
+use App\Cache\CacheStoreInterface;
 use App\Db\Db;
 
 final class OpenContractsService
@@ -17,15 +19,58 @@ final class OpenContractsService
     'assigned',
     'in_transit',
   ];
+  private CacheStoreInterface $cacheStore;
+  private int $limitMin;
+  private int $limitMax;
+  private float $volumeMin;
+  private float $volumeMax;
+  private float $rewardMin;
+  private float $rewardMax;
+  private bool $cacheEnabled;
+  private int $cacheTtlSeconds;
 
   public function __construct(private Db $db, private array $config = [])
   {
+    $this->cacheStore = CacheStoreFactory::fromConfig($db, $config);
+    $openConfig = $config['open_contracts'] ?? [];
+    $this->limitMin = (int)($openConfig['limit_min'] ?? 1);
+    $this->limitMax = (int)($openConfig['limit_max'] ?? 10);
+    $this->volumeMin = (float)($openConfig['volume_min'] ?? 0);
+    $this->volumeMax = (float)($openConfig['volume_max'] ?? 100000000);
+    $this->rewardMin = (float)($openConfig['reward_min'] ?? 0);
+    $this->rewardMax = (float)($openConfig['reward_max'] ?? 100000000000);
+    $this->cacheEnabled = (bool)($openConfig['cache_enabled'] ?? true);
+    $this->cacheTtlSeconds = (int)($openConfig['cache_ttl_seconds'] ?? 15);
   }
 
   public function listOpenContracts(int $corpId, array $filters = [], int $limit = 10, int $offset = 0): array
   {
-    $limit = max(1, min(50, $limit));
+    $limit = max($this->limitMin, min($this->limitMax, $limit));
     $offset = max(0, $offset);
+    $filters = $this->normalizeFilters($filters);
+
+    $cacheKey = Db::esiCacheKey('GET', 'open_contracts', [
+      'corp_id' => $corpId,
+      'filters' => $filters,
+      'limit' => $limit,
+      'offset' => $offset,
+    ], null);
+    if ($this->cacheEnabled && $this->cacheTtlSeconds > 0) {
+      $cached = $this->cacheStore->get($corpId, $cacheKey);
+      if (!empty($cached['hit']) && !empty($cached['json'])) {
+        $expiresAt = $cached['expires_at'] ?? null;
+        $statusCode = isset($cached['status_code']) ? (int)$cached['status_code'] : 0;
+        if ($expiresAt && $statusCode > 0 && $statusCode < 400) {
+          $expiresTs = strtotime((string)$expiresAt);
+          if ($expiresTs !== false && $expiresTs > time()) {
+            $decoded = Db::jsonDecode($cached['json'], []);
+            if (is_array($decoded)) {
+              return $decoded;
+            }
+          }
+        }
+      }
+    }
 
     $params = [
       'cid' => $corpId,
@@ -47,9 +92,8 @@ final class OpenContractsService
     ];
 
     if (!empty($filters['priority'])) {
-      $priority = strtolower(trim((string)$filters['priority']));
       $conditions[] = '(r.route_profile = :priority OR r.route_policy = :priority)';
-      $params['priority'] = $priority;
+      $params['priority'] = $filters['priority'];
     }
 
     if (isset($filters['min_volume'])) {
@@ -69,12 +113,12 @@ final class OpenContractsService
 
     if (!empty($filters['pickup_system'])) {
       $conditions[] = 'LOWER(COALESCE(fs.system_name, fs_station.system_name, fs_structure.system_name, \'\')) = :pickup_system';
-      $params['pickup_system'] = strtolower(trim((string)$filters['pickup_system']));
+      $params['pickup_system'] = $filters['pickup_system'];
     }
 
     if (!empty($filters['drop_system'])) {
       $conditions[] = 'LOWER(COALESCE(ts.system_name, ts_station.system_name, ts_structure.system_name, \'\')) = :drop_system';
-      $params['drop_system'] = strtolower(trim((string)$filters['drop_system']));
+      $params['drop_system'] = $filters['drop_system'];
     }
 
     $rows = $this->db->select(
@@ -132,7 +176,14 @@ final class OpenContractsService
          LEFT JOIN eve_system ts_structure
            ON ts_structure.system_id = t_structure.system_id
         WHERE " . implode(' AND ', $conditions) . "
-        ORDER BY r.created_at ASC
+        ORDER BY
+          CASE LOWER(COALESCE(r.route_profile, r.route_policy, 'normal'))
+            WHEN 'high' THEN 2
+            WHEN 'normal' THEN 1
+            ELSE 0
+          END DESC,
+          r.created_at ASC,
+          r.request_id ASC
         LIMIT :limit OFFSET :offset",
       $params
     );
@@ -177,7 +228,72 @@ final class OpenContractsService
       ];
     }
 
+    if ($this->cacheEnabled && $this->cacheTtlSeconds > 0) {
+      $payload = Db::jsonEncode($results);
+      $this->cacheStore->put(
+        $corpId,
+        $cacheKey,
+        'GET',
+        'open_contracts',
+        [
+          'corp_id' => $corpId,
+          'filters' => $filters,
+          'limit' => $limit,
+          'offset' => $offset,
+        ],
+        null,
+        200,
+        null,
+        null,
+        $this->cacheTtlSeconds,
+        $payload
+      );
+    }
+
     return $results;
+  }
+
+  private function normalizeFilters(array $filters): array
+  {
+    $normalized = [];
+    if (!empty($filters['priority'])) {
+      $normalized['priority'] = strtolower($this->normalizeText((string)$filters['priority']));
+    }
+    if (isset($filters['min_volume'])) {
+      $normalized['min_volume'] = $this->clampNumber((float)$filters['min_volume'], $this->volumeMin, $this->volumeMax);
+    }
+    if (isset($filters['max_volume'])) {
+      $normalized['max_volume'] = $this->clampNumber((float)$filters['max_volume'], $this->volumeMin, $this->volumeMax);
+    }
+    if (isset($filters['min_reward'])) {
+      $normalized['min_reward'] = $this->clampNumber((float)$filters['min_reward'], $this->rewardMin, $this->rewardMax);
+    }
+    if (!empty($filters['pickup_system'])) {
+      $normalized['pickup_system'] = strtolower($this->normalizeText((string)$filters['pickup_system']));
+    }
+    if (!empty($filters['drop_system'])) {
+      $normalized['drop_system'] = strtolower($this->normalizeText((string)$filters['drop_system']));
+    }
+    if (isset($filters['risk'])) {
+      $normalized['risk'] = strtolower($this->normalizeText((string)$filters['risk']));
+    }
+
+    if (isset($normalized['min_volume'], $normalized['max_volume']) && $normalized['min_volume'] > $normalized['max_volume']) {
+      $normalized['max_volume'] = $normalized['min_volume'];
+    }
+
+    return array_filter($normalized, static fn($value) => $value !== '' && $value !== null);
+  }
+
+  private function normalizeText(string $value): string
+  {
+    $value = trim($value);
+    return preg_replace('/\s+/', ' ', $value) ?? $value;
+  }
+
+  private function clampNumber(float $value, float $min, float $max): float
+  {
+    return max($min, min($max, $value));
   }
 
   private function buildRequestUrl(string $requestKey): string

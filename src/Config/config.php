@@ -86,4 +86,15 @@ return [
     'guild_id' => getenv('DISCORD_GUILD_ID') ?: '',
     'api_base' => getenv('DISCORD_API_BASE') ?: 'https://discord.com/api/v10',
   ],
+  'open_contracts' => [
+    'limit_min' => 1,
+    'limit_max' => 10,
+    'volume_min' => 0,
+    'volume_max' => (float)(getenv('OPEN_CONTRACTS_VOLUME_MAX') ?: 100000000),
+    'reward_min' => 0,
+    'reward_max' => (float)(getenv('OPEN_CONTRACTS_REWARD_MAX') ?: 100000000000),
+    'cache_enabled' => (getenv('OPEN_CONTRACTS_CACHE_ENABLED') ?: '1') === '1',
+    'cache_ttl_seconds' => (int)(getenv('OPEN_CONTRACTS_CACHE_TTL') ?: 15),
+    'cooldown_seconds' => (int)(getenv('OPEN_CONTRACTS_COOLDOWN_SECONDS') ?: 3),
+  ],
 ];
