@@ -655,8 +655,6 @@ final class DiscordEventService
       'user' => (string)($row['requester_character_name'] ?? $row['requester_display_name'] ?? ''),
       'requester' => (string)($row['requester_character_name'] ?? $row['requester_display_name'] ?? ''),
       'requester_character_id' => (int)($row['requester_character_id'] ?? 0),
-      'hauler' => (string)($row['esi_acceptor_display_name'] ?? $row['acceptor_name'] ?? ''),
-      'hauler_character_id' => (int)($row['esi_acceptor_id'] ?? $row['contract_acceptor_id'] ?? $row['acceptor_id'] ?? 0),
       'ship_type_id' => 0,
       'link_request' => $requestUrl,
       'link_contract_instructions' => $requestUrl,

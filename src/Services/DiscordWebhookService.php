@@ -530,9 +530,6 @@ final class DiscordWebhookService
     $requester = trim((string)($details['requester'] ?? ''));
     $requesterCharacterId = (int)($details['requester_character_id'] ?? 0);
     $requesterAvatarUrl = trim((string)($details['requester_avatar_url'] ?? ''));
-    $hauler = trim((string)($details['hauler'] ?? ''));
-    $haulerCharacterId = (int)($details['hauler_character_id'] ?? 0);
-    $haulerAvatarUrl = trim((string)($details['hauler_avatar_url'] ?? ''));
     $status = trim((string)($details['status'] ?? ''));
     $actor = trim((string)($details['actor'] ?? ''));
     $actorLabel = trim((string)($details['actor_label'] ?? 'Actor'));
@@ -545,9 +542,6 @@ final class DiscordWebhookService
     $requesterAvatarUrl = $requesterAvatarUrl !== ''
       ? $requesterAvatarUrl
       : $this->buildCharacterPortraitUrl($requesterCharacterId);
-    $haulerAvatarUrl = $haulerAvatarUrl !== ''
-      ? $haulerAvatarUrl
-      : $this->buildCharacterPortraitUrl($haulerCharacterId);
     $actorAvatarUrl = $actorAvatarUrl !== ''
       ? $actorAvatarUrl
       : $this->buildCharacterPortraitUrl($actorCharacterId);
@@ -589,13 +583,6 @@ final class DiscordWebhookService
         'inline' => true,
       ];
     }
-    if ($hauler !== '') {
-      $fields[] = [
-        'name' => 'Hauler',
-        'value' => $hauler,
-        'inline' => true,
-      ];
-    }
     if ($actor !== '') {
       $fields[] = [
         'name' => $actorLabel !== '' ? $actorLabel : 'Actor',
@@ -630,12 +617,6 @@ final class DiscordWebhookService
       $author = ['name' => $requester];
       if ($requesterAvatarUrl !== '') {
         $author['icon_url'] = $requesterAvatarUrl;
-      }
-      $embed['author'] = $author;
-    } elseif ($hauler !== '') {
-      $author = ['name' => $hauler];
-      if ($haulerAvatarUrl !== '') {
-        $author['icon_url'] = $haulerAvatarUrl;
       }
       $embed['author'] = $author;
     }
@@ -784,8 +765,6 @@ final class DiscordWebhookService
     $collateral = (float)($details['collateral_isk'] ?? 0.0);
     $reward = (float)($details['reward_isk'] ?? 0.0);
     $contractId = (int)($details['contract_id'] ?? 0);
-    $acceptorId = (int)($details['acceptor_id'] ?? 0);
-    $acceptorName = trim((string)($details['acceptor_name'] ?? ''));
 
     $shipLabel = $this->formatShipClassLabel($shipClass);
     $fields = [];
@@ -797,9 +776,6 @@ final class DiscordWebhookService
     }
     if ($shipLabel !== '') {
       $fields[] = ['name' => 'Ship', 'value' => $shipLabel, 'inline' => true];
-    }
-    if ($acceptorName !== '') {
-      $fields[] = ['name' => 'Hauler', 'value' => $acceptorName, 'inline' => true];
     }
     $fields[] = ['name' => 'Reward', 'value' => number_format($reward, 2) . ' ISK', 'inline' => true];
     $fields[] = ['name' => 'Collateral', 'value' => number_format($collateral, 2) . ' ISK', 'inline' => true];
@@ -818,14 +794,7 @@ final class DiscordWebhookService
       'timestamp' => gmdate('c'),
     ];
 
-    if ($acceptorName !== '') {
-      $author = ['name' => $acceptorName];
-      $acceptorAvatarUrl = $this->buildCharacterPortraitUrl($acceptorId);
-      if ($acceptorAvatarUrl !== '') {
-        $author['icon_url'] = $acceptorAvatarUrl;
-      }
-      $embed['author'] = $author;
-    } elseif ($requestId > 0) {
+    if ($requestId > 0) {
       $embed['footer'] = ['text' => 'Request #' . $requestId];
     }
 
@@ -939,8 +908,6 @@ final class DiscordWebhookService
     $collateral = (float)($details['collateral_isk'] ?? 0.0);
     $reward = (float)($details['reward_isk'] ?? 0.0);
     $contractId = (int)($details['contract_id'] ?? 0);
-    $acceptorId = (int)($details['acceptor_id'] ?? 0);
-    $acceptorName = trim((string)($details['acceptor_name'] ?? ''));
     $requestUrl = $this->buildRequestUrl($requestKey !== '' ? $requestKey : null);
 
     $shipLabel = $this->formatShipClassLabel($shipClass);
@@ -953,9 +920,6 @@ final class DiscordWebhookService
     }
     if ($shipLabel !== '') {
       $fields[] = ['name' => 'Ship', 'value' => $shipLabel, 'inline' => true];
-    }
-    if ($acceptorName !== '') {
-      $fields[] = ['name' => 'Hauler', 'value' => $acceptorName, 'inline' => true];
     }
     if ($reward > 0) {
       $fields[] = ['name' => 'Reward', 'value' => number_format($reward, 2) . ' ISK', 'inline' => true];
@@ -983,14 +947,7 @@ final class DiscordWebhookService
       'timestamp' => gmdate('c'),
     ];
 
-    if ($acceptorName !== '') {
-      $author = ['name' => $acceptorName];
-      $acceptorAvatarUrl = $this->buildCharacterPortraitUrl($acceptorId);
-      if ($acceptorAvatarUrl !== '') {
-        $author['icon_url'] = $acceptorAvatarUrl;
-      }
-      $embed['author'] = $author;
-    } elseif ($requestId > 0) {
+    if ($requestId > 0) {
       $embed['footer'] = ['text' => 'Request #' . $requestId];
     }
 
@@ -1066,9 +1023,6 @@ final class DiscordWebhookService
     }
     if (!empty($payload['contract_id'])) {
       $fields[] = ['name' => 'Contract ID', 'value' => (string)$payload['contract_id'], 'inline' => true];
-    }
-    if (!empty($payload['acceptor_name'])) {
-      $fields[] = ['name' => 'Hauler', 'value' => (string)$payload['acceptor_name'], 'inline' => true];
     }
     if (!empty($payload['previous_state'])) {
       $fields[] = ['name' => 'Previous state', 'value' => (string)$payload['previous_state'], 'inline' => true];

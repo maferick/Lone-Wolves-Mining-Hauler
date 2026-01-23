@@ -153,8 +153,6 @@ if ($status === 'in_progress' && !empty($services['discord_webhook'])) {
       'volume_m3' => (float)($request['volume_m3'] ?? 0),
       'reward_isk' => (float)($request['reward_isk'] ?? 0),
       'requester' => (string)($request['requester_name'] ?? ''),
-      'hauler' => (string)($request['hauler_name'] ?? ''),
-      'hauler_character_id' => (int)($request['hauler_character_id'] ?? 0),
       'actor' => $actorName,
       'actor_label' => 'Picked Up By',
       'status' => 'in_progress',

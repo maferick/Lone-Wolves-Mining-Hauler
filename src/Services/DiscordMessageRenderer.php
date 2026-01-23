@@ -36,7 +36,6 @@ final class DiscordMessageRenderer
     }
     $authorName = trim((string)($payload['requester'] ?? $payload['user'] ?? ''));
     $requesterPortrait = trim((string)($payload['requester_portrait'] ?? ''));
-    $haulerPortrait = trim((string)($payload['hauler_portrait'] ?? ''));
     $shipRender = trim((string)($payload['ship_render'] ?? ''));
     $linkRequest = trim((string)($payload['link_request'] ?? ''));
 
@@ -51,9 +50,6 @@ final class DiscordMessageRenderer
     }
     if ($footer !== '') {
       $embed['footer'] = ['text' => $footer];
-      if ($haulerPortrait !== '') {
-        $embed['footer']['icon_url'] = $haulerPortrait;
-      }
     }
     if ($linkRequest !== '') {
       $embed['url'] = $linkRequest;
@@ -237,11 +233,10 @@ final class DiscordMessageRenderer
   {
     $requestId = (int)($payload['request_id'] ?? 0);
     $requesterCharacterId = (int)($payload['requester_character_id'] ?? 0);
-    $haulerCharacterId = (int)($payload['hauler_character_id'] ?? 0);
     $shipTypeId = (int)($payload['ship_type_id'] ?? 0);
     $shipClass = trim((string)($payload['ship_class'] ?? ''));
 
-    if ($requestId > 0 && ($requesterCharacterId <= 0 || $haulerCharacterId <= 0 || $shipClass === '' || empty($payload['requester']))) {
+    if ($requestId > 0 && ($requesterCharacterId <= 0 || $shipClass === '' || empty($payload['requester']))) {
       $row = $this->db->one(
         "SELECT r.request_id, r.request_key, r.ship_class, r.requester_character_id, r.requester_character_name,
                 r.acceptor_id, r.acceptor_name, r.esi_acceptor_id, r.esi_acceptor_name,
@@ -272,24 +267,11 @@ final class DiscordMessageRenderer
           }
           $payload['requester_character_id'] = $requesterCharacterId;
         }
-        if ($haulerCharacterId <= 0) {
-          $haulerCharacterId = (int)($row['esi_acceptor_id'] ?? 0);
-          if ($haulerCharacterId <= 0) {
-            $haulerCharacterId = (int)($row['contract_acceptor_id'] ?? 0);
-          }
-          if ($haulerCharacterId <= 0) {
-            $haulerCharacterId = (int)($row['acceptor_id'] ?? 0);
-          }
-          $payload['hauler_character_id'] = $haulerCharacterId;
-        }
         if (empty($payload['requester'])) {
           $payload['requester'] = (string)($row['requester_character_name'] ?? $row['user_character_name'] ?? $row['requester_display_name'] ?? '');
         }
         if (empty($payload['user'])) {
           $payload['user'] = (string)($row['user_character_name'] ?? $row['requester_display_name'] ?? '');
-        }
-        if (empty($payload['hauler'])) {
-          $payload['hauler'] = (string)($row['esi_acceptor_name'] ?? $row['contract_acceptor_name'] ?? $row['acceptor_name'] ?? '');
         }
       }
     }
@@ -302,13 +284,7 @@ final class DiscordMessageRenderer
       $payload['requester'] = $requesterName;
     }
 
-    $haulerName = trim((string)($payload['hauler'] ?? ''));
-    if ($haulerName === '') {
-      $payload['hauler'] = 'Unassigned';
-    }
-
     $payload['requester_portrait'] = $this->buildCharacterPortraitUrl($requesterCharacterId);
-    $payload['hauler_portrait'] = $this->buildCharacterPortraitUrl($haulerCharacterId);
     $payload['ship_render'] = $this->buildTypeRenderUrl($shipTypeId);
 
     $shipName = trim((string)($payload['ship_name'] ?? ''));
@@ -328,6 +304,8 @@ final class DiscordMessageRenderer
       $shipName = 'Unknown ship';
     }
     $payload['ship_name'] = $shipName;
+
+    unset($payload['hauler'], $payload['hauler_character_id'], $payload['hauler_portrait']);
 
     return $payload;
   }

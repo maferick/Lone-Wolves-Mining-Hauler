@@ -5,6 +5,11 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canAdmin = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'corp.manage');
+$canViewHaulerIdentity = $isLoggedIn && (
+  \App\Auth\Auth::hasRole($authCtx, 'admin')
+  || \App\Auth\Auth::hasRole($authCtx, 'subadmin')
+  || \App\Auth\Auth::hasRole($authCtx, 'dispatcher')
+);
 $canViewOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.read');
 $canManageOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
 $canAssignOps = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.assign');
@@ -271,8 +276,10 @@ ob_start();
             <th>Volume</th>
             <th>Reward</th>
             <th>Requester</th>
-            <th>In-game acceptor</th>
-            <th>Ops assigned</th>
+            <?php if ($canViewHaulerIdentity): ?>
+              <th>In-game acceptor</th>
+              <th>Ops assigned</th>
+            <?php endif; ?>
           </tr>
         </thead>
         <tbody>
@@ -284,8 +291,8 @@ ob_start();
               $hasContractDetails = !empty($contractDetails['checks']) || !empty($contractDetails['mismatches']);
               $contractStateLabel = $contractState === 'linked' ? 'Matched' : ($contractState === 'mismatch' ? 'Mismatch' : 'Pending');
               $contractLifecycleLabel = $buildContractStateLabel($req);
-              $inGameAcceptor = $buildInGameAcceptor($req);
-              $opsAssignee = $buildOpsAssignee($req);
+              $inGameAcceptor = $canViewHaulerIdentity ? $buildInGameAcceptor($req) : '';
+              $opsAssignee = $canViewHaulerIdentity ? $buildOpsAssignee($req) : '';
               $contractStatusEsi = trim((string)($req['esi_status'] ?? $req['contract_status_esi'] ?? ''));
             ?>
             <tr>
@@ -324,8 +331,10 @@ ob_start();
               <td><?= number_format((float)($req['volume_m3'] ?? 0), 0) ?> m³</td>
               <td><?= number_format((float)($req['reward_isk'] ?? 0), 2) ?> ISK</td>
               <td><?= htmlspecialchars((string)($req['requester_display_name'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($inGameAcceptor, ENT_QUOTES, 'UTF-8') ?></td>
-              <td><?= htmlspecialchars($opsAssignee, ENT_QUOTES, 'UTF-8') ?></td>
+              <?php if ($canViewHaulerIdentity): ?>
+                <td><?= htmlspecialchars($inGameAcceptor, ENT_QUOTES, 'UTF-8') ?></td>
+                <td><?= htmlspecialchars($opsAssignee, ENT_QUOTES, 'UTF-8') ?></td>
+              <?php endif; ?>
             </tr>
           <?php endforeach; ?>
         </tbody>
@@ -404,6 +413,8 @@ ob_start();
         <p class="muted">Sign in to assign haulers.</p>
       <?php elseif (!$canAssignOps): ?>
         <p class="muted">You do not have permission to assign haulers.</p>
+      <?php elseif (!$canViewHaulerIdentity): ?>
+        <p class="muted">You do not have permission to view hauler assignments.</p>
       <?php elseif (!$requestsAvailable): ?>
         <p class="muted">No hauling requests available for assignment.</p>
       <?php else: ?>
@@ -446,7 +457,7 @@ ob_start();
     </div>
   </section>
 
-  <?php if ($canAssignOps && $requestsAvailable): ?>
+  <?php if ($canAssignOps && $requestsAvailable && $canViewHaulerIdentity): ?>
   <div class="modal-backdrop" id="assign-modal" hidden>
     <div class="modal">
       <div class="modal-header">
