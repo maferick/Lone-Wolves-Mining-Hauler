@@ -63,7 +63,7 @@ if ($type === 1) {
   api_send_json(['type' => 1]);
 }
 
-if ($type !== 2) {
+if (!in_array($type, [2, 3], true)) {
   api_send_json([
     'type' => 4,
     'data' => [
@@ -94,10 +94,6 @@ $deferResponse = static function (bool $ephemeral): void {
   }
 };
 
-$deferResponse(true);
-ignore_user_abort(true);
-set_time_limit(0);
-
 $discordEvents = $services['discord_events'] ?? null;
 $corpId = null;
 if ($discordEvents instanceof \App\Services\DiscordEventService) {
@@ -107,6 +103,170 @@ if ($discordEvents instanceof \App\Services\DiscordEventService) {
 
 $configRow = $discordEvents && $corpId ? $discordEvents->loadConfig($corpId) : [];
 $ephemeral = !empty($configRow['commands_ephemeral_default']);
+
+$getDiscordUserId = static function (array $payload): string {
+  return (string)($payload['member']['user']['id'] ?? $payload['user']['id'] ?? '');
+};
+
+$parseFilters = static function (array $input): array {
+  $filters = [];
+  if (isset($input['priority'])) {
+    $filters['priority'] = trim((string)$input['priority']);
+  }
+  if (isset($input['min_volume'])) {
+    $filters['min_volume'] = $input['min_volume'];
+  }
+  if (isset($input['max_volume'])) {
+    $filters['max_volume'] = $input['max_volume'];
+  }
+  if (isset($input['min_reward'])) {
+    $filters['min_reward'] = $input['min_reward'];
+  }
+  if (isset($input['pickup_system'])) {
+    $filters['pickup_system'] = trim((string)$input['pickup_system']);
+  }
+  if (isset($input['drop_system'])) {
+    $filters['drop_system'] = trim((string)$input['drop_system']);
+  }
+  if (isset($input['risk'])) {
+    $filters['risk'] = trim((string)$input['risk']);
+  }
+  return array_filter($filters, static fn($value) => $value !== '' && $value !== null);
+};
+
+$buildFilterSummary = static function (array $filters): string {
+  if ($filters === []) {
+    return 'None';
+  }
+  $parts = [];
+  foreach ($filters as $key => $value) {
+    $parts[] = $key . '=' . $value;
+  }
+  return implode(', ', $parts);
+};
+
+$buildFilterQuery = static function (array $filters): string {
+  if ($filters === []) {
+    return '';
+  }
+  $encoded = [];
+  foreach ($filters as $key => $value) {
+    $encoded[] = rawurlencode((string)$key) . '=' . rawurlencode((string)$value);
+  }
+  return implode('&', $encoded);
+};
+
+$parseFilterQuery = static function (string $query): array {
+  if ($query === '') {
+    return [];
+  }
+  $parsed = [];
+  parse_str($query, $parsed);
+  return is_array($parsed) ? $parsed : [];
+};
+
+$formatOpenContractLine = static function (array $contract): string {
+  $id = (int)($contract['id'] ?? 0);
+  $pickup = trim((string)($contract['pickup_system'] ?? ''));
+  $drop = trim((string)($contract['drop_system'] ?? ''));
+  $pickupStation = trim((string)($contract['pickup_station'] ?? ''));
+  $dropStation = trim((string)($contract['drop_station'] ?? ''));
+  $route = trim($pickup . ' → ' . $drop);
+  $stations = [];
+  if ($pickupStation !== '') {
+    $stations[] = $pickupStation;
+  }
+  if ($dropStation !== '') {
+    $stations[] = $dropStation;
+  }
+  $stationLine = $stations ? ' (' . implode(' → ', $stations) . ')' : '';
+  $volume = number_format((float)($contract['volume_m3'] ?? 0), 0);
+  $reward = number_format((float)($contract['reward_isk'] ?? 0), 2);
+  $priority = (string)($contract['priority'] ?? 'normal');
+  $line = sprintf('#%d • %s%s • %s m³ • %s ISK • %s', $id, $route, $stationLine, $volume, $reward, $priority);
+  $link = trim((string)($contract['portal_url'] ?? ''));
+  if ($link !== '') {
+    $line .= "\n" . $link;
+  }
+  return $line;
+};
+
+$buildOpenContractsMessage = static function (array $contracts, int $offset, int $limit, array $filters) use ($buildFilterSummary, $buildFilterQuery, $formatOpenContractLine): array {
+  $count = count($contracts);
+  $start = $count > 0 ? $offset + 1 : 0;
+  $end = $count > 0 ? $offset + $count : 0;
+  $summary = $contracts === [] ? 'No open contracts found.' : implode("\n\n", array_map($formatOpenContractLine, $contracts));
+  $filterSummary = $buildFilterSummary($filters);
+
+  $embed = [
+    'title' => 'Open Contracts',
+    'description' => $summary,
+    'footer' => [
+      'text' => sprintf('Showing %d-%d • Filters: %s', $start, $end, $filterSummary),
+    ],
+  ];
+
+  $query = $buildFilterQuery($filters);
+  $baseId = $query !== '' ? ':' . $query : '';
+  $components = [];
+
+  $navRow = [
+    'type' => 1,
+    'components' => [],
+  ];
+  $prevOffset = max(0, $offset - $limit);
+  $navRow['components'][] = [
+    'type' => 2,
+    'style' => 2,
+    'label' => 'Prev',
+    'custom_id' => 'open:' . $prevOffset . ':' . $limit . $baseId,
+    'disabled' => $offset <= 0,
+  ];
+  $navRow['components'][] = [
+    'type' => 2,
+    'style' => 2,
+    'label' => 'Refresh',
+    'custom_id' => 'open:' . $offset . ':' . $limit . $baseId,
+  ];
+  $navRow['components'][] = [
+    'type' => 2,
+    'style' => 2,
+    'label' => 'Next',
+    'custom_id' => 'open:' . ($offset + $limit) . ':' . $limit . $baseId,
+    'disabled' => count($contracts) < $limit,
+  ];
+  $components[] = $navRow;
+
+  $linkButtons = [];
+  foreach ($contracts as $contract) {
+    $url = trim((string)($contract['portal_url'] ?? ''));
+    if ($url === '') {
+      continue;
+    }
+    $label = '#' . (string)($contract['id'] ?? '');
+    $linkButtons[] = [
+      'type' => 2,
+      'style' => 5,
+      'label' => 'Open ' . $label,
+      'url' => $url,
+    ];
+    if (count($linkButtons) >= 5) {
+      break;
+    }
+  }
+  if ($linkButtons !== []) {
+    $components[] = [
+      'type' => 1,
+      'components' => $linkButtons,
+    ];
+  }
+
+  return [
+    'content' => $contracts === [] ? 'No open contracts found.' : 'Open contracts available.',
+    'embeds' => [$embed],
+    'components' => $components,
+  ];
+};
 
 $apiBase = rtrim((string)($config['discord']['api_base'] ?? 'https://discord.com/api/v10'), '/');
 $interactionToken = trim((string)($payload['token'] ?? ''));
@@ -190,6 +350,18 @@ if ($portalRoot === '') {
 }
 $portalLinkLine = $portalRoot !== '' ? "\nPortal: {$portalRoot}" : '';
 $dashboardUrl = $portalRoot;
+$buildRequestUrl = static function (string $requestKey) use ($config): string {
+  $requestKey = trim($requestKey);
+  if ($requestKey === '') {
+    return '';
+  }
+  $baseUrl = rtrim((string)($config['app']['base_url'] ?? ''), '/');
+  $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
+  $baseUrlPath = rtrim((string)(parse_url($baseUrl, PHP_URL_PATH) ?: ''), '/');
+  $pathPrefix = ($baseUrlPath !== '' && $baseUrlPath !== '/') ? '' : $basePath;
+  $path = ($pathPrefix ?: '') . '/request?request_key=' . urlencode($requestKey);
+  return $baseUrl !== '' ? $baseUrl . $path : $path;
+};
 $onboardingMessage = implode("\n", [
   '🔒 Identity verification required',
   '',
@@ -244,6 +416,26 @@ $requireLinkedUser = static function (string $discordUserId) use ($db, $corpId, 
   return (int)$link['user_id'];
 };
 
+$lookupLinkedUserId = static function (string $discordUserId) use ($db, $corpId): ?int {
+  $link = $db->one(
+    "SELECT l.user_id
+       FROM discord_user_link l
+       JOIN app_user u ON u.user_id = l.user_id
+      WHERE l.discord_user_id = :did
+        AND u.corp_id = :cid
+      LIMIT 1",
+    ['cid' => $corpId, 'did' => $discordUserId]
+  );
+  if (!$link) {
+    return null;
+  }
+  $db->execute(
+    "UPDATE discord_user_link SET last_seen_at = UTC_TIMESTAMP() WHERE user_id = :uid",
+    ['uid' => (int)$link['user_id']]
+  );
+  return (int)$link['user_id'];
+};
+
 $userHasRight = static function (int $userId, string $permKey) use ($db): bool {
   $authz = new AuthzService($db);
   if (!$authz->isAccessGrantedUserId($userId)) {
@@ -261,81 +453,113 @@ $userHasRight = static function (int $userId, string $permKey) use ($db): bool {
   return (bool)$row;
 };
 
+$openContractsService = $services['open_contracts'] ?? null;
+
+if ($type === 3) {
+  $customId = (string)($payload['data']['custom_id'] ?? '');
+  $parts = explode(':', $customId, 4);
+  if (count($parts) >= 3 && $parts[0] === 'open') {
+    $offset = max(0, (int)($parts[1] ?? 0));
+    $limit = max(1, min(10, (int)($parts[2] ?? 5)));
+    $filterQuery = $parts[3] ?? '';
+    $filters = $parseFilters($parseFilterQuery($filterQuery));
+
+    if (!$openContractsService instanceof \App\Services\OpenContractsService) {
+      api_send_json([
+        'type' => 7,
+        'data' => [
+          'content' => 'Open contracts service unavailable.',
+        ],
+      ]);
+    }
+
+    $discordUserId = $getDiscordUserId($payload);
+    if ($discordUserId === '') {
+      api_send_json([
+        'type' => 7,
+        'data' => [
+          'content' => 'Unable to resolve Discord user.',
+        ],
+      ]);
+    }
+    $linkedUserId = $lookupLinkedUserId($discordUserId);
+    if ($linkedUserId === null) {
+      api_send_json([
+        'type' => 4,
+        'data' => [
+          'content' => $onboardingMessage,
+          'flags' => 64,
+        ],
+      ]);
+    }
+    if (!$userHasRight($linkedUserId, 'hauling.member')) {
+      api_send_json([
+        'type' => 7,
+        'data' => [
+          'content' => $deniedMessage,
+        ],
+      ]);
+    }
+
+    $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    $message = $buildOpenContractsMessage($contracts, $offset, $limit, $filters);
+
+    api_send_json([
+      'type' => 7,
+      'data' => $message,
+    ]);
+  }
+
+  api_send_json([
+    'type' => 4,
+    'data' => [
+      'content' => 'Unknown action.',
+      'flags' => 64,
+    ],
+  ]);
+}
+
+$deferResponse(true);
+ignore_user_abort(true);
+set_time_limit(0);
+
 switch ($commandName) {
-  case 'quote':
-    if (empty($services['pricing'])) {
-      $sendFollowupMessage('Quote service unavailable.', $ephemeral);
+  case 'open':
+    if (!$openContractsService instanceof \App\Services\OpenContractsService) {
+      $sendFollowupMessage('Open contracts service unavailable.', $ephemeral);
       exit;
     }
-    $pickup = trim((string)($optionMap['pickup'] ?? ''));
-    $delivery = trim((string)($optionMap['delivery'] ?? ''));
-    $volume = $parseNumber($optionMap['volume'] ?? '0');
-    $collateral = $parseNumber($optionMap['collateral'] ?? '0');
-    $priority = strtolower(trim((string)($optionMap['priority'] ?? 'normal')));
-    if (!in_array($priority, ['normal', 'high'], true)) {
-      $priority = 'normal';
+    $discordUserId = $getDiscordUserId($payload);
+    if ($discordUserId === '') {
+      $sendFollowupMessage('Unable to resolve Discord user.', $ephemeral);
+      exit;
+    }
+    $linkedUserId = $requireLinkedUser($discordUserId);
+    if ($linkedUserId === null) {
+      exit;
+    }
+    if (!$userHasRight($linkedUserId, 'hauling.member')) {
+      $sendFollowupMessage($deniedMessage, $ephemeral);
+      exit;
     }
 
-    try {
-      /** @var \App\Services\PricingService $pricingService */
-      $pricingService = $services['pricing'];
-      $quote = $pricingService->quote([
-        'pickup' => $pickup,
-        'destination' => $delivery,
-        'volume_m3' => $volume,
-        'collateral_isk' => $collateral,
-        'priority' => $priority,
-      ], $corpId, [
-        'allow_esi_fallback' => false,
-      ]);
+    $filters = $parseFilters([
+      'priority' => $optionMap['priority'] ?? null,
+      'min_volume' => isset($optionMap['min_volume']) ? $parseNumber($optionMap['min_volume']) : null,
+      'max_volume' => isset($optionMap['max_volume']) ? $parseNumber($optionMap['max_volume']) : null,
+      'min_reward' => isset($optionMap['min_reward']) ? $parseNumber($optionMap['min_reward']) : null,
+      'pickup_system' => $optionMap['pickup_system'] ?? null,
+      'drop_system' => $optionMap['drop_system'] ?? null,
+      'risk' => $optionMap['risk'] ?? null,
+    ]);
 
-      $shipClass = (string)($quote['breakdown']['ship_class']['service_class'] ?? '');
-      $route = $quote['route'] ?? [];
-      $from = $route['path'][0]['system_name'] ?? $pickup;
-      $to = '';
-      if (!empty($route['path']) && is_array($route['path'])) {
-        $last = end($route['path']);
-        if (is_array($last)) {
-          $to = (string)($last['system_name'] ?? $delivery);
-        }
-      }
-      $routeSummary = trim((string)$from . ' → ' . (string)($to !== '' ? $to : $delivery));
-      $jumps = (int)($route['jumps'] ?? 0);
-      $price = number_format((float)$quote['price_total'], 2) . ' ISK';
+    $limit = max(1, min(10, (int)($optionMap['limit'] ?? 5)));
+    $page = max(1, (int)($optionMap['page'] ?? 1));
+    $offset = ($page - 1) * $limit;
 
-      $embed = [
-        'title' => 'Hauling Quote',
-        'description' => $routeSummary,
-        'fields' => [
-          [
-            'name' => 'Price',
-            'value' => $price,
-            'inline' => true,
-          ],
-          [
-            'name' => 'Ship Class',
-            'value' => $shipClass !== '' ? $shipClass : 'N/A',
-            'inline' => true,
-          ],
-          [
-            'name' => 'Jumps',
-            'value' => (string)$jumps,
-            'inline' => true,
-          ],
-          [
-            'name' => 'Create Request',
-            'value' => $createRequestUrl !== '' ? $createRequestUrl : 'Open the hauling portal to create a request.',
-            'inline' => false,
-          ],
-        ],
-      ];
-
-      $sendFollowupMessage('Quote ready.', $ephemeral, [$embed]);
-    } catch (\App\Services\RouteException $e) {
-      $sendFollowupMessage('No viable route found with the current routing graph.', $ephemeral);
-    } catch (Throwable $e) {
-      $sendFollowupMessage('Unable to generate quote: ' . $e->getMessage(), $ephemeral);
-    }
+    $contracts = $openContractsService->listOpenContracts($corpId, $filters, $limit, $offset);
+    $message = $buildOpenContractsMessage($contracts, $offset, $limit, $filters);
+    $sendFollowup($message + ['flags' => $ephemeral ? 64 : 0]);
     break;
 
   case 'request':
@@ -383,7 +607,7 @@ switch ($commandName) {
     $routeSummary = trim($from . ' → ' . $to);
     $requestId = (int)($requestRow['request_id'] ?? 0);
     $requestKeyValue = (string)($requestRow['request_key'] ?? '');
-    $requestUrl = $requestKeyValue !== '' ? $createRequestUrl . 'request?request_key=' . urlencode($requestKeyValue) : '';
+    $requestUrl = $buildRequestUrl($requestKeyValue);
 
     $embed = [
       'title' => 'Request #' . $requestId,
@@ -763,7 +987,7 @@ switch ($commandName) {
 
   case 'help':
     $help = [
-      '/quote pickup delivery volume collateral priority',
+      '/open [filters]',
       '/request <id|code>',
       '/link code',
       '/myrequests',

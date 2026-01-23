@@ -3037,33 +3037,9 @@ final class DiscordDeliveryService
   {
     return [
       [
-        'name' => 'quote',
-        'description' => 'Get a hauling quote.',
+        'name' => 'open',
+        'description' => 'List open hauling contracts.',
         'options' => [
-          [
-            'type' => 3,
-            'name' => 'pickup',
-            'description' => 'Pickup system or location.',
-            'required' => true,
-          ],
-          [
-            'type' => 3,
-            'name' => 'delivery',
-            'description' => 'Delivery system or location.',
-            'required' => true,
-          ],
-          [
-            'type' => 10,
-            'name' => 'volume',
-            'description' => 'Volume in m3.',
-            'required' => true,
-          ],
-          [
-            'type' => 3,
-            'name' => 'collateral',
-            'description' => 'Collateral in ISK.',
-            'required' => true,
-          ],
           [
             'type' => 3,
             'name' => 'priority',
@@ -3073,6 +3049,54 @@ final class DiscordDeliveryService
               ['name' => 'normal', 'value' => 'normal'],
               ['name' => 'high', 'value' => 'high'],
             ],
+          ],
+          [
+            'type' => 10,
+            'name' => 'min_volume',
+            'description' => 'Minimum volume in m3.',
+            'required' => false,
+          ],
+          [
+            'type' => 10,
+            'name' => 'max_volume',
+            'description' => 'Maximum volume in m3.',
+            'required' => false,
+          ],
+          [
+            'type' => 10,
+            'name' => 'min_reward',
+            'description' => 'Minimum reward in ISK.',
+            'required' => false,
+          ],
+          [
+            'type' => 3,
+            'name' => 'pickup_system',
+            'description' => 'Pickup system name.',
+            'required' => false,
+          ],
+          [
+            'type' => 3,
+            'name' => 'drop_system',
+            'description' => 'Drop system name.',
+            'required' => false,
+          ],
+          [
+            'type' => 3,
+            'name' => 'risk',
+            'description' => 'Risk tier filter.',
+            'required' => false,
+          ],
+          [
+            'type' => 4,
+            'name' => 'limit',
+            'description' => 'Contracts per page (1-10).',
+            'required' => false,
+          ],
+          [
+            'type' => 4,
+            'name' => 'page',
+            'description' => 'Page number.',
+            'required' => false,
           ],
         ],
       ],

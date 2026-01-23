@@ -229,7 +229,7 @@ Double-check the URL is exact (including the trailing slash) and then review ser
 
 ### Slash Commands
 Available commands:
-- `/quote` — Quote a haul using local routing data.
+- `/open` — List open hauling contracts.
 - `/request` — Lookup request status by ID or code.
 - `/link` — Link your Discord user to a portal account using a one-time code.
 - `/myrequests` — Show your last 5 requests (requires Discord ↔ account link).

@@ -273,6 +273,7 @@ $services = [];
       'route' => $routeService,
       'pricing' => new \App\Services\PricingService($db, $routeService, $config),
       'route_optimization' => new \App\Services\RouteOptimizationService($db, $routeService, $config),
+      'open_contracts' => new \App\Services\OpenContractsService($db, $config),
       'discord_webhook' => $discordWebhookService,
       'discord_renderer' => $discordRenderer,
       'discord_delivery' => $discordDelivery,
