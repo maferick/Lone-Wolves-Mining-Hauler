@@ -5,6 +5,11 @@ $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $authCtx = $authCtx ?? ($GLOBALS['authCtx'] ?? []);
 $isLoggedIn = !empty($authCtx['user_id']);
 $canManage = $isLoggedIn && \App\Auth\Auth::can($authCtx, 'haul.request.manage');
+$canViewHaulerIdentity = $isLoggedIn && (
+  \App\Auth\Auth::hasRole($authCtx, 'admin')
+  || \App\Auth\Auth::hasRole($authCtx, 'subadmin')
+  || \App\Auth\Auth::hasRole($authCtx, 'dispatcher')
+);
 $mismatchDetails = [];
 if (!empty($request['mismatch_reason_json'])) {
   $decodedMismatch = json_decode((string)$request['mismatch_reason_json'], true);
@@ -76,14 +81,16 @@ ob_start();
           <div class="label">ESI status</div>
           <div><?= !empty($request['esi_status']) ? htmlspecialchars((string)$request['esi_status'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_status_esi']) ? htmlspecialchars((string)$request['contract_status_esi'], ENT_QUOTES, 'UTF-8') : '—') ?></div>
         </div>
-        <div>
-          <div class="label">In-game acceptor</div>
-          <div><?= !empty($request['esi_acceptor_name']) ? htmlspecialchars((string)$request['esi_acceptor_name'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_acceptor_name']) ? htmlspecialchars((string)$request['contract_acceptor_name'], ENT_QUOTES, 'UTF-8') : 'Unaccepted') ?></div>
-        </div>
-        <div>
-          <div class="label">Ops assigned</div>
-          <div><?= !empty($request['ops_assignee_name']) ? htmlspecialchars((string)$request['ops_assignee_name'], ENT_QUOTES, 'UTF-8') : 'Unassigned' ?></div>
-        </div>
+        <?php if ($canViewHaulerIdentity): ?>
+          <div>
+            <div class="label">In-game acceptor</div>
+            <div><?= !empty($request['esi_acceptor_name']) ? htmlspecialchars((string)$request['esi_acceptor_name'], ENT_QUOTES, 'UTF-8') : (!empty($request['contract_acceptor_name']) ? htmlspecialchars((string)$request['contract_acceptor_name'], ENT_QUOTES, 'UTF-8') : 'Unaccepted') ?></div>
+          </div>
+          <div>
+            <div class="label">Ops assigned</div>
+            <div><?= !empty($request['ops_assignee_name']) ? htmlspecialchars((string)$request['ops_assignee_name'], ENT_QUOTES, 'UTF-8') : 'Unassigned' ?></div>
+          </div>
+        <?php endif; ?>
       </div>
       <?php if (!empty($mismatchDetails)): ?>
         <div style="margin-top:12px;">
