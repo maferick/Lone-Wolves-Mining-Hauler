@@ -161,7 +161,12 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <section class="admin-section" id="specials-discounts" data-section="specials-discounts">
       <div class="admin-section__title">Specials/Discounts</div>
       <div class="card" style="padding:12px; margin-top:12px;">
-        <div class="muted">No specials or discount rules have been configured yet.</div>
+        <div class="row" style="gap:12px; align-items:center;">
+          <div>
+            <div class="muted">Manage customer discounts, off-peak promos, and lane specials.</div>
+          </div>
+          <a class="btn" href="<?= ($basePath ?: '') ?>/admin/pricing/discounts/">Manage discounts</a>
+        </div>
       </div>
     </section>
   </div>

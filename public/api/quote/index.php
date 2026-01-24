@@ -70,6 +70,7 @@ try {
     'corp_id' => $authCtx['corp_id'] ?? null,
     'actor_user_id' => $authCtx['user_id'] ?? null,
     'actor_character_id' => $authCtx['character_id'] ?? null,
+    'alliance_id' => $authCtx['alliance_id'] ?? null,
     'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
     'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
   ]);
