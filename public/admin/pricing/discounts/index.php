@@ -329,6 +329,72 @@ $rules = $db->select(
     ORDER BY priority ASC, id ASC"
 );
 
+$systemIds = [];
+$regionIds = [];
+foreach ($rules as $rule) {
+  $routeScope = (string)($rule['route_scope'] ?? 'any');
+  $pickupId = $rule['pickup_id'] ?? null;
+  $dropId = $rule['drop_id'] ?? null;
+  if (in_array($routeScope, ['lane', 'pickup_system', 'drop_system'], true)) {
+    if ($pickupId !== null) {
+      $systemIds[] = (int)$pickupId;
+    }
+    if ($dropId !== null) {
+      $systemIds[] = (int)$dropId;
+    }
+  }
+  if (in_array($routeScope, ['pickup_region', 'drop_region'], true)) {
+    if ($pickupId !== null) {
+      $regionIds[] = (int)$pickupId;
+    }
+    if ($dropId !== null) {
+      $regionIds[] = (int)$dropId;
+    }
+  }
+}
+
+$systemNames = [];
+$regionNames = [];
+if ($systemIds) {
+  $systemIds = array_values(array_unique($systemIds));
+  $placeholders = [];
+  $params = [];
+  foreach ($systemIds as $index => $systemId) {
+    $key = 'system_id_' . $index;
+    $placeholders[] = ':' . $key;
+    $params[$key] = $systemId;
+  }
+  $systemRows = $db->select(
+    "SELECT system_id, system_name
+       FROM eve_system
+      WHERE system_id IN (" . implode(',', $placeholders) . ")",
+    $params
+  );
+  foreach ($systemRows as $row) {
+    $systemNames[(int)$row['system_id']] = (string)$row['system_name'];
+  }
+}
+
+if ($regionIds) {
+  $regionIds = array_values(array_unique($regionIds));
+  $placeholders = [];
+  $params = [];
+  foreach ($regionIds as $index => $regionId) {
+    $key = 'region_id_' . $index;
+    $placeholders[] = ':' . $key;
+    $params[$key] = $regionId;
+  }
+  $regionRows = $db->select(
+    "SELECT region_id, region_name
+       FROM eve_region
+      WHERE region_id IN (" . implode(',', $placeholders) . ")",
+    $params
+  );
+  foreach ($regionRows as $row) {
+    $regionNames[(int)$row['region_id']] = (string)$row['region_name'];
+  }
+}
+
 ob_start();
 require __DIR__ . '/../../../../src/Views/partials/admin_nav.php';
 ?>
@@ -470,7 +536,7 @@ require __DIR__ . '/../../../../src/Views/partials/admin_nav.php';
       </form>
     <?php else: ?>
       <div class="row" style="margin-bottom:16px;">
-        <a class="btn" href="<?= ($basePath ?: '') ?>/admin/pricing/discounts/new">New discount</a>
+        <a class="btn" href="<?= ($basePath ?: '') ?>/admin/pricing/discounts/?action=new">New discount</a>
         <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/pricing/">Back to pricing</a>
       </div>
       <table class="table">
@@ -505,8 +571,30 @@ require __DIR__ . '/../../../../src/Views/partials/admin_nav.php';
                 $scope .= ' #' . (string)$rule['scope_id'];
               }
               $route = (string)$rule['route_scope'];
+              $pickupLabel = '-';
+              $dropLabel = '-';
+              if (!empty($rule['pickup_id'])) {
+                $pickupId = (int)$rule['pickup_id'];
+                if (in_array($route, ['lane', 'pickup_system', 'drop_system'], true)) {
+                  $pickupLabel = $systemNames[$pickupId] ?? (string)$pickupId;
+                } elseif (in_array($route, ['pickup_region', 'drop_region'], true)) {
+                  $pickupLabel = $regionNames[$pickupId] ?? (string)$pickupId;
+                } else {
+                  $pickupLabel = (string)$pickupId;
+                }
+              }
+              if (!empty($rule['drop_id'])) {
+                $dropId = (int)$rule['drop_id'];
+                if (in_array($route, ['lane', 'pickup_system', 'drop_system'], true)) {
+                  $dropLabel = $systemNames[$dropId] ?? (string)$dropId;
+                } elseif (in_array($route, ['pickup_region', 'drop_region'], true)) {
+                  $dropLabel = $regionNames[$dropId] ?? (string)$dropId;
+                } else {
+                  $dropLabel = (string)$dropId;
+                }
+              }
               if (!empty($rule['pickup_id']) || !empty($rule['drop_id'])) {
-                $route .= sprintf(' (%s → %s)', $rule['pickup_id'] ?? '-', $rule['drop_id'] ?? '-');
+                $route .= sprintf(' (%s → %s)', $pickupLabel, $dropLabel);
               }
               $window = '';
               if (!empty($rule['min_contracts_in_window']) && !empty($rule['window_hours'])) {
@@ -529,12 +617,12 @@ require __DIR__ . '/../../../../src/Views/partials/admin_nav.php';
               <td><?= htmlspecialchars($dates, ENT_QUOTES, 'UTF-8') ?></td>
               <td>
                 <div class="actions" style="display:flex; gap:6px;">
-                  <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/pricing/discounts/<?= (int)$rule['id'] ?>/edit">Edit</a>
-                  <form method="post" action="<?= ($basePath ?: '') ?>/admin/pricing/discounts/<?= (int)$rule['id'] ?>/toggle" onsubmit="return confirm('Toggle this rule?');">
+                  <a class="btn ghost" href="<?= ($basePath ?: '') ?>/admin/pricing/discounts/?action=edit&id=<?= (int)$rule['id'] ?>">Edit</a>
+                  <form method="post" action="<?= ($basePath ?: '') ?>/admin/pricing/discounts/?action=toggle&id=<?= (int)$rule['id'] ?>" onsubmit="return confirm('Toggle this rule?');">
                     <input type="hidden" name="form_action" value="toggle" />
                     <button class="btn ghost" type="submit"><?= $enabled ? 'Disable' : 'Enable' ?></button>
                   </form>
-                  <form method="post" action="<?= ($basePath ?: '') ?>/admin/pricing/discounts/<?= (int)$rule['id'] ?>/delete" onsubmit="return confirm('Disable this discount rule?');">
+                  <form method="post" action="<?= ($basePath ?: '') ?>/admin/pricing/discounts/?action=delete&id=<?= (int)$rule['id'] ?>" onsubmit="return confirm('Disable this discount rule?');">
                     <input type="hidden" name="form_action" value="delete" />
                     <button class="btn danger" type="submit">Disable</button>
                   </form>
