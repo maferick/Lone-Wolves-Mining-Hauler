@@ -193,7 +193,7 @@ $addItem = static function (array $item, int $score, bool $pinned) use (&$items,
 };
 
 $locationIdSet = $allowedLocationIds;
-if ($locationIdSet) {
+if ($locationIdSet && $allowStructureLocations) {
   $placeholders = implode(',', array_fill(0, count($locationIdSet), '?'));
   $stationRows = $db->select(
     "SELECT st.station_id AS location_id,
@@ -240,41 +240,39 @@ if ($locationIdSet) {
     ], $score, true);
   }
 
-  if ($allowStructureLocations) {
-    $structureRows = $db->select(
-      "SELECT es.structure_id AS location_id,
-              es.structure_name,
-              es.system_id,
-              COALESCE(ms.system_name, s.system_name) AS system_name,
-              COALESCE(ms.region_id, c.region_id) AS region_id
-         FROM eve_structure es
-         LEFT JOIN map_system ms ON ms.system_id = es.system_id
-         LEFT JOIN eve_system s ON s.system_id = es.system_id
-         LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-        WHERE es.structure_id IN ({$placeholders})",
-      $locationIdSet
-    );
-    foreach ($structureRows as $row) {
-      $locationName = trim((string)($row['structure_name'] ?? ''));
-      if ($locationName === '') {
-        continue;
-      }
-      $systemName = (string)($row['system_name'] ?? '');
-      $score = $matchScore($systemName, $locationName);
-      if ($score === null) {
-        continue;
-      }
-      $displayName = $buildDisplayName($systemName, $locationName);
-      $addItem([
-        'name' => $displayName,
-        'label' => 'Structure',
-        'location_type' => 'structure',
-        'location_id' => (int)$row['location_id'],
-        'location_name' => $locationName,
-        'system_id' => (int)($row['system_id'] ?? 0),
-        'system_name' => $systemName,
-      ], $score, true);
+  $structureRows = $db->select(
+    "SELECT es.structure_id AS location_id,
+            es.structure_name,
+            es.system_id,
+            COALESCE(ms.system_name, s.system_name) AS system_name,
+            COALESCE(ms.region_id, c.region_id) AS region_id
+       FROM eve_structure es
+       LEFT JOIN map_system ms ON ms.system_id = es.system_id
+       LEFT JOIN eve_system s ON s.system_id = es.system_id
+       LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+      WHERE es.structure_id IN ({$placeholders})",
+    $locationIdSet
+  );
+  foreach ($structureRows as $row) {
+    $locationName = trim((string)($row['structure_name'] ?? ''));
+    if ($locationName === '') {
+      continue;
     }
+    $systemName = (string)($row['system_name'] ?? '');
+    $score = $matchScore($systemName, $locationName);
+    if ($score === null) {
+      continue;
+    }
+    $displayName = $buildDisplayName($systemName, $locationName);
+    $addItem([
+      'name' => $displayName,
+      'label' => 'Structure',
+      'location_type' => 'structure',
+      'location_id' => (int)$row['location_id'],
+      'location_name' => $locationName,
+      'system_id' => (int)($row['system_id'] ?? 0),
+      'system_name' => $systemName,
+    ], $score, true);
   }
 }
 
@@ -302,7 +300,7 @@ $buildScopeClause = static function (string $systemColumn, string $regionExpr) u
 $stationScope = $buildScopeClause('st.system_id', 'COALESCE(ms.region_id, c.region_id)');
 $structureScope = $buildScopeClause('es.system_id', 'COALESCE(ms.region_id, c.region_id)');
 
-if (!$hasAllowlist || !empty($scopeSystemIds) || !empty($scopeRegionIds)) {
+if ($allowStructureLocations && (!$hasAllowlist || !empty($scopeSystemIds) || !empty($scopeRegionIds))) {
   $stationRows = $db->select(
     "SELECT st.station_id AS location_id,
             st.station_name,
@@ -355,45 +353,43 @@ if (!$hasAllowlist || !empty($scopeSystemIds) || !empty($scopeRegionIds)) {
     ], $score, false);
   }
 
-  if ($allowStructureLocations) {
-    $structureRows = $db->select(
-      "SELECT es.structure_id AS location_id,
-              es.structure_name,
-              es.system_id,
-              COALESCE(ms.system_name, s.system_name) AS system_name,
-              COALESCE(ms.region_id, c.region_id) AS region_id
-         FROM eve_structure es
-         LEFT JOIN map_system ms ON ms.system_id = es.system_id
-         LEFT JOIN eve_system s ON s.system_id = es.system_id
-         LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
-        WHERE (es.structure_name LIKE ? OR es.structure_name LIKE ? OR COALESCE(ms.system_name, s.system_name) LIKE ?)
-          {$structureScope[0]}
-        ORDER BY system_name, es.structure_name, es.structure_id
-        LIMIT ?",
-      array_merge([$likePrefix, $likeContains, $likePrefix], $structureScope[1], [$limit * 6])
-    );
+  $structureRows = $db->select(
+    "SELECT es.structure_id AS location_id,
+            es.structure_name,
+            es.system_id,
+            COALESCE(ms.system_name, s.system_name) AS system_name,
+            COALESCE(ms.region_id, c.region_id) AS region_id
+       FROM eve_structure es
+       LEFT JOIN map_system ms ON ms.system_id = es.system_id
+       LEFT JOIN eve_system s ON s.system_id = es.system_id
+       LEFT JOIN eve_constellation c ON c.constellation_id = s.constellation_id
+      WHERE (es.structure_name LIKE ? OR es.structure_name LIKE ? OR COALESCE(ms.system_name, s.system_name) LIKE ?)
+        {$structureScope[0]}
+      ORDER BY system_name, es.structure_name, es.structure_id
+      LIMIT ?",
+    array_merge([$likePrefix, $likeContains, $likePrefix], $structureScope[1], [$limit * 6])
+  );
 
-    foreach ($structureRows as $row) {
-      $locationName = trim((string)($row['structure_name'] ?? ''));
-      if ($locationName === '') {
-        continue;
-      }
-      $systemName = (string)($row['system_name'] ?? '');
-      $score = $matchScore($systemName, $locationName);
-      if ($score === null) {
-        continue;
-      }
-      $displayName = $buildDisplayName($systemName, $locationName);
-      $addItem([
-        'name' => $displayName,
-        'label' => 'Structure',
-        'location_type' => 'structure',
-        'location_id' => (int)$row['location_id'],
-        'location_name' => $locationName,
-        'system_id' => (int)($row['system_id'] ?? 0),
-        'system_name' => $systemName,
-      ], $score, false);
+  foreach ($structureRows as $row) {
+    $locationName = trim((string)($row['structure_name'] ?? ''));
+    if ($locationName === '') {
+      continue;
     }
+    $systemName = (string)($row['system_name'] ?? '');
+    $score = $matchScore($systemName, $locationName);
+    if ($score === null) {
+      continue;
+    }
+    $displayName = $buildDisplayName($systemName, $locationName);
+    $addItem([
+      'name' => $displayName,
+      'label' => 'Structure',
+      'location_type' => 'structure',
+      'location_id' => (int)$row['location_id'],
+      'location_name' => $locationName,
+      'system_id' => (int)($row['system_id'] ?? 0),
+      'system_name' => $systemName,
+    ], $score, false);
   }
 }
 

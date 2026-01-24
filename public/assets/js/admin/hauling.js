@@ -102,6 +102,32 @@
     if (note) note.textContent = enabled ? 'Contract attach enabled for requesters.' : 'Contract attach disabled. Requests cannot attach contract IDs.';
   };
 
+  const loadContractValidation = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/contract-link-validation/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const checks = data.checks || {};
+    const typeToggle = document.getElementById('contract-validate-type');
+    const startToggle = document.getElementById('contract-validate-start');
+    const endToggle = document.getElementById('contract-validate-end');
+    const volumeToggle = document.getElementById('contract-validate-volume');
+    const note = document.getElementById('contract-validation-note');
+    if (typeToggle) typeToggle.checked = !!checks.type;
+    if (startToggle) startToggle.checked = !!checks.start_system;
+    if (endToggle) endToggle.checked = !!checks.end_system;
+    if (volumeToggle) volumeToggle.checked = !!checks.volume;
+    if (note) {
+      const enabled = [
+        checks.type,
+        checks.start_system,
+        checks.end_system,
+        checks.volume,
+      ].filter(Boolean).length;
+      note.textContent = enabled > 0
+        ? 'Selected checks will be enforced when contracts are attached.'
+        : 'No optional checks selected. Only reward and collateral will be verified.';
+    }
+  };
+
   const loadQuoteLocations = async () => {
     const data = await fetchJson(`${basePath}/api/admin/quote-locations/?corp_id=${corpId}`);
     if (!data.ok) return;
@@ -319,6 +345,23 @@
     loadContractAttach();
   });
 
+  document.getElementById('save-contract-validation')?.addEventListener('click', async () => {
+    const checks = {
+      type: document.getElementById('contract-validate-type')?.checked ?? true,
+      start_system: document.getElementById('contract-validate-start')?.checked ?? true,
+      end_system: document.getElementById('contract-validate-end')?.checked ?? true,
+      volume: document.getElementById('contract-validate-volume')?.checked ?? true,
+    };
+    await fetchJson(`${basePath}/api/admin/contract-link-validation/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        checks,
+      }),
+    });
+    loadContractValidation();
+  });
+
   document.getElementById('save-quote-locations')?.addEventListener('click', async () => {
     const enabled = document.getElementById('quote-locations-structures')?.checked ?? true;
     await fetchJson(`${basePath}/api/admin/quote-locations/`, {
@@ -483,6 +526,7 @@
 
   loadPriority();
   loadContractAttach();
+  loadContractValidation();
   loadQuoteLocations();
   loadOperationsDispatch();
   loadOptimization();

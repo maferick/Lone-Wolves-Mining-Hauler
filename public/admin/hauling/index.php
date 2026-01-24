@@ -163,6 +163,31 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <section class="admin-section" id="validation" data-section="validation">
       <div class="admin-section__title">Validation</div>
       <div style="margin-top:20px;">
+        <h3>Contract Link Validation</h3>
+        <div class="muted">Choose which contract fields must match when attaching contracts. Reward and collateral checks are always enforced.</div>
+        <div class="row" style="margin-top:10px; align-items:center; flex-wrap:wrap;">
+          <label class="form-field" style="min-width:220px;">
+            <span class="form-label">Require courier type</span>
+            <input type="checkbox" id="contract-validate-type" />
+          </label>
+          <label class="form-field" style="min-width:220px;">
+            <span class="form-label">Require pickup system</span>
+            <input type="checkbox" id="contract-validate-start" />
+          </label>
+          <label class="form-field" style="min-width:220px;">
+            <span class="form-label">Require dropoff system</span>
+            <input type="checkbox" id="contract-validate-end" />
+          </label>
+          <label class="form-field" style="min-width:220px;">
+            <span class="form-label">Require volume limit</span>
+            <input type="checkbox" id="contract-validate-volume" />
+          </label>
+          <button class="btn" type="button" id="save-contract-validation">Save</button>
+        </div>
+        <div class="muted" id="contract-validation-note" style="margin-top:6px;"></div>
+      </div>
+
+      <div style="margin-top:20px;">
         <h3>Buyback Haulage</h3>
         <div class="muted">Set volume-based tiers for the buyback haulage button (4 steps, up to 950,000 m³).</div>
         <table class="table" id="buyback-tier-table" style="margin-top:10px;">
