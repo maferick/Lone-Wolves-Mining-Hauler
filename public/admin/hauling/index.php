@@ -17,6 +17,24 @@ $appName = $config['app']['name'] ?? 'Corp Hauling';
 $title = $appName . ' • Hauling Settings';
 $graphStatus = $services['route']->getGraphStatus();
 $graphEmpty = empty($graphStatus['graph_loaded']);
+$validationDefaults = [
+  'type' => true,
+  'start_system' => true,
+  'end_system' => true,
+  'volume' => true,
+];
+$validationSetting = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.link_validation' LIMIT 1",
+  ['cid' => $corpId]
+);
+$validationJson = $validationSetting && !empty($validationSetting['setting_json'])
+  ? json_decode((string)$validationSetting['setting_json'], true)
+  : [];
+$validationChecks = $validationDefaults;
+if (is_array($validationJson) && isset($validationJson['checks']) && is_array($validationJson['checks'])) {
+  $validationChecks = array_replace($validationChecks, array_intersect_key($validationJson['checks'], $validationDefaults));
+}
+$validationChecks = array_map(static fn($value) => (bool)$value, $validationChecks);
 $systemOptions = [];
 $constellationOptions = [];
 $regionOptions = [];
@@ -168,19 +186,19 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <div class="row" style="margin-top:10px; align-items:center; flex-wrap:wrap;">
           <label class="form-field" style="min-width:220px;">
             <span class="form-label">Require courier type</span>
-            <input type="checkbox" id="contract-validate-type" />
+            <input type="checkbox" id="contract-validate-type" <?= $validationChecks['type'] ? 'checked' : '' ?> />
           </label>
           <label class="form-field" style="min-width:220px;">
             <span class="form-label">Require pickup system</span>
-            <input type="checkbox" id="contract-validate-start" />
+            <input type="checkbox" id="contract-validate-start" <?= $validationChecks['start_system'] ? 'checked' : '' ?> />
           </label>
           <label class="form-field" style="min-width:220px;">
             <span class="form-label">Require dropoff system</span>
-            <input type="checkbox" id="contract-validate-end" />
+            <input type="checkbox" id="contract-validate-end" <?= $validationChecks['end_system'] ? 'checked' : '' ?> />
           </label>
           <label class="form-field" style="min-width:220px;">
             <span class="form-label">Require volume limit</span>
-            <input type="checkbox" id="contract-validate-volume" />
+            <input type="checkbox" id="contract-validate-volume" <?= $validationChecks['volume'] ? 'checked' : '' ?> />
           </label>
           <button class="btn" type="button" id="save-contract-validation">Save</button>
         </div>
