@@ -125,6 +125,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
     <section class="admin-section" id="min-max-caps" data-section="min-max-caps">
       <div class="admin-section__title">Min/Max Caps</div>
       <div style="margin-top:24px;">
+        <h3>Maximum collateral</h3>
+        <div class="muted">Set the highest collateral value allowed for new quotes.</div>
+        <div class="row" style="margin-top:10px;">
+          <input class="input" id="max-collateral-isk" type="number" step="0.01" min="0" placeholder="Max collateral ISK" />
+          <button class="btn" type="button" id="save-max-collateral">Save</button>
+        </div>
+        <div class="muted" id="max-collateral-note" style="margin-top:6px;"></div>
+      </div>
+      <div style="margin-top:24px;">
         <h3>Volume pressure scaling</h3>
         <div class="muted">Optional multiplier when volume nears max hull capacity.</div>
         <label class="form-field" style="margin:10px 0 0;">

@@ -7,6 +7,7 @@ use App\Db\Db;
 
 final class PricingService
 {
+  private const DEFAULT_MAX_COLLATERAL_ISK = 15000000000.0;
   private Db $db;
   private array $config;
   private RouteService $routeService;
@@ -54,6 +55,13 @@ final class PricingService
     }
     if ($collateral < 0) {
       throw new \InvalidArgumentException('collateral_isk must be zero or higher.');
+    }
+    $maxCollateral = $this->loadMaxCollateral($corpId);
+    if ($maxCollateral > 0 && $collateral > $maxCollateral) {
+      throw new \InvalidArgumentException(sprintf(
+        'collateral_isk exceeds the maximum allowed (%s ISK).',
+        number_format($maxCollateral, 2, '.', ',')
+      ));
     }
 
     $allowStructures = $this->loadQuoteLocationMode($corpId);
@@ -756,6 +764,31 @@ final class PricingService
       $values[$key] = max(0.0, (float)($values[$key] ?? $defaults[$key]));
     }
     return $values;
+  }
+
+  private function loadMaxCollateral(int $corpId): float
+  {
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.max_collateral' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.max_collateral' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return self::DEFAULT_MAX_COLLATERAL_ISK;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+    if (!is_array($decoded)) {
+      return self::DEFAULT_MAX_COLLATERAL_ISK;
+    }
+    $value = (float)($decoded['max_collateral_isk'] ?? $decoded['max'] ?? $decoded['value'] ?? self::DEFAULT_MAX_COLLATERAL_ISK);
+    if ($value <= 0) {
+      return self::DEFAULT_MAX_COLLATERAL_ISK;
+    }
+    return $value;
   }
 
   private function loadFlatRiskSurcharges(int $corpId): array
