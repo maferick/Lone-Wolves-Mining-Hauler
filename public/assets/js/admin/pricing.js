@@ -103,6 +103,15 @@
     if (note) note.textContent = 'Flat fees are added once when a route touches the space type.';
   };
 
+  const loadMaxCollateral = async () => {
+    const data = await fetchJson(`${basePath}/api/admin/max-collateral/?corp_id=${corpId}`);
+    if (!data.ok) return;
+    const input = document.getElementById('max-collateral-isk');
+    if (input) input.value = data.max_collateral_isk ?? '';
+    const note = document.getElementById('max-collateral-note');
+    if (note) note.textContent = 'Quotes above this collateral will be rejected.';
+  };
+
   const loadVolumePressure = async () => {
     const data = await fetchJson(`${basePath}/api/admin/volume-pressure/?corp_id=${corpId}`);
     if (!data.ok) return;
@@ -210,6 +219,18 @@
     loadFlatRiskFees();
   });
 
+  document.getElementById('save-max-collateral')?.addEventListener('click', async () => {
+    const value = parseFloat(document.getElementById('max-collateral-isk')?.value || '0');
+    await fetchJson(`${basePath}/api/admin/max-collateral/`, {
+      method: 'POST',
+      body: JSON.stringify({
+        corp_id: corpId,
+        max_collateral_isk: Number.isFinite(value) ? value : 0,
+      }),
+    });
+    loadMaxCollateral();
+  });
+
   document.getElementById('add-volume-pressure')?.addEventListener('click', () => {
     const tbody = document.querySelector('#volume-pressure-table tbody');
     if (!tbody) return;
@@ -256,5 +277,6 @@
   loadRatePlans();
   loadSecurityMultipliers();
   loadFlatRiskFees();
+  loadMaxCollateral();
   loadVolumePressure();
 })();
