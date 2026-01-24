@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS cache_metrics (
   PRIMARY KEY (metric_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE esi_cache
-  ADD KEY idx_cache_corp_fetched (corp_id, fetched_at),
-  ADD KEY idx_cache_method (http_method),
-  ADD KEY idx_cache_corp_method (corp_id, http_method);
+CREATE INDEX IF NOT EXISTS idx_cache_corp_fetched ON esi_cache (corp_id, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_cache_method ON esi_cache (http_method);
+CREATE INDEX IF NOT EXISTS idx_cache_corp_method ON esi_cache (corp_id, http_method);
