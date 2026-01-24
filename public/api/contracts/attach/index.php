@@ -76,7 +76,7 @@ if ($charId <= 0) {
 $esi = $services['esi'];
 
 try {
-  $contract = $esi->contracts()->findContractById($corpId, $charId, $contractId);
+$contract = $esi->contracts()->findContractById($corpId, $charId, $contractId);
 } catch (Throwable $e) {
   api_send_json(['ok' => false, 'error' => $e->getMessage()], 500);
 }
@@ -85,8 +85,25 @@ if (!$contract) {
   api_send_json(['ok' => false, 'error' => 'Contract not found via ESI'], 404);
 }
 
+$linkValidationRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.link_validation' LIMIT 1",
+  ['cid' => $corpId]
+);
+$linkValidation = $linkValidationRow && !empty($linkValidationRow['setting_json'])
+  ? Db::jsonDecode((string)$linkValidationRow['setting_json'], [])
+  : [];
+$linkChecks = [
+  'type' => true,
+  'start_system' => true,
+  'end_system' => true,
+  'volume' => true,
+];
+if (is_array($linkValidation) && isset($linkValidation['checks']) && is_array($linkValidation['checks'])) {
+  $linkChecks = array_replace($linkChecks, array_intersect_key($linkValidation['checks'], $linkChecks));
+}
+
 $contractType = (string)($contract['type'] ?? 'unknown');
-if ($contractType !== 'courier') {
+if (!empty($linkChecks['type']) && $contractType !== 'courier') {
   api_send_json(['ok' => false, 'error' => 'Contract must be courier type'], 400);
 }
 
@@ -124,10 +141,10 @@ $resolveSystemId = static function (Db $db, int $locationId): int {
 $startSystemId = $resolveSystemId($db, $startLocationId);
 $endSystemId = $resolveSystemId($db, $endLocationId);
 
-if ($startSystemId !== (int)$request['from_location_id']) {
+if (!empty($linkChecks['start_system']) && $startSystemId !== (int)$request['from_location_id']) {
   api_send_json(['ok' => false, 'error' => 'Contract pickup location does not match quote'], 400);
 }
-if ($endSystemId !== (int)$request['to_location_id']) {
+if (!empty($linkChecks['end_system']) && $endSystemId !== (int)$request['to_location_id']) {
   api_send_json(['ok' => false, 'error' => 'Contract destination does not match quote'], 400);
 }
 
@@ -164,7 +181,7 @@ if (!empty($request['price_breakdown_json'])) {
   $breakdown = Db::jsonDecode((string)$request['price_breakdown_json'], []);
 }
 $maxVolume = (float)($breakdown['ship_class']['max_volume'] ?? 0);
-if ($maxVolume > 0 && $contractVolume > $maxVolume) {
+if (!empty($linkChecks['volume']) && $maxVolume > 0 && $contractVolume > $maxVolume) {
   api_send_json(['ok' => false, 'error' => 'Contract volume exceeds ship class maximum'], 400);
 }
 

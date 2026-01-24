@@ -273,7 +273,7 @@ final class PricingService
     array $accessRules
   ): ?array {
     if ($locationId > 0 && $locationType !== '') {
-      if ($locationType === 'structure' && !$allowStructures) {
+      if (($locationType === 'structure' || $locationType === 'npc_station') && !$allowStructures) {
         return null;
       }
       $entry = $this->resolveLocationById($locationId, $locationType);
@@ -305,7 +305,7 @@ final class PricingService
 
     if ($locationId > 0 && $locationType !== '') {
       $debug['lookup'] = 'id';
-      if ($locationType === 'structure' && !$allowStructures) {
+      if (($locationType === 'structure' || $locationType === 'npc_station') && !$allowStructures) {
         $debug['allowed'] = false;
         return [null, $debug];
       }
