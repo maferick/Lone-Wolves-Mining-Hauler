@@ -347,10 +347,10 @@
 
   document.getElementById('save-contract-validation')?.addEventListener('click', async () => {
     const checks = {
-      type: document.getElementById('contract-validate-type')?.checked ?? true,
-      start_system: document.getElementById('contract-validate-start')?.checked ?? true,
-      end_system: document.getElementById('contract-validate-end')?.checked ?? true,
-      volume: document.getElementById('contract-validate-volume')?.checked ?? true,
+      type: document.getElementById('contract-validate-type')?.checked ?? false,
+      start_system: document.getElementById('contract-validate-start')?.checked ?? false,
+      end_system: document.getElementById('contract-validate-end')?.checked ?? false,
+      volume: document.getElementById('contract-validate-volume')?.checked ?? false,
     };
     await fetchJson(`${basePath}/api/admin/contract-link-validation/`, {
       method: 'POST',
