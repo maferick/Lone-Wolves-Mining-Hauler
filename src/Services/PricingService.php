@@ -7,7 +7,7 @@ use App\Db\Db;
 
 final class PricingService
 {
-  private const DEFAULT_MAX_COLLATERAL_ISK = 15000000000.0;
+  private const DEFAULT_MAX_COLLATERAL_ISK = 1500000000.0;
   private Db $db;
   private array $config;
   private RouteService $routeService;

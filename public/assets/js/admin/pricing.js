@@ -15,6 +15,17 @@
     return resp.json();
   };
 
+  const parseIsk = (value) => {
+    if (!value) return null;
+    const clean = value.toString().trim().toLowerCase().replace(/[, ]+/g, '');
+    const match = clean.match(/^([0-9]+(?:\.[0-9]+)?)([kmb])?$/);
+    if (!match) return null;
+    const amount = parseFloat(match[1]);
+    const suffix = match[2];
+    const mult = suffix === 'b' ? 1e9 : suffix === 'm' ? 1e6 : suffix === 'k' ? 1e3 : 1;
+    return amount * mult;
+  };
+
   const showRatePlanError = (message) => {
     const table = document.getElementById('rate-plan-table');
     if (!table) return;
@@ -220,12 +231,18 @@
   });
 
   document.getElementById('save-max-collateral')?.addEventListener('click', async () => {
-    const value = parseFloat(document.getElementById('max-collateral-isk')?.value || '0');
+    const rawValue = document.getElementById('max-collateral-isk')?.value || '';
+    const value = parseIsk(rawValue);
+    const note = document.getElementById('max-collateral-note');
+    if (value === null || value <= 0) {
+      if (note) note.textContent = 'Enter a valid ISK amount greater than zero.';
+      return;
+    }
     await fetchJson(`${basePath}/api/admin/max-collateral/`, {
       method: 'POST',
       body: JSON.stringify({
         corp_id: corpId,
-        max_collateral_isk: Number.isFinite(value) ? value : 0,
+        max_collateral_isk: value,
       }),
     });
     loadMaxCollateral();

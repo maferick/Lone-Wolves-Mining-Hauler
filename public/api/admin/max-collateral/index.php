@@ -10,7 +10,7 @@ api_require_key();
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $corpId = (int)($_GET['corp_id'] ?? 0);
-$defaultMax = 15000000000.0;
+$defaultMax = 1500000000.0;
 
 if ($method === 'GET') {
   $row = $db->one(

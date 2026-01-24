@@ -128,7 +128,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
         <h3>Maximum collateral</h3>
         <div class="muted">Set the highest collateral value allowed for new quotes.</div>
         <div class="row" style="margin-top:10px;">
-          <input class="input" id="max-collateral-isk" type="number" step="0.01" min="0" placeholder="Max collateral ISK" />
+          <input class="input" id="max-collateral-isk" type="text" inputmode="decimal" placeholder="Max collateral ISK" />
           <button class="btn" type="button" id="save-max-collateral">Save</button>
         </div>
         <div class="muted" id="max-collateral-note" style="margin-top:6px;"></div>
