@@ -12,6 +12,7 @@ Welcome to the in-app safety wiki for Lone Wolves hauling operations. Use the si
 
 - [Asset protection fundamentals](/wiki/02_Asset_Protection_Fundamentals/)
 - [Incident response](/wiki/03_Incident_Response/)
+- [Admin operations pricing & controls](/wiki/04_Admin_Operations_Pricing/)
 
 ## Change log
 

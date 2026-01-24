@@ -26,6 +26,12 @@ if (!$hasWikiAccess) {
 
 $wikiDir = __DIR__ . '/../../docs/wiki';
 $wikiPages = WikiService::loadPages($wikiDir);
+$canViewAdminPricing = Auth::hasRole($authCtx, 'admin') || Auth::hasRole($authCtx, 'subadmin');
+if (!$canViewAdminPricing) {
+  $wikiPages = array_values(array_filter($wikiPages, static function (array $page): bool {
+    return ($page['slug'] ?? '') !== '04_Admin_Operations_Pricing';
+  }));
+}
 
 $basePath = rtrim((string)($config['app']['base_path'] ?? ''), '/');
 $requestPath = (string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/');
@@ -50,6 +56,17 @@ if (!preg_match('/^[A-Za-z0-9_-]+$/', $slug)) {
   $title = $appName . ' • Wiki';
   $errorTitle = 'Not found';
   $errorMessage = 'The requested wiki page could not be found.';
+  require __DIR__ . '/../../src/Views/error.php';
+  exit;
+}
+
+if ($slug === '04_Admin_Operations_Pricing' && !$canViewAdminPricing) {
+  http_response_code(403);
+  $appName = $config['app']['name'] ?? 'Corp Hauling';
+  $title = $appName . ' • Wiki';
+  $errorTitle = 'Not allowed';
+  $errorDescription = 'This page is limited to admins and sub-admins.';
+  $errorMessage = 'You do not have permission to view this wiki page.';
   require __DIR__ . '/../../src/Views/error.php';
   exit;
 }
