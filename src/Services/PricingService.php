@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Db\Db;
+use App\Domain\Pricing\QuoteContext;
+use App\Services\Pricing\DiscountEngine;
 
 final class PricingService
 {
@@ -161,6 +163,32 @@ final class PricingService
     $haulTotal = $haulSubtotal + $volumeAdjustment['surcharge'];
     $collateralFee = $collateral * $collateralRate;
     $priceTotal = max($minPrice, $haulTotal + $collateralFee);
+    $basePrice = $priceTotal;
+    $minPriceApplied = $priceTotal === $minPrice && $priceTotal > 0;
+    $minFeeDelta = $minPriceApplied ? max(0.0, $minPrice - ($haulTotal + $collateralFee)) : 0.0;
+
+    $discountEngine = new DiscountEngine($this->db);
+    $allowStacking = $this->loadDiscountStackingSetting($corpId);
+    $discountContext = new QuoteContext(
+      $corpId,
+      isset($context['actor_character_id']) ? (int)$context['actor_character_id'] : null,
+      isset($context['alliance_id']) ? (int)$context['alliance_id'] : null,
+      isset($context['acl_groups']) && is_array($context['acl_groups']) ? $context['acl_groups'] : [],
+      (int)($fromSystem['system_id'] ?? 0),
+      (int)($toSystem['system_id'] ?? 0),
+      (int)($fromSystem['region_id'] ?? 0),
+      (int)($toSystem['region_id'] ?? 0),
+      $volume,
+      $basePrice,
+      $minPrice,
+      $minPriceApplied,
+      $minFeeDelta,
+      $minPrice,
+      $allowStacking,
+      new \DateTimeImmutable('now', new \DateTimeZone('UTC'))
+    );
+    $discountResult = $discountEngine->evaluate($discountContext, $basePrice);
+    $priceTotal = $discountResult->finalPrice;
 
     $breakdown = [
       'inputs' => [
@@ -199,8 +227,16 @@ final class PricingService
         'haul_subtotal' => $haulSubtotal,
         'haul_total' => $haulTotal,
         'collateral_fee' => $collateralFee,
-        'min_price_applied' => $priceTotal === $minPrice && $priceTotal > 0,
+        'min_price_applied' => $minPriceApplied,
+        'base_total' => $basePrice,
+        'discount_total' => $discountResult->totalDiscount,
         'total' => $priceTotal,
+      ],
+      'discounts' => [
+        'applied_rules' => $discountResult->appliedRules,
+        'messages' => $discountResult->messages,
+        'total_discount' => $discountResult->totalDiscount,
+        'final_price' => $priceTotal,
       ],
     ];
 
@@ -217,12 +253,39 @@ final class PricingService
       'created_at' => gmdate('Y-m-d H:i:s'),
     ]);
 
+    $this->persistDiscountAudit($quoteId, $discountResult);
+
     return [
       'quote_id' => $quoteId,
       'price_total' => $priceTotal,
       'breakdown' => $breakdown,
       'route' => $route,
     ];
+  }
+
+  private function persistDiscountAudit(int $quoteId, \App\Domain\Pricing\DiscountResult $result): void
+  {
+    if ($result->evaluations === []) {
+      return;
+    }
+    foreach ($result->evaluations as $evaluation) {
+      $this->db->execute(
+        "INSERT INTO pricing_discount_audit
+          (quote_id, rule_id, rule_name, eligible_reason, applied, base_price_isk, discount_isk, final_price_isk, created_at)
+         VALUES
+          (:quote_id, :rule_id, :rule_name, :eligible_reason, :applied, :base_price_isk, :discount_isk, :final_price_isk, UTC_TIMESTAMP())",
+        [
+          'quote_id' => $quoteId,
+          'rule_id' => $evaluation['rule_id'] ?? null,
+          'rule_name' => $evaluation['rule_name'] ?? '',
+          'eligible_reason' => $evaluation['eligible_reason'] ?? null,
+          'applied' => !empty($evaluation['applied']) ? 1 : 0,
+          'base_price_isk' => $evaluation['base_price_isk'] ?? 0,
+          'discount_isk' => $evaluation['discount_isk'] ?? 0,
+          'final_price_isk' => $result->finalPrice,
+        ]
+      );
+    }
   }
 
   private function normalizePriority(string $priority): string
@@ -789,6 +852,33 @@ final class PricingService
       return self::DEFAULT_MAX_COLLATERAL_ISK;
     }
     return $value;
+  }
+
+  private function loadDiscountStackingSetting(int $corpId): bool
+  {
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'pricing.discount_stacking' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row === null && $corpId !== 0) {
+      $row = $this->db->one(
+        "SELECT setting_json FROM app_setting WHERE corp_id = 0 AND setting_key = 'pricing.discount_stacking' LIMIT 1"
+      );
+    }
+    if (!$row || empty($row['setting_json'])) {
+      return false;
+    }
+    $decoded = Db::jsonDecode((string)$row['setting_json'], null);
+    if (is_array($decoded)) {
+      return !empty($decoded['enabled']);
+    }
+    if (is_bool($decoded)) {
+      return $decoded;
+    }
+    if (is_numeric($decoded)) {
+      return ((int)$decoded) === 1;
+    }
+    return false;
   }
 
   private function loadFlatRiskSurcharges(int $corpId): array

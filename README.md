@@ -50,6 +50,12 @@ Read the code. Undock prepared.
 - Copy `env.example` to `.env` and fill DB credentials
 - Import the DB schema from `./db`
 
+## Pricing discounts (Specials/Discounts)
+- Rules live in `pricing_discount_rules` and are evaluated after the base price is calculated (after surcharges and security multipliers).
+- By default, the engine applies the single best eligible discount. Stacking is only enabled when `pricing.discount_stacking` is enabled in `app_setting`, and only rules flagged `stackable` are applied in priority order.
+- Floors are enforced twice: per rule (`min_final_price_isk`) and globally (ship-class minimum) to ensure deterministic, safe pricing.
+- Every quote stores audit rows in `pricing_discount_audit` for eligibility reasons, applied rule, and discount amounts.
+
 ## Folder layout
 - `public/` – front controller + static assets
 - `src/bootstrap.php` – canonical include chain
