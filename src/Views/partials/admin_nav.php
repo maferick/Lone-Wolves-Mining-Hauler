@@ -93,6 +93,7 @@ $subNavGroups = $dispatcherLimited
         ['label' => 'Discord Links', 'path' => '/admin/discord-links/', 'perm' => 'webhook.manage'],
         ['label' => 'Webhooks', 'path' => '/admin/webhooks/', 'perm' => 'webhook.manage'],
         ['label' => 'ESI', 'path' => '/admin/esi/', 'perm' => 'esi.manage'],
+        ['label' => 'Contract Compare', 'path' => '/admin/contract-compare/', 'perm' => 'esi.manage', 'roles' => ['admin']],
       ],
     ],
     [
