@@ -68,6 +68,7 @@ final class PricingService
 
     $allowStructures = $this->loadQuoteLocationMode($corpId);
     $structureAllowlist = $this->loadStructureAllowlist($corpId);
+    $structureOverrides = $this->loadStructureOverrides($corpId);
     $accessRules = $this->loadAccessRules($corpId);
     $securityDefinitions = $this->loadSecurityClassDefinitions($corpId);
     $securityRules = $this->loadSecurityRoutingRules($corpId);
@@ -79,7 +80,8 @@ final class PricingService
       $allowStructures,
       'pickup',
       $structureAllowlist,
-      $accessRules
+      $accessRules,
+      $structureOverrides
     );
     [$toLocation, $deliveryDebug] = $this->resolveLocationEntryWithDebug(
       $to,
@@ -88,7 +90,8 @@ final class PricingService
       $allowStructures,
       'destination',
       $structureAllowlist,
-      $accessRules
+      $accessRules,
+      $structureOverrides
     );
     if ($fromLocation === null || $toLocation === null) {
       $debug = [
@@ -333,13 +336,14 @@ final class PricingService
     bool $allowStructures,
     string $type,
     array $structureAllowlist,
-    array $accessRules
+    array $accessRules,
+    array $structureOverrides
   ): ?array {
     if ($locationId > 0 && $locationType !== '') {
       if (($locationType === 'structure' || $locationType === 'npc_station') && !$allowStructures) {
         return null;
       }
-      $entry = $this->resolveLocationById($locationId, $locationType);
+      $entry = $this->resolveLocationById($locationId, $locationType, $structureOverrides);
       if ($entry !== null && $this->isLocationAllowed($entry, $type, $structureAllowlist, $accessRules)) {
         return $entry;
       }
@@ -355,7 +359,8 @@ final class PricingService
     bool $allowStructures,
     string $type,
     array $structureAllowlist,
-    array $accessRules
+    array $accessRules,
+    array $structureOverrides
   ): array {
     $debug = [
       'location_id' => $locationId > 0 ? $locationId : null,
@@ -372,7 +377,7 @@ final class PricingService
         $debug['allowed'] = false;
         return [null, $debug];
       }
-      $entry = $this->resolveLocationById($locationId, $locationType);
+      $entry = $this->resolveLocationById($locationId, $locationType, $structureOverrides);
       $debug['found'] = $entry !== null;
       $debug['system_id'] = $entry['system']['system_id'] ?? $entry['location']['system_id'] ?? null;
       $debug['allowed'] = $entry !== null
@@ -408,7 +413,7 @@ final class PricingService
     return null;
   }
 
-  private function resolveLocationById(int $locationId, string $locationType): ?array
+  private function resolveLocationById(int $locationId, string $locationType, array $structureOverrides): ?array
   {
     if ($locationId <= 0) {
       return null;
@@ -417,7 +422,15 @@ final class PricingService
       return $this->resolveStationById($locationId);
     }
     if ($locationType === 'structure') {
-      return $this->resolveStructureById($locationId);
+      $override = $structureOverrides[$locationId] ?? null;
+      $fallback = $this->resolveStructureById($locationId);
+      if ($override !== null) {
+        $overrideEntry = $this->buildOverrideLocationEntry($override, $fallback);
+        if ($overrideEntry !== null) {
+          return $overrideEntry;
+        }
+      }
+      return $fallback;
     }
     if ($locationType === 'system') {
       $system = $this->resolveSystemById($locationId);
@@ -1255,6 +1268,83 @@ final class PricingService
       'pickup' => array_values(array_unique($allowPickup)),
       'destination' => array_values(array_unique($allowDestination)),
     ];
+  }
+
+  private function loadStructureOverrides(int $corpId): array
+  {
+    if ($corpId <= 0) {
+      return [];
+    }
+
+    $overrides = [];
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row && !empty($row['setting_json'])) {
+      $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+      if (is_array($decoded)) {
+        foreach ($decoded['structures'] ?? [] as $rule) {
+          $id = (int)($rule['id'] ?? 0);
+          $name = trim((string)($rule['name'] ?? ''));
+          if ($id <= 0 || $name === '') {
+            continue;
+          }
+          $overrides[$id] = [
+            'id' => $id,
+            'name' => $name,
+            'system_id' => (int)($rule['system_id'] ?? 0),
+            'system_name' => trim((string)($rule['system_name'] ?? '')),
+            'region_id' => (int)($rule['region_id'] ?? 0),
+          ];
+        }
+      }
+    }
+
+    return $overrides;
+  }
+
+  private function buildOverrideLocationEntry(array $override, ?array $fallback): ?array
+  {
+    $locationId = (int)($override['id'] ?? 0);
+    $locationName = trim((string)($override['name'] ?? ''));
+    if ($locationId <= 0 || $locationName === '') {
+      return null;
+    }
+
+    $fallbackLocation = $fallback['location'] ?? [];
+    $systemId = (int)($override['system_id'] ?? ($fallbackLocation['system_id'] ?? 0));
+    $systemName = trim((string)($override['system_name'] ?? ($fallbackLocation['system_name'] ?? '')));
+    $regionId = (int)($override['region_id'] ?? ($fallbackLocation['region_id'] ?? 0));
+
+    if ($systemId <= 0 && $systemName !== '') {
+      $system = $this->resolveSystemByName($systemName);
+      if ($system !== null) {
+        $systemId = (int)($system['system_id'] ?? 0);
+        $systemName = (string)($system['system_name'] ?? '');
+      }
+    }
+    if ($systemId > 0 && $systemName === '') {
+      $system = $this->resolveSystemById($systemId);
+      if ($system !== null) {
+        $systemName = (string)($system['system_name'] ?? '');
+      }
+    }
+    if ($regionId <= 0 && $systemId > 0) {
+      $regionId = $this->resolveRegionIdForSystem($systemId);
+    }
+    if ($systemId <= 0) {
+      return null;
+    }
+
+    return $this->buildLocationEntry(
+      $locationId,
+      'structure',
+      $locationName,
+      $systemId,
+      $systemName,
+      $regionId
+    );
   }
 
   private function loadAccessRules(int $corpId): array

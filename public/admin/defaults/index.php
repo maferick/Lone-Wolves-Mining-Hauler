@@ -57,6 +57,7 @@ foreach ($settingRows as $row) {
 $systemOptions = [];
 $regionOptions = [];
 $structureOptions = [];
+$systemIdToName = [];
 try {
   $systemOptions = $db->select("SELECT system_id, system_name FROM eve_system ORDER BY system_name");
   $regionOptions = $db->select("SELECT region_id, region_name FROM eve_region ORDER BY region_name");
@@ -78,6 +79,14 @@ try {
   $systemOptions = [];
   $regionOptions = [];
   $structureOptions = [];
+}
+
+foreach ($systemOptions as $row) {
+  $systemId = (int)($row['system_id'] ?? 0);
+  $systemName = (string)($row['system_name'] ?? '');
+  if ($systemId > 0 && $systemName !== '') {
+    $systemIdToName[$systemId] = $systemName;
+  }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -155,6 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!empty($entry['remove'])) continue;
     $id = (int)($entry['id'] ?? 0);
     $name = trim((string)($entry['name'] ?? ''));
+    $systemId = (int)($entry['system_id'] ?? 0);
     if ($id <= 0 || $name === '') continue;
     $accessRules['structures'][] = [
       'id' => $id,
@@ -162,6 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       'allowed' => !empty($entry['allowed']),
       'pickup_allowed' => !empty($entry['pickup_allowed']),
       'delivery_allowed' => !empty($entry['delivery_allowed']),
+      'system_id' => $systemId > 0 ? $systemId : null,
     ];
   }
 
@@ -170,6 +181,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $newAccessAllowed = isset($_POST['new_access_allowed']);
   $newAccessPickup = isset($_POST['new_access_pickup']);
   $newAccessDelivery = isset($_POST['new_access_delivery']);
+  $newStructureId = (int)($_POST['new_structure_id'] ?? 0);
+  $newStructureName = trim((string)($_POST['new_structure_name'] ?? ''));
+  $newStructureSystemId = (int)($_POST['new_structure_system_id'] ?? 0);
 
   if ($newAccessType !== '' || trim($newAccessValue) !== '') {
     $allowedTypes = ['system', 'region', 'structure'];
@@ -191,20 +205,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $accessRules['regions'][] = ['id' => $id, 'name' => $name, 'allowed' => $newAccessAllowed];
         }
       } elseif ($newAccessType === 'structure') {
-        [$id, $name] = $parseAccessValue($newAccessValue, $structureNameToId);
-        if ($id > 0 && isset($structureIdToName[$id])) {
-          $name = $structureIdToName[$id];
-        }
-        if ($id <= 0 || $name === '') {
-          $errors[] = 'Please select a valid structure.';
+        $useManual = $newStructureId > 0 || $newStructureName !== '' || $newStructureSystemId > 0;
+        if ($useManual) {
+          if ($newStructureId <= 0 || $newStructureName === '') {
+            $errors[] = 'Manual structure entries need both an ID and a display name.';
+          } else {
+            $accessRules['structures'][] = [
+              'id' => $newStructureId,
+              'name' => $newStructureName,
+              'allowed' => $newAccessAllowed,
+              'pickup_allowed' => $newAccessPickup,
+              'delivery_allowed' => $newAccessDelivery,
+              'system_id' => $newStructureSystemId > 0 ? $newStructureSystemId : null,
+            ];
+          }
         } else {
-          $accessRules['structures'][] = [
-            'id' => $id,
-            'name' => $name,
-            'allowed' => $newAccessAllowed,
-            'pickup_allowed' => $newAccessPickup,
-            'delivery_allowed' => $newAccessDelivery,
-          ];
+          [$id, $name] = $parseAccessValue($newAccessValue, $structureNameToId);
+          if ($id > 0 && isset($structureIdToName[$id])) {
+            $name = $structureIdToName[$id];
+          }
+          if ($id <= 0 || $name === '') {
+            $errors[] = 'Please select a valid structure.';
+          } else {
+            $accessRules['structures'][] = [
+              'id' => $id,
+              'name' => $name,
+              'allowed' => $newAccessAllowed,
+              'pickup_allowed' => $newAccessPickup,
+              'delivery_allowed' => $newAccessDelivery,
+            ];
+          }
         }
       }
     }
@@ -423,8 +453,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                     <tr>
                       <td>
                         <?= htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>
+                        <?php $structureSystemId = (int)($rule['system_id'] ?? 0); ?>
+                        <?php if ($structureSystemId > 0): ?>
+                          <div class="muted" style="margin-top:4px;">
+                            System: <?= htmlspecialchars($systemIdToName[$structureSystemId] ?? ('ID ' . $structureSystemId), ENT_QUOTES, 'UTF-8') ?>
+                          </div>
+                        <?php endif; ?>
                         <input type="hidden" name="access_structures[<?= (int)$idx ?>][id]" value="<?= (int)($rule['id'] ?? 0) ?>" />
                         <input type="hidden" name="access_structures[<?= (int)$idx ?>][name]" value="<?= htmlspecialchars((string)($rule['name'] ?? ''), ENT_QUOTES, 'UTF-8') ?>" />
+                        <input type="hidden" name="access_structures[<?= (int)$idx ?>][system_id]" value="<?= (int)($rule['system_id'] ?? 0) ?>" />
                       </td>
                       <td>
                         <input type="checkbox" name="access_structures[<?= (int)$idx ?>][allowed]" aria-label="Allow structure" <?= !empty($rule['allowed']) ? 'checked' : '' ?> />
@@ -508,6 +545,21 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                   </label>
                   <div class="muted" style="margin-top:6px;">Structures default to no pickup/delivery access.</div>
                 </div>
+              </div>
+              <div class="row" id="access-structure-manual" style="margin-top:10px; display:none; gap:12px; flex-wrap:wrap;">
+                <label class="form-field" style="min-width:200px;">
+                  <span class="form-label">Structure ID</span>
+                  <input class="input" type="number" name="new_structure_id" placeholder="1234567890" />
+                </label>
+                <label class="form-field" style="min-width:240px;">
+                  <span class="form-label">Friendly name</span>
+                  <input class="input" type="text" name="new_structure_name" placeholder="Private Structure Alpha" />
+                </label>
+                <label class="form-field" style="min-width:200px;">
+                  <span class="form-label">System ID (optional)</span>
+                  <input class="input" type="number" name="new_structure_system_id" placeholder="System ID" />
+                </label>
+                <div class="muted" style="flex-basis:100%;">Use manual entries for private structures. System ID helps contract validation and routing.</div>
               </div>
               <datalist id="access-systems-list"></datalist>
               <datalist id="access-regions-list"></datalist>

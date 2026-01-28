@@ -19,6 +19,7 @@
   const typeSelect = document.getElementById('access-rule-type');
   const valueInput = document.getElementById('access-rule-value');
   const structureFlags = document.getElementById('access-structure-flags');
+  const structureManual = document.getElementById('access-structure-manual');
   const listMap = {
     system: document.getElementById('access-systems-list'),
     region: document.getElementById('access-regions-list'),
@@ -141,6 +142,9 @@
     }
     if (structureFlags) {
       structureFlags.style.display = type === 'structure' ? 'block' : 'none';
+    }
+    if (structureManual) {
+      structureManual.style.display = type === 'structure' ? 'flex' : 'none';
     }
   };
 
