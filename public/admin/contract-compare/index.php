@@ -63,14 +63,9 @@ if ($corpId > 0 && $hasHaulRequestView) {
 $contracts = [];
 if ($corpId > 0 && $hasContractView) {
   $contracts = $db->select(
-    "SELECT vc.contract_id, vc.status, vc.type, vc.start_location_id, vc.end_location_id,
-            vc.start_name, vc.end_name, vc.volume_m3, vc.reward_isk, vc.collateral_isk, vc.date_issued,
-            cc.issuer_id, issuer.name AS issuer_name
+    "SELECT vc.contract_id, vc.status, vc.type, vc.title, vc.start_location_id, vc.end_location_id,
+            vc.start_name, vc.end_name, vc.volume_m3, vc.reward_isk, vc.collateral_isk, vc.date_issued
        FROM v_contract_display vc
-       JOIN esi_corp_contract cc
-         ON cc.corp_id = vc.corp_id AND cc.contract_id = vc.contract_id
-       LEFT JOIN eve_entity issuer
-         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
       WHERE vc.corp_id = :cid
         AND vc.type = 'courier'
         AND vc.status NOT IN ('finished','deleted','failed')
@@ -80,12 +75,9 @@ if ($corpId > 0 && $hasContractView) {
   );
 } elseif ($corpId > 0) {
   $contracts = $db->select(
-    "SELECT cc.contract_id, cc.status, cc.type, cc.start_location_id, cc.end_location_id,
-            cc.volume_m3, cc.reward_isk, cc.collateral_isk, cc.date_issued,
-            cc.issuer_id, issuer.name AS issuer_name
+    "SELECT cc.contract_id, cc.status, cc.type, cc.title, cc.start_location_id, cc.end_location_id,
+            cc.volume_m3, cc.reward_isk, cc.collateral_isk, cc.date_issued
        FROM esi_corp_contract cc
-       LEFT JOIN eve_entity issuer
-         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
       WHERE cc.corp_id = :cid
         AND cc.type = 'courier'
         AND cc.status NOT IN ('finished','deleted','failed')
@@ -126,22 +118,16 @@ if ($requestRow && empty($requestRow['to_name'])) {
 
 if ($selectedContractId > 0 && $hasContractView) {
   $contractRow = $db->one(
-    "SELECT vc.*, cc.issuer_id, issuer.name AS issuer_name
+    "SELECT vc.*
        FROM v_contract_display vc
-       JOIN esi_corp_contract cc
-         ON cc.corp_id = vc.corp_id AND cc.contract_id = vc.contract_id
-       LEFT JOIN eve_entity issuer
-         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
       WHERE vc.corp_id = :cid AND vc.contract_id = :cid_contract
       LIMIT 1",
     ['cid' => $corpId, 'cid_contract' => $selectedContractId]
   );
 } elseif ($selectedContractId > 0) {
   $contractRow = $db->one(
-    "SELECT cc.*, issuer.name AS issuer_name
+    "SELECT cc.*
        FROM esi_corp_contract cc
-       LEFT JOIN eve_entity issuer
-         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
       WHERE cc.corp_id = :cid AND cc.contract_id = :cid_contract
       LIMIT 1",
     ['cid' => $corpId, 'cid_contract' => $selectedContractId]
@@ -369,13 +355,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 $contractId = (int)($row['contract_id'] ?? 0);
                 $route = trim((string)($row['start_name'] ?? '')) . ' → ' . trim((string)($row['end_name'] ?? ''));
                 $status = (string)($row['status'] ?? '');
-                $issuerName = trim((string)($row['issuer_name'] ?? ''));
-                $issuerId = (int)($row['issuer_id'] ?? 0);
-                $issuerLabel = $issuerName !== '' ? $issuerName : ($issuerId > 0 ? ('Issuer #' . $issuerId) : 'Issuer unknown');
+                $contractTitle = trim((string)($row['title'] ?? ''));
                 $selected = $contractId === $selectedContractId ? 'selected' : '';
+                $labelParts = ['#' . $contractId];
+                if ($contractTitle !== '') {
+                  $labelParts[] = $contractTitle;
+                }
+                $labelParts[] = $route;
+                $label = implode(' • ', $labelParts);
               ?>
               <option value="<?= $contractId ?>" <?= $selected ?>>
-                <?= htmlspecialchars('#' . $contractId . ' • ' . $issuerLabel . ' • ' . $route . ($status !== '' ? ' (' . $status . ')' : ''), ENT_QUOTES, 'UTF-8') ?>
+                <?= htmlspecialchars($label . ($status !== '' ? ' (' . $status . ')' : ''), ENT_QUOTES, 'UTF-8') ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -452,15 +442,17 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
               <span class="pill"><?= htmlspecialchars((string)($contractRow['status'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
               <span class="pill subtle"><?= htmlspecialchars((string)($contractRow['type'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
             </div>
-            <div class="muted">
-              Issuer:
-              <?php
-                $issuerName = trim((string)($contractRow['issuer_name'] ?? ''));
-                $issuerId = (int)($contractRow['issuer_id'] ?? 0);
-                $issuerLabel = $issuerName !== '' ? $issuerName : ($issuerId > 0 ? ('Issuer #' . $issuerId) : 'Unknown');
-              ?>
-              <?= htmlspecialchars($issuerLabel, ENT_QUOTES, 'UTF-8') ?>
-            </div>
+            <?php
+              $requestKey = trim((string)($requestRow['request_key'] ?? ''));
+              $quoteReference = $requestKey !== '' ? ('Quote ' . $requestKey) : '';
+              $contractTitle = trim((string)($contractRow['title'] ?? ''));
+            ?>
+            <?php if ($quoteReference !== ''): ?>
+              <div class="muted">Quote reference: <?= htmlspecialchars($quoteReference, ENT_QUOTES, 'UTF-8') ?></div>
+            <?php endif; ?>
+            <?php if ($contractTitle !== ''): ?>
+              <div class="muted">Contract title: <?= htmlspecialchars($contractTitle, ENT_QUOTES, 'UTF-8') ?></div>
+            <?php endif; ?>
             <ul class="list">
               <li><span class="badge">V</span> <?= htmlspecialchars($formatNumber((float)($contractRow['volume_m3'] ?? 0.0)), ENT_QUOTES, 'UTF-8') ?> m3</li>
               <li><span class="badge">C</span> <?= htmlspecialchars($formatIsk((float)($contractRow['collateral_isk'] ?? 0.0)), ENT_QUOTES, 'UTF-8') ?> ISK collateral</li>
