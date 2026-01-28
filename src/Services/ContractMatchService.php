@@ -29,13 +29,14 @@ final class ContractMatchService
   }
 
   private array $structureOverrideCache = [];
+  private array $linkValidationCache = [];
 
   public function matchOpenRequests(int $corpId): array
   {
     $requests = $this->db->select(
       "SELECT request_id, request_key, corp_id, from_location_id, to_location_id, volume_m3, collateral_isk, reward_isk,
-              ship_class, route_policy, route_profile, contract_hint_text, contract_id, esi_contract_id, contract_status, status,
-              contract_linked_notified_at
+              ship_class, route_policy, route_profile, contract_hint_text, price_breakdown_json,
+              contract_id, esi_contract_id, contract_status, status, contract_linked_notified_at
          FROM haul_request
         WHERE corp_id = :cid
           AND status IN ('requested','awaiting_contract','contract_linked','contract_mismatch','in_queue','in_progress')",
@@ -43,6 +44,7 @@ final class ContractMatchService
     );
 
     $rewardTolerance = $this->loadRewardTolerance($corpId);
+    $linkChecks = $this->loadLinkValidation($corpId);
     $summary = [
       'corp_id' => $corpId,
       'checked' => 0,
@@ -62,7 +64,7 @@ final class ContractMatchService
 
       $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
       if ($contractId > 0) {
-        $result = $this->validateLinkedRequest($request, $rewardTolerance);
+        $result = $this->validateLinkedRequest($request, $rewardTolerance, $linkChecks);
         $summary['matched'] += (int)($result['matched'] ?? 0);
         $summary['mismatched'] += (int)($result['mismatched'] ?? 0);
         $summary['completed'] += (int)($result['completed'] ?? 0);
@@ -70,7 +72,7 @@ final class ContractMatchService
         continue;
       }
 
-      $match = $this->findMatchingContract($corpId, $request, $rewardTolerance);
+      $match = $this->findMatchingContract($corpId, $request, $rewardTolerance, $linkChecks);
       if (!$match) {
         continue;
       }
@@ -87,7 +89,7 @@ final class ContractMatchService
     return $summary;
   }
 
-  private function validateLinkedRequest(array $request, array $rewardTolerance): array
+  private function validateLinkedRequest(array $request, array $rewardTolerance, array $linkChecks): array
   {
     $corpId = (int)($request['corp_id'] ?? 0);
     $contractId = (int)($request['esi_contract_id'] ?? $request['contract_id'] ?? 0);
@@ -121,7 +123,7 @@ final class ContractMatchService
       return $result;
     }
 
-    $validation = $this->evaluateContract($request, $contract, $rewardTolerance);
+    $validation = $this->evaluateContract($request, $contract, $rewardTolerance, $linkChecks);
     if (!empty($validation['matched'])) {
       $update = $this->applyMatch($request, $contract, $validation);
       $result['matched']++;
@@ -134,8 +136,25 @@ final class ContractMatchService
     return $result;
   }
 
-  private function findMatchingContract(int $corpId, array $request, array $rewardTolerance): ?array
+  private function findMatchingContract(int $corpId, array $request, array $rewardTolerance, array $linkChecks): ?array
   {
+    $conditions = [
+      "c.corp_id = :cid",
+      "c.status IN ('outstanding','in_progress')",
+    ];
+    $params = ['cid' => $corpId];
+    if (!empty($linkChecks['type'])) {
+      $conditions[] = "c.type = 'courier'";
+    }
+    if (!empty($linkChecks['start_system'])) {
+      $conditions[] = "COALESCE(ms.system_id, es.system_id, est.system_id, 0) = :from_system";
+      $params['from_system'] = (int)($request['from_location_id'] ?? 0);
+    }
+    if (!empty($linkChecks['end_system'])) {
+      $conditions[] = "COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) = :to_system";
+      $params['to_system'] = (int)($request['to_location_id'] ?? 0);
+    }
+    $whereSql = implode("\n          AND ", $conditions);
     $contracts = $this->db->select(
       "SELECT c.contract_id, c.type, c.status, c.start_location_id, c.end_location_id,
               c.volume_m3, c.collateral_isk, c.reward_isk, c.title, c.raw_json,
@@ -149,21 +168,13 @@ final class ContractMatchService
          LEFT JOIN map_system ms2 ON ms2.system_id = c.end_location_id
          LEFT JOIN eve_station es2 ON es2.station_id = c.end_location_id
          LEFT JOIN eve_structure est2 ON est2.structure_id = c.end_location_id
-        WHERE c.corp_id = :cid
-          AND c.type = 'courier'
-          AND c.status IN ('outstanding','in_progress')
-          AND COALESCE(ms.system_id, es.system_id, est.system_id, 0) = :from_system
-          AND COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) = :to_system
+        WHERE {$whereSql}
         ORDER BY c.date_issued DESC",
-      [
-        'cid' => $corpId,
-        'from_system' => (int)($request['from_location_id'] ?? 0),
-        'to_system' => (int)($request['to_location_id'] ?? 0),
-      ]
+      $params
     );
 
     foreach ($contracts as $contract) {
-      $validation = $this->evaluateContract($request, $contract, $rewardTolerance);
+      $validation = $this->evaluateContract($request, $contract, $rewardTolerance, $linkChecks);
       if (!empty($validation['matched'])) {
         return ['contract' => $contract, 'validation' => $validation];
       }
@@ -172,17 +183,36 @@ final class ContractMatchService
     return null;
   }
 
-  private function evaluateContract(array $request, array $contract, array $rewardTolerance): array
+  private function evaluateContract(array $request, array $contract, array $rewardTolerance, array $linkChecks): array
   {
     $flags = [];
     $mismatches = [];
+    $corpId = (int)($request['corp_id'] ?? 0);
+    $linkChecks = array_replace(
+      [
+        'type' => true,
+        'start_system' => true,
+        'end_system' => true,
+        'volume' => true,
+      ],
+      array_intersect_key($linkChecks, [
+        'type' => true,
+        'start_system' => true,
+        'end_system' => true,
+        'volume' => true,
+      ])
+    );
 
-    $flags['type'] = ((string)($contract['type'] ?? '')) === 'courier';
-    if (!$flags['type']) {
-      $mismatches['type'] = [
-        'expected' => 'courier',
-        'actual' => (string)($contract['type'] ?? 'unknown'),
-      ];
+    if (!empty($linkChecks['type'])) {
+      $flags['type'] = ((string)($contract['type'] ?? '')) === 'courier';
+      if (!$flags['type']) {
+        $mismatches['type'] = [
+          'expected' => 'courier',
+          'actual' => (string)($contract['type'] ?? 'unknown'),
+        ];
+      }
+    } else {
+      $flags['type'] = true;
     }
 
     $status = (string)($contract['status'] ?? '');
@@ -196,29 +226,49 @@ final class ContractMatchService
 
     $startSystemId = (int)($contract['start_system_id'] ?? $this->resolveSystemId((int)($contract['start_location_id'] ?? 0), $corpId));
     $endSystemId = (int)($contract['end_system_id'] ?? $this->resolveSystemId((int)($contract['end_location_id'] ?? 0), $corpId));
-    $flags['start_system'] = $startSystemId === (int)($request['from_location_id'] ?? 0);
-    if (!$flags['start_system']) {
-      $mismatches['start_system'] = [
-        'expected' => (int)($request['from_location_id'] ?? 0),
-        'actual' => $startSystemId,
-      ];
+    if (!empty($linkChecks['start_system'])) {
+      $flags['start_system'] = $startSystemId === (int)($request['from_location_id'] ?? 0);
+      if (!$flags['start_system']) {
+        $mismatches['start_system'] = [
+          'expected' => (int)($request['from_location_id'] ?? 0),
+          'actual' => $startSystemId,
+        ];
+      }
+    } else {
+      $flags['start_system'] = true;
     }
-    $flags['end_system'] = $endSystemId === (int)($request['to_location_id'] ?? 0);
-    if (!$flags['end_system']) {
-      $mismatches['end_system'] = [
-        'expected' => (int)($request['to_location_id'] ?? 0),
-        'actual' => $endSystemId,
-      ];
+    if (!empty($linkChecks['end_system'])) {
+      $flags['end_system'] = $endSystemId === (int)($request['to_location_id'] ?? 0);
+      if (!$flags['end_system']) {
+        $mismatches['end_system'] = [
+          'expected' => (int)($request['to_location_id'] ?? 0),
+          'actual' => $endSystemId,
+        ];
+      }
+    } else {
+      $flags['end_system'] = true;
     }
 
-    $requestVolume = (float)($request['volume_m3'] ?? 0.0);
     $contractVolume = (float)($contract['volume_m3'] ?? 0.0);
-    $flags['volume'] = abs($contractVolume - $requestVolume) <= 1.0;
-    if (!$flags['volume']) {
-      $mismatches['volume_m3'] = [
-        'expected' => $requestVolume,
-        'actual' => $contractVolume,
-      ];
+    if (!empty($linkChecks['volume'])) {
+      $breakdown = [];
+      if (!empty($request['price_breakdown_json'])) {
+        $breakdown = Db::jsonDecode((string)$request['price_breakdown_json'], []);
+      }
+      $maxVolume = (float)($breakdown['ship_class']['max_volume'] ?? 0.0);
+      if ($maxVolume > 0.0) {
+        $flags['volume'] = $contractVolume <= ($maxVolume + 0.01);
+        if (!$flags['volume']) {
+          $mismatches['volume_m3'] = [
+            'expected' => $maxVolume,
+            'actual' => $contractVolume,
+          ];
+        }
+      } else {
+        $flags['volume'] = true;
+      }
+    } else {
+      $flags['volume'] = true;
     }
 
     $requestCollateral = (float)($request['collateral_isk'] ?? 0.0);
@@ -374,7 +424,8 @@ final class ContractMatchService
 
   private function markCompleted(array $request, array $contract, array $rewardTolerance): void
   {
-    $validation = $this->evaluateContract($request, $contract, $rewardTolerance);
+    $linkChecks = $this->loadLinkValidation((int)($request['corp_id'] ?? 0));
+    $validation = $this->evaluateContract($request, $contract, $rewardTolerance, $linkChecks);
     $this->db->execute(
       "UPDATE haul_request
           SET status = 'completed',
@@ -483,6 +534,37 @@ final class ContractMatchService
 
     $this->structureOverrideCache[$corpId] = $map;
     return $map;
+  }
+
+  private function loadLinkValidation(int $corpId): array
+  {
+    $defaults = [
+      'type' => true,
+      'start_system' => true,
+      'end_system' => true,
+      'volume' => true,
+    ];
+
+    if ($corpId <= 0) {
+      return $defaults;
+    }
+
+    if (array_key_exists($corpId, $this->linkValidationCache)) {
+      return $this->linkValidationCache[$corpId];
+    }
+
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'contract.link_validation' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    $setting = $row && !empty($row['setting_json']) ? Db::jsonDecode((string)$row['setting_json'], []) : [];
+    $checks = $defaults;
+    if (is_array($setting) && isset($setting['checks']) && is_array($setting['checks'])) {
+      $checks = array_replace($checks, array_intersect_key($setting['checks'], $defaults));
+    }
+
+    $this->linkValidationCache[$corpId] = $checks;
+    return $checks;
   }
 
   private function contractDescription(array $contract): string
