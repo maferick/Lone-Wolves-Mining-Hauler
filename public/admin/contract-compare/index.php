@@ -37,6 +37,9 @@ if ($corpId > 0 && $hasHaulRequestView) {
             contract_id, esi_contract_id
        FROM v_haul_request_display
       WHERE corp_id = :cid
+        AND status NOT IN ('completed', 'failed', 'contract_linked')
+        AND (contract_id IS NULL OR contract_id = 0)
+        AND (esi_contract_id IS NULL OR esi_contract_id = 0)
       ORDER BY request_id DESC
       LIMIT 200",
     ['cid' => $corpId]
@@ -49,6 +52,9 @@ if ($corpId > 0 && $hasHaulRequestView) {
             contract_id, esi_contract_id
        FROM haul_request
       WHERE corp_id = :cid
+        AND status NOT IN ('completed', 'failed', 'contract_linked')
+        AND (contract_id IS NULL OR contract_id = 0)
+        AND (esi_contract_id IS NULL OR esi_contract_id = 0)
       ORDER BY request_id DESC
       LIMIT 200",
     ['cid' => $corpId]
@@ -66,9 +72,13 @@ if ($corpId > 0 && $hasContractView) {
     "SELECT vc.contract_id, vc.status, vc.type, vc.title, vc.start_location_id, vc.end_location_id,
             vc.start_name, vc.end_name, vc.volume_m3, vc.reward_isk, vc.collateral_isk, vc.date_issued
        FROM v_contract_display vc
+  LEFT JOIN haul_request hr
+         ON hr.corp_id = vc.corp_id
+        AND (hr.contract_id = vc.contract_id OR hr.esi_contract_id = vc.contract_id)
       WHERE vc.corp_id = :cid
         AND vc.type = 'courier'
         AND vc.status NOT IN ('finished','deleted','failed')
+        AND hr.request_id IS NULL
       ORDER BY vc.date_issued DESC, vc.contract_id DESC
       LIMIT 200",
     ['cid' => $corpId]
@@ -78,9 +88,13 @@ if ($corpId > 0 && $hasContractView) {
     "SELECT cc.contract_id, cc.status, cc.type, cc.title, cc.start_location_id, cc.end_location_id,
             cc.volume_m3, cc.reward_isk, cc.collateral_isk, cc.date_issued
        FROM esi_corp_contract cc
+  LEFT JOIN haul_request hr
+         ON hr.corp_id = cc.corp_id
+        AND (hr.contract_id = cc.contract_id OR hr.esi_contract_id = cc.contract_id)
       WHERE cc.corp_id = :cid
         AND cc.type = 'courier'
         AND cc.status NOT IN ('finished','deleted','failed')
+        AND hr.request_id IS NULL
       ORDER BY cc.date_issued DESC, cc.contract_id DESC
       LIMIT 200",
     ['cid' => $corpId]
@@ -322,7 +336,7 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
       <h2>Contract vs Quote Compare</h2>
       <p class="muted">Pick a haul request and a courier contract to see why they do or do not match.</p>
     </div>
-    <div class="content">
+    <div class="content js-contract-compare" data-base-path="<?= htmlspecialchars($basePath ?: '', ENT_QUOTES, 'UTF-8') ?>">
       <form method="get" class="stack">
         <div>
           <div class="label">Haul request</div>
@@ -371,7 +385,11 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
           </select>
         </div>
         <div>
-          <button class="btn" type="submit">Compare</button>
+          <div class="row" style="gap:8px; align-items:center;">
+            <button class="btn" type="submit">Compare</button>
+            <button class="btn ghost js-run-contract-match" type="button">Run link now</button>
+          </div>
+          <div class="muted js-contract-match-status" aria-live="polite"></div>
         </div>
       </form>
     </div>
@@ -482,4 +500,5 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
 </section>
 <?php
 $body = ob_get_clean();
+$scripts = '<script src="' . ($basePath ?: '') . '/assets/js/admin/contract-compare.js" defer></script>';
 require __DIR__ . '/../../../src/Views/layout.php';
