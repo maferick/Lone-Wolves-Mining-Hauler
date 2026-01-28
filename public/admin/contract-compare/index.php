@@ -224,6 +224,41 @@ $rewardToleranceValue = static function (float $expected, array $rewardTolerance
   return $expected * $percent;
 };
 
+$daysBetween = static function ($issuedAt, $expiredAt): ?int {
+  if (!$issuedAt || !$expiredAt) {
+    return null;
+  }
+  $issuedTs = strtotime((string)$issuedAt);
+  $expiredTs = strtotime((string)$expiredAt);
+  if ($issuedTs === false || $expiredTs === false) {
+    return null;
+  }
+  $diffSeconds = $expiredTs - $issuedTs;
+  if ($diffSeconds < 0) {
+    return null;
+  }
+  return (int)round($diffSeconds / 86400);
+};
+
+$contractDescription = static function (array $contractRow): string {
+  $title = trim((string)($contractRow['title'] ?? ''));
+  $decoded = [];
+  if (!empty($contractRow['raw_json'])) {
+    $decoded = Db::jsonDecode((string)$contractRow['raw_json'], []);
+  }
+  $desc = trim((string)($decoded['description'] ?? ''));
+  if ($desc !== '') {
+    return $desc;
+  }
+  if ($title !== '') {
+    return $title;
+  }
+  return trim((string)($decoded['title'] ?? ''));
+};
+
+$expectedExpirationDays = 7;
+$expectedDaysToComplete = 2;
+
 $comparison = null;
 if ($requestRow && $contractRow) {
   $requestVolume = (float)($requestRow['volume_m3'] ?? 0.0);
@@ -231,6 +266,12 @@ if ($requestRow && $contractRow) {
   $requestReward = (float)($requestRow['reward_isk'] ?? 0.0);
   $requestFromSystem = (int)($requestRow['from_location_id'] ?? 0);
   $requestToSystem = (int)($requestRow['to_location_id'] ?? 0);
+  $requestHint = trim((string)($requestRow['contract_hint_text'] ?? ''));
+  $priceBreakdown = [];
+  if (!empty($requestRow['price_breakdown_json'])) {
+    $priceBreakdown = Db::jsonDecode((string)$requestRow['price_breakdown_json'], []);
+  }
+  $maxVolume = (float)($priceBreakdown['ship_class']['max_volume'] ?? 0.0);
 
   $contractVolume = (float)($contractRow['volume_m3'] ?? 0.0);
   $contractCollateral = (float)($contractRow['collateral_isk'] ?? 0.0);
@@ -239,6 +280,10 @@ if ($requestRow && $contractRow) {
   $contractStatus = (string)($contractRow['status'] ?? '');
   $startLocationId = (int)($contractRow['start_location_id'] ?? 0);
   $endLocationId = (int)($contractRow['end_location_id'] ?? 0);
+  $contractDaysToComplete = isset($contractRow['days_to_complete']) ? (int)$contractRow['days_to_complete'] : null;
+  $contractIssuedAt = $contractRow['date_issued'] ?? null;
+  $contractExpiredAt = $contractRow['date_expired'] ?? null;
+  $contractDescriptionText = $contractDescription($contractRow);
 
   $startSystemId = $resolveSystemId($db, $startLocationId, $structureOverrideMap);
   $endSystemId = $resolveSystemId($db, $endLocationId, $structureOverrideMap);
@@ -285,9 +330,9 @@ if ($requestRow && $contractRow) {
       ],
       [
         'label' => 'Volume (m3)',
-        'expected' => $requestVolume,
+        'expected' => $maxVolume > 0.0 ? $maxVolume : $requestVolume,
         'actual' => $contractVolume,
-        'ok' => abs($contractVolume - $requestVolume) <= 1.0,
+        'ok' => $maxVolume > 0.0 ? ($contractVolume <= ($maxVolume + 0.01)) : true,
       ],
       [
         'label' => 'Collateral (ISK)',
@@ -300,6 +345,24 @@ if ($requestRow && $contractRow) {
         'expected' => $requestReward,
         'actual' => $contractReward,
         'ok' => $compareMoney($contractReward, $requestReward, $rewardToleranceAmount),
+      ],
+      [
+        'label' => 'Days to complete',
+        'expected' => $expectedDaysToComplete,
+        'actual' => $contractDaysToComplete,
+        'ok' => $contractDaysToComplete === $expectedDaysToComplete,
+      ],
+      [
+        'label' => 'Expiration days',
+        'expected' => $expectedExpirationDays,
+        'actual' => $daysBetween($contractIssuedAt, $contractExpiredAt),
+        'ok' => $daysBetween($contractIssuedAt, $contractExpiredAt) === $expectedExpirationDays,
+      ],
+      [
+        'label' => 'Description contains hint',
+        'expected' => $requestHint !== '' ? $requestHint : 'non-empty hint',
+        'actual' => $contractDescriptionText,
+        'ok' => $requestHint !== '' && $contractDescriptionText !== '' && str_contains($contractDescriptionText, $requestHint),
       ],
     ],
   ];
