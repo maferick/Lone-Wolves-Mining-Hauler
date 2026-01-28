@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../_helpers.php';
 require_once __DIR__ . '/../../bootstrap.php';
 
+use App\Db\Db;
+
 api_require_key();
 
 if ($db === null) {
@@ -88,6 +90,7 @@ foreach ($accessRules['regions'] ?? [] as $rule) {
   }
 }
 $allowedLocationIds = [];
+$structureOverrides = [];
 foreach ($accessRules['structures'] ?? [] as $rule) {
   if (empty($rule['allowed'])) {
     continue;
@@ -101,6 +104,15 @@ foreach ($accessRules['structures'] ?? [] as $rule) {
   $id = (int)($rule['id'] ?? 0);
   if ($id > 0) {
     $allowedLocationIds[] = $id;
+    $name = trim((string)($rule['name'] ?? ''));
+    if ($name !== '') {
+      $structureOverrides[$id] = [
+        'location_id' => $id,
+        'location_name' => $name,
+        'system_id' => (int)($rule['system_id'] ?? 0),
+        'system_name' => trim((string)($rule['system_name'] ?? '')),
+      ];
+    }
   }
 }
 
@@ -176,6 +188,41 @@ $buildDisplayName = static function (string $systemName, string $locationName): 
   return $locationName !== '' ? $locationName : $systemName;
 };
 
+$resolveSystemNameById = static function (Db $db, int $systemId): string {
+  if ($systemId <= 0) {
+    return '';
+  }
+  $name = (string)$db->fetchValue(
+    "SELECT COALESCE(ms.system_name, s.system_name) AS system_name
+       FROM map_system ms
+       LEFT JOIN eve_system s ON s.system_id = ms.system_id
+      WHERE ms.system_id = :id
+      LIMIT 1",
+    ['id' => $systemId]
+  );
+  if ($name !== '') {
+    return $name;
+  }
+  return (string)$db->fetchValue(
+    "SELECT system_name FROM eve_system WHERE system_id = :id LIMIT 1",
+    ['id' => $systemId]
+  );
+};
+
+$numericQuery = ctype_digit($query) ? $query : '';
+$matchOverrideScore = static function (string $systemName, string $locationName, int $locationId) use ($matchScore, $numericQuery): ?int {
+  if ($numericQuery !== '') {
+    $idString = (string)$locationId;
+    if (str_starts_with($idString, $numericQuery)) {
+      return 0;
+    }
+    if (str_contains($idString, $numericQuery)) {
+      return 2;
+    }
+  }
+  return $matchScore($systemName, $locationName);
+};
+
 $items = [];
 $seen = [];
 
@@ -191,6 +238,35 @@ $addItem = static function (array $item, int $score, bool $pinned) use (&$items,
   $items[] = $item;
   $seen[$key] = true;
 };
+
+$overrideEntries = $structureOverrides;
+if ($allowStructureLocations && !empty($overrideEntries)) {
+  foreach ($overrideEntries as $override) {
+    $locationName = trim((string)($override['location_name'] ?? ''));
+    if ($locationName === '') {
+      continue;
+    }
+    $systemName = trim((string)($override['system_name'] ?? ''));
+    $systemId = (int)($override['system_id'] ?? 0);
+    if ($systemName === '' && $systemId > 0) {
+      $systemName = $resolveSystemNameById($db, $systemId);
+    }
+    $score = $matchOverrideScore($systemName, $locationName, (int)($override['location_id'] ?? 0));
+    if ($score === null) {
+      continue;
+    }
+    $displayName = $buildDisplayName($systemName, $locationName);
+    $addItem([
+      'name' => $displayName,
+      'label' => 'Structure',
+      'location_type' => 'structure',
+      'location_id' => (int)($override['location_id'] ?? 0),
+      'location_name' => $locationName,
+      'system_id' => $systemId,
+      'system_name' => $systemName,
+    ], $score, true);
+  }
+}
 
 $locationIdSet = $allowedLocationIds;
 if ($locationIdSet && $allowStructureLocations) {

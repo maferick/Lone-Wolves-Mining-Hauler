@@ -110,9 +110,30 @@ if (!empty($linkChecks['type']) && $contractType !== 'courier') {
 $startLocationId = (int)($contract['start_location_id'] ?? 0);
 $endLocationId = (int)($contract['end_location_id'] ?? 0);
 
-$resolveSystemId = static function (Db $db, int $locationId): int {
+$structureOverrideMap = [];
+$accessRow = $db->one(
+  "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
+  ['cid' => $corpId]
+);
+if ($accessRow && !empty($accessRow['setting_json'])) {
+  $decoded = Db::jsonDecode((string)$accessRow['setting_json'], []);
+  if (is_array($decoded)) {
+    foreach ($decoded['structures'] ?? [] as $rule) {
+      $id = (int)($rule['id'] ?? 0);
+      $systemId = (int)($rule['system_id'] ?? 0);
+      if ($id > 0 && $systemId > 0) {
+        $structureOverrideMap[$id] = $systemId;
+      }
+    }
+  }
+}
+
+$resolveSystemId = static function (Db $db, int $locationId, array $overrideMap): int {
   if ($locationId <= 0) {
     return 0;
+  }
+  if (isset($overrideMap[$locationId])) {
+    return (int)$overrideMap[$locationId];
   }
   $row = $db->one(
     "SELECT system_id FROM map_system WHERE system_id = :id LIMIT 1",
@@ -138,8 +159,8 @@ $resolveSystemId = static function (Db $db, int $locationId): int {
   return 0;
 };
 
-$startSystemId = $resolveSystemId($db, $startLocationId);
-$endSystemId = $resolveSystemId($db, $endLocationId);
+$startSystemId = $resolveSystemId($db, $startLocationId, $structureOverrideMap);
+$endSystemId = $resolveSystemId($db, $endLocationId, $structureOverrideMap);
 
 if (!empty($linkChecks['start_system']) && $startSystemId !== (int)$request['from_location_id']) {
   api_send_json(['ok' => false, 'error' => 'Contract pickup location does not match quote'], 400);

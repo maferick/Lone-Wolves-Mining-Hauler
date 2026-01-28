@@ -28,6 +28,8 @@ final class ContractMatchService
   ) {
   }
 
+  private array $structureOverrideCache = [];
+
   public function matchOpenRequests(int $corpId): array
   {
     $requests = $this->db->select(
@@ -192,8 +194,8 @@ final class ContractMatchService
       ];
     }
 
-    $startSystemId = (int)($contract['start_system_id'] ?? $this->resolveSystemId((int)($contract['start_location_id'] ?? 0)));
-    $endSystemId = (int)($contract['end_system_id'] ?? $this->resolveSystemId((int)($contract['end_location_id'] ?? 0)));
+    $startSystemId = (int)($contract['start_system_id'] ?? $this->resolveSystemId((int)($contract['start_location_id'] ?? 0), $corpId));
+    $endSystemId = (int)($contract['end_system_id'] ?? $this->resolveSystemId((int)($contract['end_location_id'] ?? 0), $corpId));
     $flags['start_system'] = $startSystemId === (int)($request['from_location_id'] ?? 0);
     if (!$flags['start_system']) {
       $mismatches['start_system'] = [
@@ -419,10 +421,14 @@ final class ContractMatchService
     return $row ?: null;
   }
 
-  private function resolveSystemId(int $locationId): int
+  private function resolveSystemId(int $locationId, int $corpId): int
   {
     if ($locationId <= 0) {
       return 0;
+    }
+    $overrideMap = $this->loadStructureOverrideMap($corpId);
+    if (isset($overrideMap[$locationId])) {
+      return (int)$overrideMap[$locationId];
     }
     $row = $this->db->one(
       "SELECT system_id FROM map_system WHERE system_id = :id LIMIT 1",
@@ -446,6 +452,37 @@ final class ContractMatchService
       return (int)$row['system_id'];
     }
     return 0;
+  }
+
+  private function loadStructureOverrideMap(int $corpId): array
+  {
+    if ($corpId <= 0) {
+      return [];
+    }
+    if (array_key_exists($corpId, $this->structureOverrideCache)) {
+      return $this->structureOverrideCache[$corpId];
+    }
+
+    $map = [];
+    $row = $this->db->one(
+      "SELECT setting_json FROM app_setting WHERE corp_id = :cid AND setting_key = 'access.rules' LIMIT 1",
+      ['cid' => $corpId]
+    );
+    if ($row && !empty($row['setting_json'])) {
+      $decoded = Db::jsonDecode((string)$row['setting_json'], []);
+      if (is_array($decoded)) {
+        foreach ($decoded['structures'] ?? [] as $rule) {
+          $id = (int)($rule['id'] ?? 0);
+          $systemId = (int)($rule['system_id'] ?? 0);
+          if ($id > 0 && $systemId > 0) {
+            $map[$id] = $systemId;
+          }
+        }
+      }
+    }
+
+    $this->structureOverrideCache[$corpId] = $map;
+    return $map;
   }
 
   private function contractDescription(array $contract): string
