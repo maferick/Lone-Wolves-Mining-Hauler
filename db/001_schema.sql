@@ -996,6 +996,7 @@ SELECT
   s.service_name,
   r.status,
   r.title,
+  r.contract_hint_text,
   r.volume_m3,
   r.collateral_isk,
   r.reward_isk,
