@@ -63,25 +63,33 @@ if ($corpId > 0 && $hasHaulRequestView) {
 $contracts = [];
 if ($corpId > 0 && $hasContractView) {
   $contracts = $db->select(
-    "SELECT contract_id, status, type, start_location_id, end_location_id,
-            start_name, end_name, volume_m3, reward_isk, collateral_isk, date_issued
-       FROM v_contract_display
-      WHERE corp_id = :cid
-        AND type = 'courier'
-        AND status NOT IN ('finished','deleted','failed')
-      ORDER BY date_issued DESC, contract_id DESC
+    "SELECT vc.contract_id, vc.status, vc.type, vc.start_location_id, vc.end_location_id,
+            vc.start_name, vc.end_name, vc.volume_m3, vc.reward_isk, vc.collateral_isk, vc.date_issued,
+            cc.issuer_id, issuer.name AS issuer_name
+       FROM v_contract_display vc
+       JOIN esi_corp_contract cc
+         ON cc.corp_id = vc.corp_id AND cc.contract_id = vc.contract_id
+       LEFT JOIN eve_entity issuer
+         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
+      WHERE vc.corp_id = :cid
+        AND vc.type = 'courier'
+        AND vc.status NOT IN ('finished','deleted','failed')
+      ORDER BY vc.date_issued DESC, vc.contract_id DESC
       LIMIT 200",
     ['cid' => $corpId]
   );
 } elseif ($corpId > 0) {
   $contracts = $db->select(
-    "SELECT contract_id, status, type, start_location_id, end_location_id,
-            volume_m3, reward_isk, collateral_isk, date_issued
-       FROM esi_corp_contract
-      WHERE corp_id = :cid
-        AND type = 'courier'
-        AND status NOT IN ('finished','deleted','failed')
-      ORDER BY date_issued DESC, contract_id DESC
+    "SELECT cc.contract_id, cc.status, cc.type, cc.start_location_id, cc.end_location_id,
+            cc.volume_m3, cc.reward_isk, cc.collateral_isk, cc.date_issued,
+            cc.issuer_id, issuer.name AS issuer_name
+       FROM esi_corp_contract cc
+       LEFT JOIN eve_entity issuer
+         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
+      WHERE cc.corp_id = :cid
+        AND cc.type = 'courier'
+        AND cc.status NOT IN ('finished','deleted','failed')
+      ORDER BY cc.date_issued DESC, cc.contract_id DESC
       LIMIT 200",
     ['cid' => $corpId]
   );
@@ -118,17 +126,23 @@ if ($requestRow && empty($requestRow['to_name'])) {
 
 if ($selectedContractId > 0 && $hasContractView) {
   $contractRow = $db->one(
-    "SELECT *
-       FROM v_contract_display
-      WHERE corp_id = :cid AND contract_id = :cid_contract
+    "SELECT vc.*, cc.issuer_id, issuer.name AS issuer_name
+       FROM v_contract_display vc
+       JOIN esi_corp_contract cc
+         ON cc.corp_id = vc.corp_id AND cc.contract_id = vc.contract_id
+       LEFT JOIN eve_entity issuer
+         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
+      WHERE vc.corp_id = :cid AND vc.contract_id = :cid_contract
       LIMIT 1",
     ['cid' => $corpId, 'cid_contract' => $selectedContractId]
   );
 } elseif ($selectedContractId > 0) {
   $contractRow = $db->one(
-    "SELECT *
-       FROM esi_corp_contract
-      WHERE corp_id = :cid AND contract_id = :cid_contract
+    "SELECT cc.*, issuer.name AS issuer_name
+       FROM esi_corp_contract cc
+       LEFT JOIN eve_entity issuer
+         ON issuer.entity_id = cc.issuer_id AND issuer.entity_type = 'character'
+      WHERE cc.corp_id = :cid AND cc.contract_id = :cid_contract
       LIMIT 1",
     ['cid' => $corpId, 'cid_contract' => $selectedContractId]
   );
@@ -355,10 +369,13 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
                 $contractId = (int)($row['contract_id'] ?? 0);
                 $route = trim((string)($row['start_name'] ?? '')) . ' → ' . trim((string)($row['end_name'] ?? ''));
                 $status = (string)($row['status'] ?? '');
+                $issuerName = trim((string)($row['issuer_name'] ?? ''));
+                $issuerId = (int)($row['issuer_id'] ?? 0);
+                $issuerLabel = $issuerName !== '' ? $issuerName : ($issuerId > 0 ? ('Issuer #' . $issuerId) : 'Issuer unknown');
                 $selected = $contractId === $selectedContractId ? 'selected' : '';
               ?>
               <option value="<?= $contractId ?>" <?= $selected ?>>
-                <?= htmlspecialchars('#' . $contractId . ' • ' . $route . ($status !== '' ? ' (' . $status . ')' : ''), ENT_QUOTES, 'UTF-8') ?>
+                <?= htmlspecialchars('#' . $contractId . ' • ' . $issuerLabel . ' • ' . $route . ($status !== '' ? ' (' . $status . ')' : ''), ENT_QUOTES, 'UTF-8') ?>
               </option>
             <?php endforeach; ?>
           </select>
@@ -434,6 +451,15 @@ require __DIR__ . '/../../../src/Views/partials/admin_nav.php';
             <div class="contract-meta">
               <span class="pill"><?= htmlspecialchars((string)($contractRow['status'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
               <span class="pill subtle"><?= htmlspecialchars((string)($contractRow['type'] ?? ''), ENT_QUOTES, 'UTF-8') ?></span>
+            </div>
+            <div class="muted">
+              Issuer:
+              <?php
+                $issuerName = trim((string)($contractRow['issuer_name'] ?? ''));
+                $issuerId = (int)($contractRow['issuer_id'] ?? 0);
+                $issuerLabel = $issuerName !== '' ? $issuerName : ($issuerId > 0 ? ('Issuer #' . $issuerId) : 'Unknown');
+              ?>
+              <?= htmlspecialchars($issuerLabel, ENT_QUOTES, 'UTF-8') ?>
             </div>
             <ul class="list">
               <li><span class="badge">V</span> <?= htmlspecialchars($formatNumber((float)($contractRow['volume_m3'] ?? 0.0)), ENT_QUOTES, 'UTF-8') ?> m3</li>
