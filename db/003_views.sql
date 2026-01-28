@@ -12,10 +12,12 @@ SELECT
   cc.volume_m3,
   cc.collateral_isk,
   cc.reward_isk,
+  cc.days_to_complete,
   cc.date_issued,
   cc.date_expired,
   cc.start_location_id,
   cc.end_location_id,
+  cc.raw_json,
   COALESCE(
     s_sys.system_name,
     s_station.station_name,

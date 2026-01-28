@@ -143,16 +143,54 @@ final class ContractMatchService
       "c.status IN ('outstanding','in_progress')",
     ];
     $params = ['cid' => $corpId];
+    $overrideMap = [];
+    if (!empty($linkChecks['start_system']) || !empty($linkChecks['end_system'])) {
+      $overrideMap = $this->loadStructureOverrideMap($corpId);
+    }
     if (!empty($linkChecks['type'])) {
       $conditions[] = "c.type = 'courier'";
     }
     if (!empty($linkChecks['start_system'])) {
-      $conditions[] = "COALESCE(ms.system_id, es.system_id, est.system_id, 0) = :from_system";
-      $params['from_system'] = (int)($request['from_location_id'] ?? 0);
+      $fromSystemId = (int)($request['from_location_id'] ?? 0);
+      $params['from_system'] = $fromSystemId;
+      $startOverrideIds = [];
+      foreach ($overrideMap as $structureId => $systemId) {
+        if ((int)$systemId === $fromSystemId) {
+          $startOverrideIds[] = (int)$structureId;
+        }
+      }
+      $startCondition = "COALESCE(ms.system_id, es.system_id, est.system_id, 0) = :from_system";
+      if ($startOverrideIds) {
+        $placeholders = [];
+        foreach ($startOverrideIds as $idx => $structureId) {
+          $key = "from_override_{$idx}";
+          $placeholders[] = ':' . $key;
+          $params[$key] = $structureId;
+        }
+        $startCondition = '(' . $startCondition . ' OR c.start_location_id IN (' . implode(',', $placeholders) . '))';
+      }
+      $conditions[] = $startCondition;
     }
     if (!empty($linkChecks['end_system'])) {
-      $conditions[] = "COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) = :to_system";
-      $params['to_system'] = (int)($request['to_location_id'] ?? 0);
+      $toSystemId = (int)($request['to_location_id'] ?? 0);
+      $params['to_system'] = $toSystemId;
+      $endOverrideIds = [];
+      foreach ($overrideMap as $structureId => $systemId) {
+        if ((int)$systemId === $toSystemId) {
+          $endOverrideIds[] = (int)$structureId;
+        }
+      }
+      $endCondition = "COALESCE(ms2.system_id, es2.system_id, est2.system_id, 0) = :to_system";
+      if ($endOverrideIds) {
+        $placeholders = [];
+        foreach ($endOverrideIds as $idx => $structureId) {
+          $key = "to_override_{$idx}";
+          $placeholders[] = ':' . $key;
+          $params[$key] = $structureId;
+        }
+        $endCondition = '(' . $endCondition . ' OR c.end_location_id IN (' . implode(',', $placeholders) . '))';
+      }
+      $conditions[] = $endCondition;
     }
     $whereSql = implode("\n          AND ", $conditions);
     $contracts = $this->db->select(
@@ -224,8 +262,14 @@ final class ContractMatchService
       ];
     }
 
-    $startSystemId = (int)($contract['start_system_id'] ?? $this->resolveSystemId((int)($contract['start_location_id'] ?? 0), $corpId));
-    $endSystemId = (int)($contract['end_system_id'] ?? $this->resolveSystemId((int)($contract['end_location_id'] ?? 0), $corpId));
+    $startSystemId = (int)($contract['start_system_id'] ?? 0);
+    if ($startSystemId <= 0) {
+      $startSystemId = $this->resolveSystemId((int)($contract['start_location_id'] ?? 0), $corpId);
+    }
+    $endSystemId = (int)($contract['end_system_id'] ?? 0);
+    if ($endSystemId <= 0) {
+      $endSystemId = $this->resolveSystemId((int)($contract['end_location_id'] ?? 0), $corpId);
+    }
     if (!empty($linkChecks['start_system'])) {
       $flags['start_system'] = $startSystemId === (int)($request['from_location_id'] ?? 0);
       if (!$flags['start_system']) {
